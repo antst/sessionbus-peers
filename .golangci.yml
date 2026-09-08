@@ -1,0 +1,24 @@
+version: "2"
+
+run:
+  timeout: 5m
+  modules-download-mode: readonly
+  tests: true
+
+# This repository preserves independently stamped wrappers. Keep the split
+# root's lint policy to compiler-adjacent checks; product-specific style and
+# protocol error text remain governed by each wrapper's fixture suite.
+linters:
+  default: none
+  enable:
+    - govet
+    - ineffassign
+    - unused
+
+formatters:
+  enable:
+    - gofmt
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0

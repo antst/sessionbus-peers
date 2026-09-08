@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "sessionbus": {
+      "command": "claude-peer",
+      "args": [
+        "mcp"
+      ]
+    }
+  }
+}

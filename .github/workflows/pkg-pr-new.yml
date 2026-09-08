@@ -1,0 +1,45 @@
+name: Publish OpenCode package preview
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+
+permissions: {}
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Verify package boundary
+        working-directory: opencode
+        run: |
+          npm install --ignore-scripts --no-package-lock
+          npm test
+          npm pack --dry-run --json > /tmp/sessionbus-opencode-pack.json
+          node - <<'NODE'
+          const report = require('/tmp/sessionbus-opencode-pack.json')[0]
+          const got = report.files.map((file) => file.path).sort()
+          const want = [
+            'README.md',
+            'bin.mjs',
+            'commands/sessionbus.md',
+            'install.mjs',
+            'package.json',
+            'sessionbus.mjs',
+            'skills/opencode-lane/SKILL.md',
+          ].sort()
+          if (JSON.stringify(got) !== JSON.stringify(want)) {
+            throw new Error(`unexpected OpenCode pack files: ${JSON.stringify(got)}`)
+          }
+          const manifest = require('./package.json')
+          if (manifest.repository?.url !== 'git+https://github.com/antst/sessionbus-peers.git' ||
+              manifest.repository?.directory !== 'opencode') {
+            throw new Error('OpenCode repository metadata is invalid')
+          }
+          NODE
+      - run: npx --yes pkg-pr-new publish ./opencode

@@ -1,0 +1,40 @@
+{
+  "name": "@sessionbus/opencode",
+  "version": "0.1.0-pre.1",
+  "license": "MIT",
+  "type": "module",
+  "main": "./sessionbus.mjs",
+  "bin": {
+    "sessionbus-opencode-install": "bin.mjs"
+  },
+  "scripts": {
+    "test": "node --test sessionbus.test.mjs install.test.mjs"
+  },
+  "exports": {
+    ".": "./sessionbus.mjs"
+  },
+  "files": [
+    "README.md",
+    "bin.mjs",
+    "install.mjs",
+    "sessionbus.mjs",
+    "commands",
+    "skills"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/antst/sessionbus-peers.git",
+    "directory": "opencode"
+  },
+  "peerDependencies": {
+    "@opencode-ai/plugin": "1.18.29",
+    "@opencode-ai/sdk": "1.18.29"
+  },
+  "dependencies": {
+    "@sessionbus/kit": "0.1.0-pre.2",
+    "jsonc-parser": "3.3.1"
+  }
+}

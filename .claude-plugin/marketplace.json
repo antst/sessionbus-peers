@@ -1,0 +1,28 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "sessionbus",
+  "description": "Sessionbus orchestration surface for named, messageable Codex, Claude, Grok, and Qwen sessions.",
+  "owner": {
+    "name": "Sessionbus contributors"
+  },
+  "plugins": [
+    {
+      "name": "sessionbus",
+      "description": "Start, collect, message, resume, and archive named Codex, Claude, Grok, and Qwen sessions.",
+      "author": {
+        "name": "Sessionbus contributors"
+      },
+      "source": "./claude",
+      "category": "productivity",
+      "keywords": [
+        "codex",
+        "claude",
+        "grok",
+        "qwen",
+        "orchestration",
+        "delegation",
+        "cross-session-messaging"
+      ]
+    }
+  ]
+}
