@@ -74,9 +74,12 @@ written by a non-author from runtime probes on the real host.
 - Name and groups come from the launch command, for every product, every
   launch. No identity is configured at install time, and changing a group
   never requires reinstalling or restarting anything.
-- Identity is published from the process that can see the launcher's
-  environment. A helper the product spawns from installed configuration is a
-  tool hop; it does not own the hello.
+- Identity is published only from a process that holds the launch's name and
+  groups AND the product's settled native session identity: either the
+  launcher itself, or a product-kept process that receives that identity from
+  the product's own report. A helper that has neither, such as one spawned
+  from installed configuration with only install-time environment, is a tool
+  hop; it does not own the hello.
 - An explicit request that cannot be honoured fails visibly. A wrapper never
   silently substitutes defaults for what the user asked.
 
