@@ -36,7 +36,7 @@ func TestRepositoryBoundary(t *testing.T) {
 		".golangci.yml": true, "LICENSE": true, "README.md": true,
 		"architecture_test.go": true, "claude": true, "cmd": true,
 		"docs": true, "go.mod": true, "go.sum": true, "grok": true,
-		"opencode": true, "qwen": true, "scripts": true, "wrappers": true,
+		"internal": true, "opencode": true, "qwen": true, "scripts": true, "wrappers": true,
 	}
 	entries, err := os.ReadDir(".")
 	if err != nil {
@@ -47,7 +47,7 @@ func TestRepositoryBoundary(t *testing.T) {
 			t.Errorf("path is outside the peers boundary: %s", entry.Name())
 		}
 	}
-	for _, path := range []string{"bus", "internal", "integrations", "deploy", "examples", ".specify", ".agents", ".codex-plugin", "hooks", "skills", "go.work", "go.work.sum", "Makefile"} {
+	for _, path := range []string{"bus", "integrations", "deploy", "examples", ".specify", ".agents", ".codex-plugin", "hooks", "skills", "go.work", "go.work.sum", "Makefile"} {
 		if _, err := os.Stat(filepath.FromSlash(path)); !os.IsNotExist(err) {
 			t.Errorf("legacy or cross-repository path remains: %s", path)
 		}
@@ -56,6 +56,9 @@ func TestRepositoryBoundary(t *testing.T) {
 	gotCommands := directoryNames(t, "cmd")
 	if !equalStrings(gotCommands, wantCommands) {
 		t.Errorf("peer command roots = %v, want %v", gotCommands, wantCommands)
+	}
+	if got := directoryNames(t, "internal"); !equalStrings(got, []string{"testsocket"}) {
+		t.Errorf("internal roots = %v, want [testsocket]", got)
 	}
 	if _, err := os.Stat(".github/workflows/release.yml"); !os.IsNotExist(err) {
 		t.Fatal("initial peers root must not contain a release workflow")

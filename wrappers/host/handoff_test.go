@@ -13,6 +13,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/antst/sessionbus-peers/internal/testsocket"
 	sessionkit "github.com/antst/sessionbus/bus/sdk/go"
 )
 
@@ -302,7 +303,7 @@ func TestHandoffSDKInterruptCrossings(t *testing.T) {
 }
 
 func startWorker(t *testing.T, product *workerProduct) (net.Conn, *bufio.Reader) {
-	path := filepath.Join(t.TempDir(), "bus.sock")
+	path := filepath.Join(testsocket.Directory(t), "bus.sock")
 	listener, err := net.Listen("unix", path)
 	must(t, err)
 	t.Setenv(TokenEnv, "token")

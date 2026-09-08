@@ -15,6 +15,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/antst/sessionbus-peers/internal/testsocket"
 	"github.com/antst/sessionbus-peers/wrappers/host"
 	"github.com/antst/sessionbus-peers/wrappers/mcp"
 	sessionkit "github.com/antst/sessionbus/bus/sdk/go"
@@ -37,7 +38,7 @@ func TestWrapperFreshOpenAndClose(t *testing.T) {
 		return exec.Command(os.Args[0], append([]string{"-test.run=TestCodexProcess", "--"}, arguments...)...)
 	}
 	t.Cleanup(func() { laneCommand = original })
-	socket := filepath.Join(t.TempDir(), "sessionbus.sock")
+	socket := filepath.Join(testsocket.Directory(t), "sessionbus.sock")
 	p := New(socket, "provisional")
 	p.backend = mcp.BackendFunc(func(context.Context, string, any) (json.RawMessage, error) { return json.RawMessage(`{}`), nil })
 	result, err := p.Open(context.Background(), sessionkit.OpenRequest{
@@ -135,7 +136,7 @@ func TestAbnormalRunCarriesNothingIntoReopen(t *testing.T) {
 	laneCommand = func(_ string, arguments ...string) *exec.Cmd {
 		return exec.Command(os.Args[0], append([]string{"-test.run=TestCodexProcess", "--"}, arguments...)...)
 	}
-	socket := filepath.Join(t.TempDir(), "sessionbus.sock")
+	socket := filepath.Join(testsocket.Directory(t), "sessionbus.sock")
 	listener, err := net.Listen("unix", socket)
 	if err != nil {
 		t.Fatal(err)
@@ -195,7 +196,7 @@ func TestAbnormalRunCarriesNothingIntoReopen(t *testing.T) {
 }
 
 func TestLargeTerminalFrameDrainsAfterExit(t *testing.T) {
-	socket := filepath.Join(t.TempDir(), "sessionbus.sock")
+	socket := filepath.Join(testsocket.Directory(t), "sessionbus.sock")
 	lock, err := host.AcquireSessionLock(socket, "codex", "thread-1")
 	if err != nil {
 		t.Fatal(err)

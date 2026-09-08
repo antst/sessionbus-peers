@@ -23,6 +23,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/antst/sessionbus-peers/internal/testsocket"
 	"github.com/antst/sessionbus-peers/wrappers/host"
 	sessionkit "github.com/antst/sessionbus/bus/sdk/go"
 )
@@ -123,7 +124,7 @@ func (*workerProduct) Open(context.Context, sessionkit.OpenRequest) (sessionkit.
 func (*workerProduct) Close(context.Context, sessionkit.SessionCloseRequest) error { return nil }
 
 func startWorker(t *testing.T, wrapper *Wrapper) (net.Conn, *bufio.Reader, *sessionkit.Worker) {
-	path := filepath.Join(t.TempDir(), "sessionbus.sock")
+	path := filepath.Join(testsocket.Directory(t), "sessionbus.sock")
 	listener, err := net.Listen("unix", path)
 	if err != nil {
 		t.Fatal(err)
@@ -450,7 +451,7 @@ func TestOpenBarrierWaitsForPluginAndReportsExit(t *testing.T) {
 }
 
 func TestWrapperOpenOwnsServerPluginAndSessionLifecycle(t *testing.T) {
-	directory, record := t.TempDir(), filepath.Join(t.TempDir(), "requests.jsonl")
+	directory, record := testsocket.Directory(t), filepath.Join(t.TempDir(), "requests.jsonl")
 	socket := filepath.Join(directory, "sessionbus.sock")
 	for _, name := range []string{host.SocketEnv, host.LocalKeyEnv, host.TokenEnv, host.SessionIDEnv, host.NameEnv, host.GroupsEnv} {
 		t.Setenv(name, "must-not-reach-child")
@@ -513,7 +514,7 @@ func TestOpenFailureDeletesOnlyFreshNativeSession(t *testing.T) {
 		wantDelete bool
 	}{{"fresh HTTP failure", false, false, true}, {"resume HTTP failure", true, false, false}, {"fresh caller cancellation", false, true, true}, {"resume caller cancellation", true, true, false}} {
 		t.Run(row.name, func(t *testing.T) {
-			directory, record := t.TempDir(), filepath.Join(t.TempDir(), "requests.jsonl")
+			directory, record := testsocket.Directory(t), filepath.Join(t.TempDir(), "requests.jsonl")
 			mode := "model-error"
 			if row.cancel {
 				mode = "model-block"
@@ -1396,7 +1397,7 @@ func TestWrapperFailsThenJoinsRunBeforeChildExitShutdown(t *testing.T) {
 }
 
 func testWrapperChildExit(t *testing.T, mode string, wantTerminal bool) {
-	directory, record := t.TempDir(), filepath.Join(t.TempDir(), "requests.jsonl")
+	directory, record := testsocket.Directory(t), filepath.Join(t.TempDir(), "requests.jsonl")
 	p := New(filepath.Join(directory, "sessionbus.sock"), "provisional", fakeOpenCode(t, mode, record))
 	p.SetCall(func(context.Context, string, any) (json.RawMessage, error) { return json.RawMessage(`{}`), nil })
 	shutdown := make(chan struct{})

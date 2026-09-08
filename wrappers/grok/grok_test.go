@@ -22,6 +22,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/antst/sessionbus-peers/internal/testsocket"
 	"github.com/antst/sessionbus-peers/wrappers/host"
 	sessionkit "github.com/antst/sessionbus/bus/sdk/go"
 )
@@ -238,7 +239,7 @@ func publishTestFile(path string, body []byte) {
 }
 
 func TestFreshLaneNativeLifecycle(t *testing.T) {
-	root, recordPath := t.TempDir(), filepath.Join(t.TempDir(), "record")
+	root, recordPath := testsocket.Directory(t), filepath.Join(t.TempDir(), "record")
 	t.Setenv("GROK_TEST_RECORD", recordPath)
 	t.Setenv("GROK_TEST_RELEASE", filepath.Join(root, "release"))
 	p := New(filepath.Join(root, "sessionbus.sock"), "single-use-token")
@@ -264,7 +265,7 @@ func TestFreshLaneNativeLifecycle(t *testing.T) {
 }
 
 func TestInterruptAndResume(t *testing.T) {
-	root := t.TempDir()
+	root := testsocket.Directory(t)
 	t.Setenv("GROK_TEST_RECORD", filepath.Join(root, "record"))
 	t.Setenv("GROK_TEST_RELEASE", filepath.Join(root, "never"))
 	_, connection, reader := startGrokWorker(t, root)
@@ -290,7 +291,7 @@ func TestInterruptAndResume(t *testing.T) {
 }
 
 func TestResumeIdentityFailureRepliesBeforeCleanup(t *testing.T) {
-	root := shortRoot(t)
+	root := testsocket.Directory(t)
 	t.Setenv("GROK_TEST_RECORD", filepath.Join(root, "record"))
 	t.Setenv("GROK_TEST_LOAD_ID", "different-product-id")
 	socket := filepath.Join(root, "sessionbus.sock")
@@ -323,7 +324,7 @@ func TestResumeIdentityFailureRepliesBeforeCleanup(t *testing.T) {
 }
 
 func TestOmittedCwdAndSocketReadiness(t *testing.T) {
-	root, recordPath := t.TempDir(), filepath.Join(t.TempDir(), "record")
+	root, recordPath := testsocket.Directory(t), filepath.Join(t.TempDir(), "record")
 	regular := filepath.Join(root, "not-a-socket")
 	must(t, os.WriteFile(regular, nil, 0o600))
 	check(t, !grokSocketReady(regular), "regular file reported ready")
@@ -354,7 +355,7 @@ func TestArgumentsAndHello(t *testing.T) {
 }
 
 func TestCloseReturnsNativeErrorAfterCleanup(t *testing.T) {
-	root := t.TempDir()
+	root := testsocket.Directory(t)
 	t.Setenv("GROK_TEST_CLOSE_ERROR", "1")
 	p := New(filepath.Join(root, "sessionbus.sock"), "close-error")
 	p.SetCall(func(context.Context, string, any) (json.RawMessage, error) { return json.RawMessage(`{}`), nil })
@@ -366,7 +367,7 @@ func TestCloseReturnsNativeErrorAfterCleanup(t *testing.T) {
 }
 
 func TestCancelledCloseJoinsNativeProcesses(t *testing.T) {
-	root := t.TempDir()
+	root := testsocket.Directory(t)
 	p := New(filepath.Join(root, "sessionbus.sock"), "cancelled-close")
 	p.SetCall(func(context.Context, string, any) (json.RawMessage, error) { return json.RawMessage(`{}`), nil })
 	_, err := p.Open(context.Background(), sessionkit.OpenRequest{Name: "lane@local", Open: sessionkit.OpenOptions{Cwd: root}})
@@ -387,7 +388,7 @@ func TestCancelledCloseJoinsNativeProcesses(t *testing.T) {
 }
 
 func TestKitRunTokenCrossings(t *testing.T) {
-	root, recordPath := t.TempDir(), filepath.Join(t.TempDir(), "record")
+	root, recordPath := testsocket.Directory(t), filepath.Join(t.TempDir(), "record")
 	t.Setenv("GROK_TEST_RECORD", recordPath)
 	p, connection, reader := startGrokWorker(t, root)
 	p.mu.Lock()
@@ -404,7 +405,7 @@ func TestKitRunTokenCrossings(t *testing.T) {
 }
 
 func TestDeliveryDoesNotHoldRunHandoff(t *testing.T) {
-	root, recordPath := t.TempDir(), filepath.Join(t.TempDir(), "record")
+	root, recordPath := testsocket.Directory(t), filepath.Join(t.TempDir(), "record")
 	interjectRelease := filepath.Join(root, "interject-release")
 	t.Setenv("GROK_TEST_RECORD", recordPath)
 	t.Setenv("GROK_TEST_RELEASE", filepath.Join(root, "never"))
@@ -427,7 +428,7 @@ func TestDeliveryDoesNotHoldRunHandoff(t *testing.T) {
 }
 
 func TestIdleDeliveryJoinsOwnedPromptAndForeignChunksAreIgnored(t *testing.T) {
-	root, recordPath := shortRoot(t), filepath.Join(t.TempDir(), "record")
+	root, recordPath := testsocket.Directory(t), filepath.Join(t.TempDir(), "record")
 	t.Setenv("GROK_TEST_RECORD", recordPath)
 	t.Setenv("GROK_TEST_FOREIGN_CHUNK", "1")
 	_, connection, reader := startGrokWorker(t, root)
@@ -447,7 +448,7 @@ func TestIdleDeliveryJoinsOwnedPromptAndForeignChunksAreIgnored(t *testing.T) {
 }
 
 func TestActiveDeliveryUsesInterject(t *testing.T) {
-	root, recordPath := shortRoot(t), filepath.Join(t.TempDir(), "record")
+	root, recordPath := testsocket.Directory(t), filepath.Join(t.TempDir(), "record")
 	t.Setenv("GROK_TEST_RECORD", recordPath)
 	t.Setenv("GROK_TEST_RELEASE", filepath.Join(root, "never"))
 	p, connection, reader := startGrokWorker(t, root)
@@ -465,7 +466,7 @@ func TestActiveDeliveryUsesInterject(t *testing.T) {
 }
 
 func TestChildExitWaitsForRunDoneBeforeShutdown(t *testing.T) {
-	root := t.TempDir()
+	root := testsocket.Directory(t)
 	t.Setenv("GROK_TEST_OUTPUT_SIZE", "300000")
 	t.Setenv("GROK_TEST_EXIT_AFTER_PROMPT", "1")
 	p, connection, reader := startGrokWorker(t, root)
@@ -512,14 +513,6 @@ func startGrokWorker(t *testing.T, root string) (*Wrapper, net.Conn, *workerRead
 	check(t, opened.Result != nil, "open failed: %s", opened.Error)
 	t.Cleanup(func() { _ = connection.Close(); <-worker.Closed(); _ = listener.Close() })
 	return p, connection, reader
-}
-
-func shortRoot(t *testing.T) string {
-	t.Helper()
-	root, err := os.MkdirTemp("", "grok-")
-	must(t, err)
-	t.Cleanup(func() { _ = os.RemoveAll(root) })
-	return root
 }
 
 func writeWorkerRequest(t *testing.T, connection net.Conn, id int, method string, params any) {

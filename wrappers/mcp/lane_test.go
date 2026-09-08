@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/antst/sessionbus-peers/internal/testsocket"
 	sessionkit "github.com/antst/sessionbus/bus/sdk/go"
 )
 
@@ -54,7 +55,7 @@ func (b *crossingBackend) Call(_ context.Context, method string, params any) (js
 }
 
 func TestLaneBackendCrossingCallsAndErrors(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "lane.sock")
+	path := filepath.Join(testsocket.Directory(t), "lane.sock")
 	listener, err := net.Listen("unix", path)
 	check(t, err == nil, "listen: %v", err)
 	t.Cleanup(func() { _ = listener.Close() })
@@ -90,7 +91,7 @@ func TestLaneBackendRequiresSocket(t *testing.T) {
 }
 
 func TestPrivateActionKeepsCallerInResidentServer(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "lane.sock")
+	path := filepath.Join(testsocket.Directory(t), "lane.sock")
 	listener, err := net.Listen("unix", path)
 	check(t, err == nil, "listen: %v", err)
 	defer listener.Close()
@@ -113,7 +114,7 @@ func TestPrivateActionKeepsCallerInResidentServer(t *testing.T) {
 }
 
 func TestPrivateActionPreservesUnknownTurn(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "lane.sock")
+	path := filepath.Join(testsocket.Directory(t), "lane.sock")
 	listener, err := net.Listen("unix", path)
 	check(t, err == nil, "listen: %v", err)
 	defer listener.Close()
@@ -135,7 +136,7 @@ func TestPrivateActionPreservesUnknownTurn(t *testing.T) {
 }
 
 func TestServeLaneJoinsAdmittedActions(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "lane.sock")
+	path := filepath.Join(testsocket.Directory(t), "lane.sock")
 	listener, err := net.Listen("unix", path)
 	check(t, err == nil, "listen: %v", err)
 	backend := &crossingBackend{started: make(chan struct{}), release: make(chan struct{}), calls: make(chan string, 1)}

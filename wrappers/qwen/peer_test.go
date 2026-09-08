@@ -16,6 +16,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/antst/sessionbus-peers/internal/testsocket"
 	"github.com/antst/sessionbus-peers/wrappers/host"
 	"github.com/antst/sessionbus-peers/wrappers/mcp"
 	sessionkit "github.com/antst/sessionbus/bus/sdk/go"
@@ -40,7 +41,7 @@ func TestMCPInitializeDoesNotRequirePeerIdentityOrBus(t *testing.T) {
 }
 
 func TestPeerPrepareRehellosAndDeliveryUsesInputFile(t *testing.T) {
-	root, socket := t.TempDir(), filepath.Join(t.TempDir(), "bus.sock")
+	root, socket := t.TempDir(), filepath.Join(testsocket.Directory(t), "bus.sock")
 	listener, err := net.Listen("unix", socket)
 	must(t, err)
 	defer listener.Close()
@@ -113,7 +114,7 @@ func TestInteractivePlanDoesNotConsumeGroupAfterBooleanOrOptionalValue(t *testin
 }
 
 func TestCancelledInitialPrepareKeepsResidentPeer(t *testing.T) {
-	root, socket := t.TempDir(), filepath.Join(t.TempDir(), "bus.sock")
+	root, socket := t.TempDir(), filepath.Join(testsocket.Directory(t), "bus.sock")
 	listener, err := net.Listen("unix", socket)
 	must(t, err)
 	defer listener.Close()
