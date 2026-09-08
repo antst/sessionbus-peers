@@ -82,9 +82,12 @@ written by a non-author from runtime probes on the real host.
 
 ## 6. Use what five releases already learned
 
-- Before changing a working path, read the last release's implementation on
-  the Forgejo `legacy-*` branches and the facts file. A fix names what the
-  previous release did and what exactly is wrong now.
+- Previous releases are evidence, never a base to copy. Each of them carried
+  its own breakage, which is why the rewrite was a clean cut. Before changing
+  a path, find the last release in which that behaviour demonstrably worked
+  (Forgejo `legacy-*` branches, cells, facts), state what it did, state what
+  was wrong with it, and carry over the proven shape and the product facts,
+  not the code.
 - A fix changes the one thing that is wrong and touches nothing else. Working
   paths are not rewritten to make a fix convenient. "Break it all, fix half,
   break the other half" is the failure mode this rule exists to end.
