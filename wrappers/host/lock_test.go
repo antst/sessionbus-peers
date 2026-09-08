@@ -6,10 +6,12 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/antst/sessionbus-peers/internal/testsocket"
 )
 
 func TestSessionLockStaleFileAndContention(t *testing.T) {
-	socket := filepath.Join(t.TempDir(), "bus.sock")
+	socket := filepath.Join(testsocket.Directory(t), "bus.sock")
 	path := filepath.Join(filepath.Dir(socket), "locks", "example", "session")
 	must(t, os.MkdirAll(filepath.Dir(path), 0o700))
 	must(t, os.WriteFile(path, []byte("stale"), 0o600))
@@ -19,7 +21,7 @@ func TestSessionLockStaleFileAndContention(t *testing.T) {
 }
 
 func TestSessionLockRenamePreservesClaim(t *testing.T) {
-	socket := filepath.Join(t.TempDir(), "bus.sock")
+	socket := filepath.Join(testsocket.Directory(t), "bus.sock")
 	lock, err := AcquireSessionLock(socket, "example", "provisional")
 	must(t, err)
 	must(t, lock.Rename("session"))
@@ -31,7 +33,7 @@ func TestSessionLockRenamePreservesClaim(t *testing.T) {
 }
 
 func TestSessionLockOrderlyCloseAllowsResume(t *testing.T) {
-	socket := filepath.Join(t.TempDir(), "bus.sock")
+	socket := filepath.Join(testsocket.Directory(t), "bus.sock")
 	first, err := AcquireSessionLock(socket, "example", "first")
 	must(t, err)
 	must(t, first.Rename("session"))
@@ -43,7 +45,7 @@ func TestSessionLockOrderlyCloseAllowsResume(t *testing.T) {
 }
 
 func TestSessionLockRenameRecoversCrashStaleTarget(t *testing.T) {
-	socket := filepath.Join(t.TempDir(), "bus.sock")
+	socket := filepath.Join(testsocket.Directory(t), "bus.sock")
 	path := filepath.Join(filepath.Dir(socket), "locks", "example", "session")
 	must(t, os.MkdirAll(filepath.Dir(path), 0o700))
 	must(t, os.WriteFile(path, []byte("crash-stale"), 0o600))
@@ -56,7 +58,7 @@ func TestSessionLockRenameRecoversCrashStaleTarget(t *testing.T) {
 }
 
 func TestSessionLockRenameRetriesInodeMismatch(t *testing.T) {
-	socket := filepath.Join(t.TempDir(), "bus.sock")
+	socket := filepath.Join(testsocket.Directory(t), "bus.sock")
 	path := filepath.Join(filepath.Dir(socket), "locks", "example", "session")
 	must(t, os.MkdirAll(filepath.Dir(path), 0o700))
 	must(t, os.WriteFile(path, []byte("stale"), 0o600))
@@ -72,7 +74,7 @@ func TestSessionLockRenameRetriesInodeMismatch(t *testing.T) {
 }
 
 func TestSessionLockRenamePreservesRecreatedTarget(t *testing.T) {
-	socket := filepath.Join(t.TempDir(), "bus.sock")
+	socket := filepath.Join(testsocket.Directory(t), "bus.sock")
 	path := filepath.Join(filepath.Dir(socket), "locks", "example", "session")
 	must(t, os.MkdirAll(filepath.Dir(path), 0o700))
 	must(t, os.WriteFile(path, []byte("stale"), 0o600))
@@ -96,7 +98,7 @@ func TestSessionLockRenamePreservesRecreatedTarget(t *testing.T) {
 }
 
 func TestSessionLockRenameDoesNotReplaceHolder(t *testing.T) {
-	socket := filepath.Join(t.TempDir(), "bus.sock")
+	socket := filepath.Join(testsocket.Directory(t), "bus.sock")
 	holder, err := AcquireSessionLock(socket, "example", "session")
 	must(t, err)
 	provisional, err := AcquireSessionLock(socket, "example", "provisional")

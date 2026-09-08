@@ -9,10 +9,12 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/antst/sessionbus-peers/internal/testsocket"
 )
 
 func TestPrivateEndpointBridgeCancel(t *testing.T) {
-	socket := filepath.Join(t.TempDir(), "bus.sock")
+	socket := filepath.Join(testsocket.Directory(t), "bus.sock")
 	endpoint, err := ListenPrivate(socket, "session")
 	must(t, err)
 	path := endpoint.Path
@@ -47,7 +49,7 @@ func TestPrivateEndpointBridgeCancel(t *testing.T) {
 }
 
 func TestPrivateEndpointReplacesStalePath(t *testing.T) {
-	directory := t.TempDir()
+	directory := testsocket.Directory(t)
 	socket := filepath.Join(directory, "bus.sock")
 	path := filepath.Join(directory, "lanes", "session.sock")
 	must(t, os.MkdirAll(filepath.Dir(path), 0o700))

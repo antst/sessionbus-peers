@@ -18,6 +18,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/antst/sessionbus-peers/internal/testsocket"
 	"github.com/antst/sessionbus-peers/wrappers/host"
 	"github.com/antst/sessionbus-peers/wrappers/mcp"
 	sessionkit "github.com/antst/sessionbus/bus/sdk/go"
@@ -251,9 +252,7 @@ func TestTerminalTable(t *testing.T) {
 }
 
 func TestOpenCommitsBeforeInitAndChildDeathWritesTerminalBeforeEOF(t *testing.T) {
-	directory, err := os.MkdirTemp("/tmp", "cp")
-	must(t, err)
-	t.Cleanup(func() { _ = os.RemoveAll(directory) })
+	directory := testsocket.Directory(t)
 	socket, record := filepath.Join(directory, "bus.sock"), filepath.Join(directory, "child.json")
 	listener, err := net.Listen("unix", socket)
 	must(t, err)
@@ -322,7 +321,7 @@ func TestOpenCommitsBeforeInitAndChildDeathWritesTerminalBeforeEOF(t *testing.T)
 }
 
 func TestLargeResultDrainsAfterChildExit(t *testing.T) {
-	directory := t.TempDir()
+	directory := testsocket.Directory(t)
 	socket := filepath.Join(directory, "bus.sock")
 	t.Setenv("CLAUDE_TEST_CHILD", "large-result-exit")
 	t.Setenv("CLAUDE_TEST_RECORD", filepath.Join(directory, "child.json"))

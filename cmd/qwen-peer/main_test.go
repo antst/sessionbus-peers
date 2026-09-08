@@ -15,6 +15,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/antst/sessionbus-peers/internal/testsocket"
 	"github.com/antst/sessionbus-peers/wrappers/host"
 	"github.com/antst/sessionbus-peers/wrappers/qwen"
 )
@@ -27,7 +28,7 @@ func TestLaneModeRejectsArguments(t *testing.T) {
 }
 
 func TestMCPStartsOneResidentPeerBeforeFirstToolCall(t *testing.T) {
-	root, socket := t.TempDir(), filepath.Join(t.TempDir(), "bus.sock")
+	root, socket := t.TempDir(), filepath.Join(testsocket.Directory(t), "bus.sock")
 	listener, err := net.Listen("unix", socket)
 	if err != nil {
 		t.Fatal(err)

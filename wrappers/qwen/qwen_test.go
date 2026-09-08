@@ -19,6 +19,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/antst/sessionbus-peers/internal/testsocket"
 	"github.com/antst/sessionbus-peers/wrappers/host"
 	sessionkit "github.com/antst/sessionbus/bus/sdk/go"
 )
@@ -91,7 +92,7 @@ func TestAbnormalRunCarriesNothingIntoReopen(t *testing.T) {
 	t.Setenv("QWEN_TEST_RECORD", filepath.Join(t.TempDir(), "child.json"))
 	original := laneCommand
 	laneCommand = func(_ string, arguments ...string) *exec.Cmd { return exec.Command(os.Args[0], arguments...) }
-	socket := filepath.Join(t.TempDir(), "sessionbus.sock")
+	socket := filepath.Join(testsocket.Directory(t), "sessionbus.sock")
 	listener, err := net.Listen("unix", socket)
 	must(t, err)
 	t.Setenv(host.TokenEnv, "token")
@@ -148,9 +149,7 @@ func TestAbnormalRunCarriesNothingIntoReopen(t *testing.T) {
 }
 
 func TestFreshOpenMintsV4AndRenames(t *testing.T) {
-	directory, err := os.MkdirTemp("/tmp", "qw")
-	must(t, err)
-	t.Cleanup(func() { _ = os.RemoveAll(directory) })
+	directory := testsocket.Directory(t)
 	socket, record := filepath.Join(directory, "bus.sock"), filepath.Join(directory, "child.json")
 	t.Setenv("QWEN_TEST_CHILD", "1")
 	t.Setenv("QWEN_TEST_RECORD", record)
@@ -189,9 +188,7 @@ func TestOpenValueAndArgumentErrors(t *testing.T) {
 }
 
 func TestOpenResumeUsesCapturedACPShapesAndScrubsBusEnv(t *testing.T) {
-	directory, err := os.MkdirTemp("/tmp", "qw")
-	must(t, err)
-	t.Cleanup(func() { _ = os.RemoveAll(directory) })
+	directory := testsocket.Directory(t)
 	socket, record := filepath.Join(directory, "bus.sock"), filepath.Join(directory, "child.json")
 	listener, err := net.Listen("unix", socket)
 	must(t, err)

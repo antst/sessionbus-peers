@@ -14,6 +14,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/antst/sessionbus-peers/internal/testsocket"
 	"github.com/antst/sessionbus-peers/wrappers/host"
 	sessionkit "github.com/antst/sessionbus/bus/sdk/go"
 )
@@ -44,7 +45,7 @@ func TestActiveSessionRequiresOneParentMatch(t *testing.T) {
 }
 
 func TestPeerDeliveryUsesCanonicalEnvelope(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "messages.sock")
+	path := filepath.Join(testsocket.Directory(t), "messages.sock")
 	listener, err := net.Listen("unix", path)
 	must(t, err)
 	defer listener.Close()
@@ -106,7 +107,7 @@ type writeSignal struct {
 func (c *writeSignal) Write(body []byte) (int, error) { close(c.started); return c.Conn.Write(body) }
 
 func TestPeerRehellosReplacesAndStopsOnObservationFailure(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "bus.sock")
+	path := filepath.Join(testsocket.Directory(t), "bus.sock")
 	listener, err := net.Listen("unix", path)
 	must(t, err)
 	defer listener.Close()
@@ -154,7 +155,7 @@ func TestPeerRehellosReplacesAndStopsOnObservationFailure(t *testing.T) {
 }
 
 func TestHandStartedPeerHelloUsesEmptyGroups(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "bus.sock")
+	path := filepath.Join(testsocket.Directory(t), "bus.sock")
 	listener, err := net.Listen("unix", path)
 	must(t, err)
 	defer listener.Close()

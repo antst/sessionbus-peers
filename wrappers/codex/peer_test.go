@@ -15,6 +15,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/antst/sessionbus-peers/internal/testsocket"
 	"github.com/antst/sessionbus-peers/wrappers/host"
 	"github.com/antst/sessionbus-peers/wrappers/mcp"
 	sessionkit "github.com/antst/sessionbus/bus/sdk/go"
@@ -41,7 +42,7 @@ func TestPeerNativeAppDialsOnlyAfterIdentity(t *testing.T) {
 }
 
 func TestPeerPrepareUsesMetadataAndRefreshesTitle(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "bus.sock")
+	path := filepath.Join(testsocket.Directory(t), "bus.sock")
 	listener, err := net.Listen("unix", path)
 	if err != nil {
 		t.Fatal(err)
@@ -101,7 +102,7 @@ func TestPeerPrepareUsesMetadataAndRefreshesTitle(t *testing.T) {
 }
 
 func TestPeerToolCallPublishesNotLoadedThreadWithoutResume(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "bus.sock")
+	path := filepath.Join(testsocket.Directory(t), "bus.sock")
 	listener, err := net.Listen("unix", path)
 	if err != nil {
 		t.Fatal(err)
@@ -162,7 +163,7 @@ func TestPeerToolCallPublishesNotLoadedThreadWithoutResume(t *testing.T) {
 }
 
 func TestPeerPrepareSurfacesRejectedHello(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "bus.sock")
+	path := filepath.Join(testsocket.Directory(t), "bus.sock")
 	listener, err := net.Listen("unix", path)
 	if err != nil {
 		t.Fatal(err)
@@ -206,7 +207,7 @@ func TestPeerPrepareRejectsMissingOrFixedIdentityChange(t *testing.T) {
 }
 
 func TestPeerPrepareRejectsDifferentThread(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "bus.sock")
+	path := filepath.Join(testsocket.Directory(t), "bus.sock")
 	listener, err := net.Listen("unix", path)
 	if err != nil {
 		t.Fatal(err)

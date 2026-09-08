@@ -19,10 +19,10 @@ import (
 	"syscall"
 	"testing"
 
+	"github.com/antst/sessionbus-peers/internal/testsocket"
 	"github.com/antst/sessionbus-peers/wrappers/host"
 	"github.com/antst/sessionbus-peers/wrappers/mcp"
 	sessionkit "github.com/antst/sessionbus/bus/sdk/go"
-	"golang.org/x/sys/unix"
 )
 
 func TestInteractivePlan(t *testing.T) {
@@ -61,7 +61,7 @@ func TestInteractivePlan(t *testing.T) {
 }
 
 func TestProductHelperOwnsPeerAndLazilyObserves(t *testing.T) {
-	root := t.TempDir()
+	root := testsocket.Directory(t)
 	socket := filepath.Join(root, "sessionbus.sock")
 	server, hellos := fakeDaemon(t, socket)
 	defer server.Close()
@@ -128,7 +128,7 @@ func TestProductHelperOwnsPeerAndLazilyObserves(t *testing.T) {
 
 func TestProductSessionIDsCreateDistinctPeers(t *testing.T) {
 	for index, id := range []string{testSessionID, "01a07800-94fb-7b12-b531-2f0509e033f1"} {
-		root := t.TempDir()
+		root := testsocket.Directory(t)
 		socket := filepath.Join(root, "sessionbus.sock")
 		server, hellos := fakeDaemon(t, socket)
 		t.Setenv(host.SocketEnv, socket)
@@ -146,7 +146,7 @@ func TestProductSessionIDsCreateDistinctPeers(t *testing.T) {
 }
 
 func TestPeerMCPServesWhileBusAdmissionIsHeld(t *testing.T) {
-	root := t.TempDir()
+	root := testsocket.Directory(t)
 	socket := filepath.Join(root, "sessionbus.sock")
 	server, hellos := fakeDaemon(t, socket)
 	defer server.Close()
@@ -177,7 +177,7 @@ func TestPeerMCPServesWhileBusAdmissionIsHeld(t *testing.T) {
 }
 
 func TestPeerDeliveryOwnerShutdownCrossesBlockedInterject(t *testing.T) {
-	root := t.TempDir()
+	root := testsocket.Directory(t)
 	socket := filepath.Join(root, "sessionbus.sock")
 	server, hellos := fakeDaemon(t, socket)
 	defer server.Close()
@@ -197,7 +197,7 @@ func TestPeerDeliveryOwnerShutdownCrossesBlockedInterject(t *testing.T) {
 	delivered := deliverPeer(backend, context.Background(), delivery("blocked"))
 	waitFrame(t, recordPath, "_x.ai/interject", 1)
 	pidfd := interactivePidfd(t, observerPID)
-	defer unix.Close(pidfd)
+	defer closeProcessHandle(pidfd)
 	closed := make(chan struct{})
 	go func() { backend.Shutdown(); close(closed) }()
 	<-closed
@@ -207,7 +207,7 @@ func TestPeerDeliveryOwnerShutdownCrossesBlockedInterject(t *testing.T) {
 }
 
 func TestPeerDeliveryOwnerSerializesTwoReceipts(t *testing.T) {
-	root := t.TempDir()
+	root := testsocket.Directory(t)
 	socket := filepath.Join(root, "sessionbus.sock")
 	server, hellos := fakeDaemon(t, socket)
 	defer server.Close()
@@ -249,7 +249,7 @@ func TestPeerHelperRequiresProductIdentity(t *testing.T) {
 }
 
 func TestInteractiveLauncherOwnsLeaderHoldAndTUI(t *testing.T) {
-	root := shortRoot(t)
+	root := testsocket.Directory(t)
 	recordPath := filepath.Join(root, "record")
 	socket := filepath.Join(root, "sessionbus.sock")
 	t.Setenv(host.SocketEnv, socket)
@@ -274,9 +274,9 @@ func TestInteractiveLauncherOwnsLeaderHoldAndTUI(t *testing.T) {
 	check(t, containsStartEnv(frames, "leader", host.SocketEnv, socket) && containsStartEnv(frames, "leader", host.GroupsEnv, `["team"]`), "leader did not inherit helper bus identity")
 	check(t, !containsStart(frames, "SESSIONBUS_LANE_SOCKET"), "interactive launcher published a private action endpoint")
 	leaderPidfd, holdPidfd, tuiPidfd := interactivePidfd(t, leaderPID), interactivePidfd(t, holdPID), interactivePidfd(t, tuiPID)
-	defer unix.Close(leaderPidfd)
-	defer unix.Close(holdPidfd)
-	defer unix.Close(tuiPidfd)
+	defer closeProcessHandle(leaderPidfd)
+	defer closeProcessHandle(holdPidfd)
+	defer closeProcessHandle(tuiPidfd)
 	cancel(testSignal{syscall.SIGINT})
 	var exited *exec.ExitError
 	err = <-done
@@ -286,7 +286,7 @@ func TestInteractiveLauncherOwnsLeaderHoldAndTUI(t *testing.T) {
 }
 
 func TestStartupHoldExitStopsInteractiveOwner(t *testing.T) {
-	root := shortRoot(t)
+	root := testsocket.Directory(t)
 	recordPath := filepath.Join(root, "record")
 	t.Setenv(host.SocketEnv, filepath.Join(root, "sessionbus.sock"))
 	t.Setenv("GROK_TEST_RECORD", recordPath)
@@ -301,9 +301,9 @@ func TestStartupHoldExitStopsInteractiveOwner(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- RunInteractive(context.Background(), plan) }()
 	tuiPidfd, leaderPidfd, holdPidfd := interactivePidfd(t, tuiPID), interactivePidfd(t, leaderPID), interactivePidfd(t, holdPID)
-	defer unix.Close(tuiPidfd)
-	defer unix.Close(leaderPidfd)
-	defer unix.Close(holdPidfd)
+	defer closeProcessHandle(tuiPidfd)
+	defer closeProcessHandle(leaderPidfd)
+	defer closeProcessHandle(holdPidfd)
 	must(t, os.WriteFile(release, nil, 0o600))
 	err = <-done
 	check(t, strings.Contains(err.Error(), "Grok startup hold closed"), "launcher error = %v", err)
@@ -313,7 +313,7 @@ func TestStartupHoldExitStopsInteractiveOwner(t *testing.T) {
 }
 
 func TestInteractiveLauncherReturnsProductExit(t *testing.T) {
-	root := shortRoot(t)
+	root := testsocket.Directory(t)
 	t.Setenv(host.SocketEnv, filepath.Join(root, "sessionbus.sock"))
 	leaderPID, holdPID := filepath.Join(root, "leader.pid"), filepath.Join(root, "hold.pid")
 	interactivePID, release := filepath.Join(root, "interactive.pid"), filepath.Join(root, "release")
@@ -332,12 +332,12 @@ func TestInteractiveLauncherReturnsProductExit(t *testing.T) {
 	var exited *exec.ExitError
 	check(t, errors.As(err, &exited) && exited.ExitCode() == 7, "exit = %v", err)
 	check(t, !processRunning(t, leaderPidfd) && !processRunning(t, holdPidfd), "Grok dependencies survived the TUI")
-	unix.Close(leaderPidfd)
-	unix.Close(holdPidfd)
+	closeProcessHandle(leaderPidfd)
+	closeProcessHandle(holdPidfd)
 }
 
 func TestLeaderCreatesDefaultStateRoot(t *testing.T) {
-	root := filepath.Join(shortRoot(t), "state")
+	root := filepath.Join(testsocket.Directory(t), "state")
 	t.Setenv(host.SocketEnv, "")
 	t.Setenv("XDG_RUNTIME_DIR", root)
 	socket := sessionkit.Socket()
@@ -371,7 +371,7 @@ func TestExactRosterAuthority(t *testing.T) {
 }
 
 func TestPeerShutdownKillsItsObserverProcessGroup(t *testing.T) {
-	root := t.TempDir()
+	root := testsocket.Directory(t)
 	socket := filepath.Join(root, "sessionbus.sock")
 	server, hellos := fakeDaemon(t, socket)
 	defer server.Close()
@@ -396,7 +396,7 @@ func TestPeerShutdownKillsItsObserverProcessGroup(t *testing.T) {
 	_, err = fmt.Sscan(string(body), &pid)
 	must(t, err)
 	pidfd := pidfd(t, pid)
-	defer unix.Close(pidfd)
+	defer closeProcessHandle(pidfd)
 	backend.Shutdown()
 	waitProcessExit(t, pidfd)
 	check(t, !processRunning(t, pidfd), "observer descendant survived shutdown")
@@ -496,7 +496,7 @@ func mcpResponse(t *testing.T, encoder *json.Encoder, scanner *bufio.Scanner, id
 	return response
 }
 
-func interactivePidfd(t *testing.T, path string) int {
+func interactivePidfd(t *testing.T, path string) processHandle {
 	t.Helper()
 	<-fileReady(path)
 	body, err := os.ReadFile(path)
@@ -559,13 +559,6 @@ func containsStartEnv(rows []json.RawMessage, argument, name, value string) bool
 	return false
 }
 
-func pidfd(t *testing.T, pid int) int {
-	t.Helper()
-	fd, err := unix.PidfdOpen(pid, 0)
-	must(t, err)
-	return fd
-}
-
 func environment(values []string, name string) string {
 	for _, value := range values {
 		if key, body, found := strings.Cut(value, "="); found && key == name {
@@ -573,19 +566,4 @@ func environment(values []string, name string) string {
 		}
 	}
 	return ""
-}
-
-func processRunning(t *testing.T, pidfd int) bool {
-	t.Helper()
-	poll := []unix.PollFd{{Fd: int32(pidfd), Events: unix.POLLIN}}
-	count, err := unix.Poll(poll, 0)
-	must(t, err)
-	return count == 0
-}
-
-func waitProcessExit(t *testing.T, pidfd int) {
-	t.Helper()
-	poll := []unix.PollFd{{Fd: int32(pidfd), Events: unix.POLLIN}}
-	_, err := unix.Poll(poll, -1)
-	must(t, err)
 }
