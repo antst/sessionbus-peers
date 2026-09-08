@@ -18,7 +18,13 @@ import (
 	sessionkit "github.com/antst/sessionbus/bus/sdk/go"
 )
 
+var version = "devel"
+
 func main() {
+	if len(os.Args) == 2 && os.Args[1] == "--version" {
+		fmt.Println(version)
+		return
+	}
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 	if err := run(ctx, os.Args[1:]); err != nil {

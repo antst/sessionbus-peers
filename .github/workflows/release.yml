@@ -1,0 +1,140 @@
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+env:
+  GO_VERSION: '1.24.x'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        goos: [linux, darwin]
+        goarch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+      - name: Validate release tag
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: printf '%s\n' "$RELEASE_TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z][0-9A-Za-z.-]*)?$'
+      - name: Build archive
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+          TARGET_OS: ${{ matrix.goos }}
+          TARGET_ARCH: ${{ matrix.goarch }}
+          GOWORK: 'off'
+        run: |
+          version=${RELEASE_TAG#v}
+          mkdir -p dist/payload
+          for binary in claude-peer codex-peer grok-peer qwen-peer opencode-peer; do
+            CGO_ENABLED=0 GOOS="$TARGET_OS" GOARCH="$TARGET_ARCH" go build -trimpath -ldflags "-s -w -X main.version=$RELEASE_TAG" -o "dist/payload/$binary" "./cmd/$binary"
+          done
+          cp LICENSE dist/payload/LICENSE
+          archive="sessionbus-peers_${version}_${TARGET_OS}_${TARGET_ARCH}.tar.gz"
+          tar -czf "dist/$archive" -C dist/payload LICENSE claude-peer codex-peer grok-peer qwen-peer opencode-peer
+      - uses: actions/upload-artifact@v4
+        with:
+          name: archive-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/sessionbus-peers_*.tar.gz
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: archive-*
+          path: dist
+          merge-multiple: true
+      - name: Verify promised assets and write checksums
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          version=${RELEASE_TAG#v}
+          for target in linux_amd64 linux_arm64 darwin_amd64 darwin_arm64; do
+            test -f "dist/sessionbus-peers_${version}_${target}.tar.gz"
+          done
+          test "$(find dist -maxdepth 1 -type f -name 'sessionbus-peers_*.tar.gz' | wc -l)" -eq 4
+          (cd dist && sha256sum sessionbus-peers_*.tar.gz > SHA256SUMS)
+          test "$(wc -l < dist/SHA256SUMS)" -eq 4
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: gh release create "$RELEASE_TAG" dist/sessionbus-peers_*.tar.gz dist/SHA256SUMS --repo "$GITHUB_REPOSITORY" --title "$RELEASE_TAG" --generate-notes
+
+  install-test:
+    needs: release
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install this release
+        env:
+          SESSIONBUS_PEERS_VERSION: ${{ github.ref_name }}
+          SESSIONBUS_PREFIX: ${{ runner.temp }}/sessionbus-peers-bin
+        run: sh ./install.sh
+      - name: Verify every installed binary
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+          SESSIONBUS_PREFIX: ${{ runner.temp }}/sessionbus-peers-bin
+        run: |
+          for binary in claude-peer codex-peer grok-peer qwen-peer opencode-peer; do
+            test "$("$SESSIONBUS_PREFIX/$binary" --version)" = "$RELEASE_TAG"
+          done
+      - name: Check corrupted checksums preserve an existing binary
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          negative_prefix="$RUNNER_TEMP/sessionbus-peers-negative"
+          fake_bin="$RUNNER_TEMP/sessionbus-peers-fake-curl"
+          mkdir -p "$negative_prefix" "$fake_bin"
+          printf '%s\n' preserved > "$negative_prefix/claude-peer"
+          cp "$negative_prefix/claude-peer" "$RUNNER_TEMP/claude-peer.before"
+          real_curl=$(command -v curl)
+          cat > "$fake_bin/curl" <<'EOF'
+          #!/bin/sh
+          set -eu
+          output=
+          url=
+          while [ "$#" -gt 0 ]; do
+            case $1 in
+              -o) output=$2; shift 2 ;;
+              -*) shift ;;
+              *) url=$1; shift ;;
+            esac
+          done
+          [ -n "$output" ] && [ -n "$url" ]
+          "$REAL_CURL" -fsSL "$url" -o "$output"
+          case $url in
+            */SHA256SUMS)
+              awk '{$1="0000000000000000000000000000000000000000000000000000000000000000"; print}' "$output" > "$output.corrupt"
+              mv "$output.corrupt" "$output"
+              ;;
+          esac
+          EOF
+          chmod 0755 "$fake_bin/curl"
+          if PATH="$fake_bin:$PATH" REAL_CURL="$real_curl" SESSIONBUS_PEERS_VERSION="$RELEASE_TAG" SESSIONBUS_PREFIX="$negative_prefix" sh ./install.sh claude >"$RUNNER_TEMP/corrupt.out" 2>"$RUNNER_TEMP/corrupt.err"; then
+            echo 'corrupted SHA256SUMS was accepted' >&2
+            exit 1
+          fi
+          grep -F 'checksum mismatch for sessionbus-peers_' "$RUNNER_TEMP/corrupt.err"
+          cmp "$RUNNER_TEMP/claude-peer.before" "$negative_prefix/claude-peer"

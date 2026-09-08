@@ -61,6 +61,8 @@ jobs:
           golangci-lint run ./...
       - name: Codex installer transaction
         run: ./scripts/test-codex-mcp
+      - name: Release installer transaction
+        run: ./scripts/test-install.sh
       - name: OpenCode installer and plugin
         working-directory: opencode
         run: |
