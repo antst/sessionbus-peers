@@ -13,7 +13,6 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -271,7 +270,8 @@ func TestOpenCommitsBeforeInitAndChildDeathWritesTerminalBeforeEOF(t *testing.T)
 		return json.RawMessage(`{"sessions":[]}`), nil
 	})
 	worker := sessionkit.NewWorker(p)
-	p.SetShutdown(worker.Shutdown)
+	shutdownRequested := make(chan struct{})
+	p.SetShutdown(func() { close(shutdownRequested) })
 	served := make(chan error, 1)
 	go func() { served <- worker.Serve(context.Background()) }()
 	connection, err := listener.Accept()
@@ -293,28 +293,21 @@ func TestOpenCommitsBeforeInitAndChildDeathWritesTerminalBeforeEOF(t *testing.T)
 	terminal := readJSON(t, reader)
 	result := terminal["result"].(map[string]any)
 	check(t, result["outcome"] == "failed", "terminal = %#v", terminal)
+	writeJSON(t, connection, map[string]any{"jsonrpc": "2.0", "id": 4, "method": "turn.run", "params": map[string]any{"session_id": fixtureID + "@local", "input": "again"}})
+	next := readJSON(t, reader)
+	nextResult, admitted := next["result"].(map[string]any)
+	check(t, admitted && next["error"] == nil && nextResult["outcome"] == "failed", "next Run was not admitted after the terminal: %#v", next)
 	var child map[string]any
 	must(t, json.Unmarshal(mustRead(t, record), &child))
 	check(t, child["lane_socket"] == laneSocket, "child environment = %#v", child)
 	for _, name := range []string{host.SocketEnv, host.LocalKeyEnv, host.TokenEnv, host.SessionIDEnv, host.NameEnv, host.GroupsEnv} {
 		check(t, child[name] == "", "%s reached child: %#v", name, child)
 	}
+	<-shutdownRequested
+	worker.Shutdown()
 	_, err = reader.ReadByte()
 	check(t, errors.Is(err, io.EOF), "worker remained connected: %v", err)
 	<-worker.Closed()
-	for range 1000 {
-		p.mu.Lock()
-		carried := p.run
-		p.mu.Unlock()
-		if carried == nil {
-			break
-		}
-		runtime.Gosched()
-	}
-	p.mu.Lock()
-	carried := p.run
-	p.mu.Unlock()
-	check(t, carried == nil, "completed Run survived the abnormal child exit: %p", carried)
 	_ = connection.Close()
 	_ = listener.Close()
 	_ = <-served
