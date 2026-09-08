@@ -33,7 +33,7 @@ func TestRepositoryBoundary(t *testing.T) {
 	allowed := map[string]bool{
 		".claude-plugin": true, ".forgejo": true, ".git": true,
 		".github": true, ".gitignore": true,
-		".golangci.yml": true, "LICENSE": true, "README.md": true,
+		".golangci.yml": true, "install.sh": true, "LICENSE": true, "README.md": true,
 		"architecture_test.go": true, "claude": true, "cmd": true,
 		"docs": true, "go.mod": true, "go.sum": true, "grok": true,
 		"internal": true, "opencode": true, "qwen": true, "scripts": true, "wrappers": true,
@@ -60,8 +60,10 @@ func TestRepositoryBoundary(t *testing.T) {
 	if got := directoryNames(t, "internal"); !equalStrings(got, []string{"testsocket"}) {
 		t.Errorf("internal roots = %v, want [testsocket]", got)
 	}
-	if _, err := os.Stat(".github/workflows/release.yml"); !os.IsNotExist(err) {
-		t.Fatal("initial peers root must not contain a release workflow")
+	for _, path := range []string{"install.sh", ".github/workflows/release.yml"} {
+		if _, err := os.Stat(path); err != nil {
+			t.Errorf("release surface is missing: %s: %v", path, err)
+		}
 	}
 }
 
@@ -181,7 +183,7 @@ func TestSPDXAndLicenseCoverage(t *testing.T) {
 	for _, path := range []string{
 		"claude/skills/codex-lane/scripts/lane-preflight",
 		"claude/skills/grok-lane/scripts/lane-preflight",
-		"grok/scripts/native-entry", "scripts/codex-mcp", "scripts/test-codex-mcp",
+		"grok/scripts/native-entry", "install.sh", "scripts/codex-mcp", "scripts/test-codex-mcp", "scripts/test-install.sh",
 	} {
 		if firstOrSecondLine(read(t, path)) != "# SPDX-License-Identifier: MIT" {
 			t.Errorf("shell source lacks MIT SPDX header: %s", path)

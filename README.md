@@ -5,7 +5,28 @@ skills, installers, and product facts. The daemon and public SDKs live in
 [`antst/sessionbus`](https://github.com/antst/sessionbus); this repository uses
 only the public Go SDK module.
 
-## Install 0.5.0 from source
+## Install 0.5.0
+
+Install the latest peer binaries into `~/.local/bin`:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/antst/sessionbus-peers/main/install.sh | sh
+```
+
+Set `SESSIONBUS_PREFIX` to choose another binary directory. Set
+`SESSIONBUS_PEERS_VERSION` to install one exact release. For a reproducible
+0.5.0 install, pin both the installer and its assets:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/antst/sessionbus-peers/v0.5.0/install.sh | SESSIONBUS_PEERS_VERSION=v0.5.0 sh
+```
+
+Setting `SESSIONBUS_PEERS_VERSION` while fetching `install.sh` from `main`
+pins the release assets, but not the installer itself. The installer verifies
+the release checksum before replacing any binary. It does not configure
+services, edit `PATH`, use `sudo`, or install product plugins.
+
+### Install from source
 
 Install the daemon and public SDK commands from their repository:
 
@@ -62,8 +83,8 @@ To install the commands into a private prefix:
 GOBIN="$PWD/bin" GOWORK=off go install ./cmd/...
 ```
 
-No binary release workflow is part of the initial split. The commands are
-built from source until a separately reviewed release workflow exists.
+Tagged releases contain the five peer binaries for Linux and macOS on amd64
+and arm64, plus the repository license and checksums.
 
 The OpenCode integration is rooted at [`opencode/`](opencode/). It is published
 only as a [pkg.pr.new](https://pkg.pr.new/) preview in the initial repository;
