@@ -75,12 +75,44 @@ for binary in $binaries; do
 	grep -F "installed $prefix/$binary" "$temporary/success.out" >/dev/null || fail "$binary path was not printed"
 done
 grep -F 'sessionbus-peers version v0.5.0' "$temporary/success.out" >/dev/null || fail "installed version was not printed"
+for line in \
+	'Claude hookup: claude plugin marketplace add https://github.com/antst/sessionbus-peers.git && claude plugin install sessionbus@sessionbus' \
+	'Codex hookup: configure the installed codex-peer with scripts/codex-mcp' \
+	'Grok hookup: install or register the grok/ plugin directory' \
+	'Qwen hookup: install or register the qwen/ plugin directory' \
+	'OpenCode hookup: install the opencode/ package and run sessionbus-opencode-install'; do
+	grep -Fx "$line" "$temporary/success.out" >/dev/null || fail "default install omitted hookup: $line"
+done
+
+selected_prefix="$temporary/selected/bin"
+PATH="$fakebin:$PATH" TEST_RELEASE_DIR="$release" TEST_CURL_LOG="$temporary/selected-curl.log" SESSIONBUS_PEERS_VERSION=v0.5.0 SESSIONBUS_PREFIX="$selected_prefix" sh "$root/install.sh" codex qwen >"$temporary/selected.out"
+for binary in codex-peer qwen-peer; do
+	[ "$("$selected_prefix/$binary" --version)" = v0.5.0 ] || fail "$binary was not selected for installation"
+done
+for binary in claude-peer grok-peer opencode-peer; do
+	[ ! -e "$selected_prefix/$binary" ] || fail "$binary was installed without being selected"
+done
+grep -Fx 'Codex hookup: configure the installed codex-peer with scripts/codex-mcp' "$temporary/selected.out" >/dev/null || fail "selected install omitted Codex hookup"
+grep -Fx 'Qwen hookup: install or register the qwen/ plugin directory' "$temporary/selected.out" >/dev/null || fail "selected install omitted Qwen hookup"
+for product in Claude Grok OpenCode; do
+	if grep -F "${product} hookup:" "$temporary/selected.out" >/dev/null; then
+		fail "selected install printed unselected $product hookup"
+	fi
+done
+
+unknown_log="$temporary/unknown-curl.log"
+: >"$unknown_log"
+if PATH="$fakebin:$PATH" TEST_RELEASE_DIR="$release" TEST_CURL_LOG="$unknown_log" SESSIONBUS_PREFIX="$temporary/unknown-prefix" sh "$root/install.sh" vscode >"$temporary/unknown.out" 2>"$temporary/unknown.err"; then
+	fail "unknown product was accepted"
+fi
+grep -Fx 'sessionbus-peers install: unknown product: vscode' "$temporary/unknown.err" >/dev/null || fail "unknown product failure was not explicit"
+[ ! -s "$unknown_log" ] || fail "unknown product reached the network"
 
 bad_release="$temporary/bad-release"
 bad_prefix="$temporary/bad-prefix"
 mkdir "$bad_release" "$bad_prefix"
-cp "$release/$archive" "$release/SHA256SUMS" "$release/latest.json" "$bad_release/"
-printf 'tampered' >>"$bad_release/$archive"
+cp "$release/$archive" "$release/latest.json" "$bad_release/"
+printf '%064d  %s\n' 0 "$archive" >"$bad_release/SHA256SUMS"
 for binary in $binaries; do
 	printf '%s\n' "original-$binary" >"$bad_prefix/$binary"
 done

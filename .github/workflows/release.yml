@@ -99,3 +99,42 @@ jobs:
           for binary in claude-peer codex-peer grok-peer qwen-peer opencode-peer; do
             test "$("$SESSIONBUS_PREFIX/$binary" --version)" = "$RELEASE_TAG"
           done
+      - name: Check corrupted checksums preserve an existing binary
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          negative_prefix="$RUNNER_TEMP/sessionbus-peers-negative"
+          fake_bin="$RUNNER_TEMP/sessionbus-peers-fake-curl"
+          mkdir -p "$negative_prefix" "$fake_bin"
+          printf '%s\n' preserved > "$negative_prefix/claude-peer"
+          cp "$negative_prefix/claude-peer" "$RUNNER_TEMP/claude-peer.before"
+          real_curl=$(command -v curl)
+          cat > "$fake_bin/curl" <<'EOF'
+          #!/bin/sh
+          set -eu
+          output=
+          url=
+          while [ "$#" -gt 0 ]; do
+            case $1 in
+              -o) output=$2; shift 2 ;;
+              -*) shift ;;
+              *) url=$1; shift ;;
+            esac
+          done
+          [ -n "$output" ] && [ -n "$url" ]
+          "$REAL_CURL" -fsSL "$url" -o "$output"
+          case $url in
+            */SHA256SUMS)
+              awk '{$1="0000000000000000000000000000000000000000000000000000000000000000"; print}' "$output" > "$output.corrupt"
+              mv "$output.corrupt" "$output"
+              ;;
+          esac
+          EOF
+          chmod 0755 "$fake_bin/curl"
+          if PATH="$fake_bin:$PATH" REAL_CURL="$real_curl" SESSIONBUS_PEERS_VERSION="$RELEASE_TAG" SESSIONBUS_PREFIX="$negative_prefix" sh ./install.sh claude >"$RUNNER_TEMP/corrupt.out" 2>"$RUNNER_TEMP/corrupt.err"; then
+            echo 'corrupted SHA256SUMS was accepted' >&2
+            exit 1
+          fi
+          grep -F 'checksum mismatch for sessionbus-peers_' "$RUNNER_TEMP/corrupt.err"
+          cmp "$RUNNER_TEMP/claude-peer.before" "$negative_prefix/claude-peer"

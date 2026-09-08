@@ -5,6 +5,8 @@ set -eu
 
 repository="antst/sessionbus-peers"
 binaries="claude-peer codex-peer grok-peer qwen-peer opencode-peer"
+selected_products=
+selected_binaries=
 requested=${SESSIONBUS_PEERS_VERSION:-latest}
 temporary=
 stage=
@@ -14,6 +16,25 @@ fail() {
 	printf '%s\n' "sessionbus-peers install: $*" >&2
 	exit 1
 }
+
+if [ "$#" -eq 0 ]; then
+	set -- claude codex grok qwen opencode
+fi
+for product do
+	case $product in
+		claude) binary=claude-peer ;;
+		codex) binary=codex-peer ;;
+		grok) binary=grok-peer ;;
+		qwen) binary=qwen-peer ;;
+		opencode) binary=opencode-peer ;;
+		*) fail "unknown product: $product" ;;
+	esac
+	case " $selected_products " in
+		*" $product "*) fail "duplicate product: $product" ;;
+	esac
+	selected_products="$selected_products $product"
+	selected_binaries="$selected_binaries $binary"
+done
 
 if [ -n "${SESSIONBUS_PREFIX:-}" ]; then
 	prefix=$SESSIONBUS_PREFIX
@@ -132,17 +153,17 @@ fi
 
 extracted="$temporary/extracted"
 mkdir "$extracted" || fail "cannot create the extraction directory"
-if ! tar -xzf "$archive_path" -C "$extracted"; then
+if ! tar -xzf "$archive_path" -C "$extracted" $selected_binaries; then
 	fail "cannot extract $archive"
 fi
-for binary in $binaries; do
+for binary in $selected_binaries; do
 	[ -f "$extracted/$binary" ] && [ ! -L "$extracted/$binary" ] || fail "archive member is not a regular file: $binary"
 done
 
 if ! mkdir -p "$prefix"; then
 	fail "cannot create install prefix: $prefix"
 fi
-for binary in $binaries; do
+for binary in $selected_binaries; do
 	target="$prefix/$binary"
 	[ ! -d "$target" ] || install_fail "$binary"
 	stage=$(mktemp "$prefix/.${binary}.sessionbus.XXXXXX") || install_fail "$binary"
@@ -158,3 +179,12 @@ for binary in $binaries; do
 	printf '%s\n' "installed $target"
 done
 printf '%s\n' "sessionbus-peers version $tag"
+for product in $selected_products; do
+	case $product in
+		claude) printf '%s\n' 'Claude hookup: claude plugin marketplace add https://github.com/antst/sessionbus-peers.git && claude plugin install sessionbus@sessionbus' ;;
+		codex) printf '%s\n' 'Codex hookup: configure the installed codex-peer with scripts/codex-mcp' ;;
+		grok) printf '%s\n' 'Grok hookup: install or register the grok/ plugin directory' ;;
+		qwen) printf '%s\n' 'Qwen hookup: install or register the qwen/ plugin directory' ;;
+		opencode) printf '%s\n' 'OpenCode hookup: install the opencode/ package and run sessionbus-opencode-install' ;;
+	esac
+done

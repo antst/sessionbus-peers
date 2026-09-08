@@ -13,6 +13,13 @@ Install the latest peer binaries into `~/.local/bin`:
 curl -fsSL https://raw.githubusercontent.com/antst/sessionbus-peers/main/install.sh | sh
 ```
 
+`install.sh [product ...]` accepts `claude`, `codex`, `grok`, `qwen`, and
+`opencode`; with no products it installs all five. For example:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/antst/sessionbus-peers/main/install.sh | sh -s -- codex qwen
+```
+
 Set `SESSIONBUS_PREFIX` to choose another binary directory. Set
 `SESSIONBUS_PEERS_VERSION` to install one exact release. For a reproducible
 0.5.0 install, pin both the installer and its assets:
@@ -53,13 +60,19 @@ Codex's `scripts/codex-mcp` is sourced and receives
 `qwen/mcp.json` invokes `qwen-peer` from `PATH`; and Sessionbus launches
 `opencode-peer` from `PATH` for OpenCode lanes.
 
-Complete each product hookup using only the retained integration:
+The installer prints the hookup line for every selected product. These lines
+are also the source-install hookup instructions:
 
-- Claude: `claude plugin marketplace add https://github.com/antst/sessionbus-peers.git`, then `claude plugin install sessionbus@sessionbus`.
-- Codex: source `scripts/codex-mcp`, then run `install_codex_mcp "$(command -v codex)" "$HOME/.local/bin/codex-peer"`.
-- OpenCode: install the pkg.pr.new preview rooted at `opencode/`, then run its `sessionbus-opencode-install` executable from `bin.mjs`.
-- Grok: install or register the `grok/` plugin directory.
-- Qwen: install or register the `qwen/` plugin directory.
+```text
+Claude hookup: claude plugin marketplace add https://github.com/antst/sessionbus-peers.git && claude plugin install sessionbus@sessionbus
+Codex hookup: configure the installed codex-peer with scripts/codex-mcp
+Grok hookup: install or register the grok/ plugin directory
+Qwen hookup: install or register the qwen/ plugin directory
+OpenCode hookup: install the opencode/ package and run sessionbus-opencode-install
+```
+
+The OpenCode package remains a pkg.pr.new preview until its first separately
+reviewed registry publication.
 
 Product evidence and constraints are in `docs/products/claude.md`,
 `docs/products/codex.md`, `docs/products/opencode.md`,
