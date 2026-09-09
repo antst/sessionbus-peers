@@ -22,7 +22,10 @@ Its public Connection/Request/NewConnection exposes the existing validated
 RPC, including acknowledgment-before-next-frame ordering. Caller.Action uses
 the reviewed WaitContext cancellation; the adapter has no result cache or
 private Caller state. The Go binary links no Node runtime or held lane backend.
-The held lane source remains in wrappers/claude for the subsequent lane step.
+The held lane source has now been replaced by direct Go control under
+[GO-LANE.md](GO-LANE.md), with [admission](LANE-DELIVERY-AMENDMENT.md) and
+[graceful-close](LANE-GRACEFUL-CLOSE.md) corrections. It reuses the accepted
+interactive MCP protocol and Caller through one worker-owned endpoint.
 
 ## Explicit translation difference: overlapping report initiation (G01)
 
@@ -69,10 +72,11 @@ passthrough was checked. Evidence is under
 `/home/antst/sessionbus-evidence/claude-go-install-efcd86b/` on umka. That checkpoint
 includes G01 and is not final acceptance. Corrected76b921b and a056303 have separate installed artifact bindings. The
 [installed ledger](interactive-candidate.md) records
-FC01–FC08 observations and retained limits; the a056303 candidate remains
-installed for owner manual testing. The Go kit source/module sums are bound in
+FC01–FC08 observations and retained limits; the historical a056303 candidate was later replaced in that same installation
+by combined lane development builds. The Go kit source/module sums are bound in
 [GO-KIT-BINDING.json](GO-KIT-BINDING.json); KIT-BINDING.json remains the historical
-Node dependency record. Lane remains a separate unfinished step.
+Node dependency record. Lane development and its open acceptance limits are
+recorded in the current section of the same ledger.
 
 The inventory's proposed `probes/claude` ledger paths are mapped to
 `docs/designs/claude-0.5.0/{first-contact.json,interactive-candidate.md}` in the
