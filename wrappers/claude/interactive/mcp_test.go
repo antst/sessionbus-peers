@@ -203,3 +203,51 @@ func TestMCPProtocolHiddenReportAndEOF(t *testing.T) {
 		t.Fatal("EOF left integration alive")
 	}
 }
+
+type failedOutput struct{}
+
+func (failedOutput) Write([]byte) (int, error) { return 0, io.ErrClosedPipe }
+
+func TestOutputFailureEndsOwnerAndUnblocksInput(t *testing.T) {
+	o, _ := testOwner(t)
+	r, w := io.Pipe()
+	defer w.Close()
+	done := make(chan struct{})
+	go func() { _ = Serve(o, r, failedOutput{}); close(done) }()
+	_, _ = io.WriteString(w, "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\"}\n")
+	<-done
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if !o.ended {
+		t.Fatal("output failure left owner active")
+	}
+}
+
+func TestMCPRejectsNullVersionAndMalformedFrames(t *testing.T) {
+	o, _ := testOwner(t)
+	h := newMCP(t, o)
+	for _, raw := range []string{
+		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":null}}`,
+		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":4}}`,
+		`{"jsonrpc":"2.0","id":1,"method":"ping","params":[]}`,
+		`{"jsonrpc":"2.0","id":null,"method":"ping"}`,
+		`null`, `{`,
+	} {
+		if _, err := h.input.Write([]byte(raw + "\n")); err != nil {
+			t.Fatal(err)
+		}
+		if f := h.next(t); len(f["error"]) == 0 {
+			t.Fatalf("accepted %s", raw)
+		}
+	}
+	for _, raw := range []string{
+		`{"hook_event_name":"Stop","session_id":"id","agent_id":null}`,
+		`{"hook_event_name":"Stop","session_id":"id","session_title":null}`,
+		`{"hook_event_name":"Stop","session_id":"id","agent_id":"agent"}`,
+		`{"hook_event_name":"SessionStart","session_id":"id"}`,
+	} {
+		if _, err := o.BeginReport(json.RawMessage(raw)); err == nil {
+			t.Fatalf("accepted report %s", raw)
+		}
+	}
+}

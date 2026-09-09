@@ -15,8 +15,14 @@ import (
 	"github.com/antst/sessionbus/bus/sdk/go/protocol"
 )
 
+type opening struct {
+	ready      chan struct{}
+	connection *kit.Connection
+	err        error
+}
+
 type Owner struct {
-	mu, reports          sync.Mutex
+	mu, submission       sync.Mutex
 	groups               []string
 	socket, nativeSocket string
 	dial                 Dial
@@ -24,6 +30,7 @@ type Owner struct {
 	identity, admitted   *kit.Identity
 	generation           uint64
 	ended                bool
+	opening              *opening
 	connection           *kit.Connection
 	caller               *kit.Caller
 	ctx                  context.Context
@@ -55,11 +62,10 @@ func NewOwner(env map[string]string) (*Owner, error) {
 	return o, nil
 }
 
-// BeginReport applies reports in stdin order and sends hello before returning;
-// waiting for its acknowledgment never blocks the MCP input reader.
+// BeginReport applies native state in stdin order. Cancellable dial/write work
+// runs separately; obsolete, unsubmitted generations return unavailable.
+// The submission mutex orders only actual transport initiation, never stdin.
 func (o *Owner) BeginReport(raw json.RawMessage) (<-chan error, error) {
-	o.reports.Lock()
-	defer o.reports.Unlock()
 	var fields map[string]json.RawMessage
 	if json.Unmarshal(raw, &fields) != nil || fields == nil {
 		return nil, errors.New("unusable native identity report")
@@ -82,6 +88,10 @@ func (o *Owner) BeginReport(raw json.RawMessage) (<-chan error, error) {
 		return nil, errors.New("unusable native identity report")
 	}
 	o.mu.Lock()
+	if o.connection != nil && o.connection.Context().Err() != nil {
+		o.ended = true
+		o.withdrawLocked()
+	}
 	if o.ended {
 		o.mu.Unlock()
 		return nil, unavailable()
@@ -117,47 +127,46 @@ func (o *Owner) BeginReport(raw json.RawMessage) (<-chan error, error) {
 	o.admitted = nil
 	o.generation++
 	generation := o.generation
-	if o.connection == nil {
-		fd, err := o.dial(o.ctx, "unix", o.socket)
-		if err != nil {
-			o.ended = true
-			o.withdrawLocked()
-			o.mu.Unlock()
-			return nil, err
-		}
-		ready := make(chan struct{})
-		var c *kit.Connection
-		c = kit.NewConnection(fd, func(_ context.Context, r *kit.Request) { <-ready; o.handle(c, r) })
-		o.connection = c
-		o.caller = kit.NewCaller(func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-			var result json.RawMessage
-			err := c.Call(ctx, method, params, &result)
-			return result, err
-		})
-		close(ready)
-		go func() {
-			<-c.Done()
-			o.mu.Lock()
-			defer o.mu.Unlock()
-			if o.connection == c && !o.ended {
-				o.ended = true
-				o.withdrawLocked()
-			}
-		}()
+	if o.opening == nil {
+		o.opening = &opening{ready: make(chan struct{})}
+		go o.open(o.opening, o.ctx)
 	}
-	c := o.connection
+	opening, identityContext := o.opening, o.ctx
 	o.mu.Unlock()
-	var result json.RawMessage
-	done := c.Begin("session.hello", identity, &result, func() error {
-		o.mu.Lock()
-		defer o.mu.Unlock()
-		if !o.ended && o.connection == c && o.generation == generation {
-			o.admitted = identity
-		}
-		return nil
-	})
 	observed := make(chan error, 1)
 	go func() {
+		select {
+		case <-opening.ready:
+		case <-identityContext.Done():
+			observed <- unavailable()
+			return
+		}
+		if opening.err != nil {
+			observed <- opening.err
+			return
+		}
+		c := opening.connection
+		// No older hello may cross submission after a newer hello. Obsolete
+		// work is discarded only before calling the public transport Begin.
+		o.submission.Lock()
+		o.mu.Lock()
+		live := !o.ended && o.connection == c && o.generation == generation
+		o.mu.Unlock()
+		if !live {
+			o.submission.Unlock()
+			observed <- unavailable()
+			return
+		}
+		var result json.RawMessage
+		done := c.Begin("session.hello", identity, &result, func() error {
+			o.mu.Lock()
+			defer o.mu.Unlock()
+			if !o.ended && o.connection == c && o.generation == generation {
+				o.admitted = identity
+			}
+			return nil
+		})
+		o.submission.Unlock()
 		err := <-done
 		if err != nil {
 			o.mu.Lock()
@@ -172,6 +181,46 @@ func (o *Owner) BeginReport(raw json.RawMessage) (<-chan error, error) {
 	return observed, nil
 }
 
+func (o *Owner) open(pending *opening, ctx context.Context) {
+	fd, err := o.dial(ctx, "unix", o.socket)
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	defer close(pending.ready)
+	if o.opening != pending || o.ended || ctx.Err() != nil {
+		if fd != nil {
+			_ = fd.Close()
+		}
+		pending.err = unavailable()
+		return
+	}
+	if err != nil {
+		pending.err = err
+		o.ended = true
+		o.withdrawLocked()
+		return
+	}
+	ready := make(chan struct{})
+	var c *kit.Connection
+	c = kit.NewConnection(fd, func(_ context.Context, r *kit.Request) { <-ready; o.handle(c, r) })
+	o.connection = c
+	pending.connection = c
+	o.caller = kit.NewCaller(func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+		var result json.RawMessage
+		err := c.Call(ctx, method, params, &result)
+		return result, err
+	})
+	close(ready)
+	go func() {
+		<-c.Done()
+		o.mu.Lock()
+		defer o.mu.Unlock()
+		if o.connection == c && !o.ended {
+			o.ended = true
+			o.withdrawLocked()
+		}
+	}()
+}
+
 func (o *Owner) withdrawLocked() {
 	o.generation++
 	o.admitted = nil
@@ -181,6 +230,7 @@ func (o *Owner) withdrawLocked() {
 	}
 	c := o.connection
 	o.connection = nil
+	o.opening = nil
 	o.caller = nil
 	if c != nil {
 		_ = c.Close()

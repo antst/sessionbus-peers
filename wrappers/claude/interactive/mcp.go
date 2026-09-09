@@ -151,7 +151,7 @@ func Serve(owner MCPOwner, input io.ReadCloser, output io.Writer) error {
 		switch method {
 		case "initialize":
 			var version string
-			if json.Unmarshal(params["protocolVersion"], &version) != nil {
+			if string(params["protocolVersion"]) == "null" || json.Unmarshal(params["protocolVersion"], &version) != nil {
 				failure(id, -32602, "Invalid initialize parameters")
 				continue
 			}

@@ -235,3 +235,24 @@ func TestSupersessionAndUnexpectedLossAreTerminal(t *testing.T) {
 		})
 	}
 }
+
+func TestCancelledWireCallLateReplyEndsIntegration(t *testing.T) {
+	o, wires := testOwner(t)
+	w := published(t, o, wires)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { _, err := o.Action(ctx, "list", json.RawMessage(`{}`)); done <- err }()
+	f := w.next(t)
+	cancel()
+	if err := <-done; err == nil {
+		t.Fatal("cancelled call succeeded")
+	}
+	o.mu.Lock()
+	c := o.connection
+	o.mu.Unlock()
+	w.reply(t, f, json.RawMessage(`{"sessions":[]}`))
+	<-c.Done()
+	if _, err := o.BeginReport(json.RawMessage(`{"hook_event_name":"Stop","session_id":"native-id"}`)); err == nil {
+		t.Fatal("late unmatched response allowed re-publication")
+	}
+}
