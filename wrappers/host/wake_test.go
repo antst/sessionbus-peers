@@ -41,89 +41,95 @@ func TestUnimplementedWakeRejectedBeforeProductWork(t *testing.T) {
 		{"qwen", (*qwen.Wrapper)(nil)},
 		{"opencode", (*opencode.Wrapper)(nil)},
 	} {
-		t.Run(tc.name, func(t *testing.T) {
-			p := &unsupportedWakeProduct{WorkerCallbacks: tc.product}
-			description, err := p.Hello(context.Background())
-			if err != nil || description.SupportsMessageRun {
-				t.Fatalf("unsupported wake advertised: %+v / %v", description, err)
-			}
-			listener, err := net.Listen("unix", filepath.Join(testsocket.Directory(t), "bus.sock"))
-			if err != nil {
-				t.Fatal(err)
-			}
-			t.Cleanup(func() { _ = listener.Close() })
-			t.Setenv("SESSIONBUS_SOCKET", listener.Addr().String())
-			t.Setenv("SESSIONBUS_LAUNCH_TOKEN", "unsupported-wake-test")
-			t.Setenv("SESSIONBUS_LOCAL_KEY", "")
-			worker := kit.NewWorker(p)
-			go func() { _ = worker.Serve(context.Background()) }()
-			c, err := listener.Accept()
-			if err != nil {
-				t.Fatal(err)
-			}
-			t.Cleanup(func() { _ = c.Close(); <-worker.Closed() })
-			reader := bufio.NewReader(c)
-			receive := func() protocol.Frame {
-				t.Helper()
-				line, e := reader.ReadBytes('\n')
-				if e != nil {
-					t.Fatal(e)
+		for _, mode := range []string{"reject-wake", "stage"} {
+			t.Run(tc.name+"/"+mode, func(t *testing.T) {
+				p := &unsupportedWakeProduct{WorkerCallbacks: tc.product}
+				description, err := p.Hello(context.Background())
+				if err != nil || description.SupportsMessageRun {
+					t.Fatalf("unsupported wake advertised: %+v / %v", description, err)
 				}
-				f, e := protocol.DecodeFrame(line[:len(line)-1])
-				if e != nil {
-					t.Fatal(e)
+				listener, err := net.Listen("unix", filepath.Join(testsocket.Directory(t), "bus.sock"))
+				if err != nil {
+					t.Fatal(err)
 				}
-				return f
-			}
-			send := func(b []byte, e error) {
-				t.Helper()
-				if e != nil {
-					t.Fatal(e)
+				t.Cleanup(func() { _ = listener.Close() })
+				t.Setenv("SESSIONBUS_SOCKET", listener.Addr().String())
+				t.Setenv("SESSIONBUS_LAUNCH_TOKEN", "unsupported-wake-test")
+				t.Setenv("SESSIONBUS_LOCAL_KEY", "")
+				worker := kit.NewWorker(p)
+				go func() { _ = worker.Serve(context.Background()) }()
+				c, err := listener.Accept()
+				if err != nil {
+					t.Fatal(err)
 				}
-				if _, e = c.Write(b); e != nil {
-					t.Fatal(e)
+				t.Cleanup(func() { _ = c.Close(); <-worker.Closed() })
+				reader := bufio.NewReader(c)
+				receive := func() protocol.Frame {
+					t.Helper()
+					line, e := reader.ReadBytes('\n')
+					if e != nil {
+						t.Fatal(e)
+					}
+					f, e := protocol.DecodeFrame(line[:len(line)-1])
+					if e != nil {
+						t.Fatal(e)
+					}
+					return f
 				}
-			}
-			hello := receive()
-			decoded, err := protocol.DecodeParams("session.hello", hello.Params)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if decoded.(*protocol.WorkerHello).SupportsMessageRun {
-				t.Fatal("wire hello advertised wake")
-			}
-			send(protocol.ResultBytes(hello.ID, "session.hello", struct{}{}))
-			send(protocol.RequestBytes(1, "session.open", kit.OpenRequest{Name: "parent/fixture@local", Groups: []string{}, Policy: &kit.LanePolicy{IdleMessage: "run"}}))
-			refused := receive()
-			if refused.ID != 1 || refused.Error == nil || refused.Error.Code != protocol.UnsupportedOpen || p.opens.Load() != 0 {
-				t.Fatalf("wake Open reached product: %+v, opens=%d", refused, p.opens.Load())
-			}
-			// Default stage still reaches the normal Open callback.
-			send(protocol.RequestBytes(2, "session.open", kit.OpenRequest{Name: "parent/fixture@local", Groups: []string{}}))
-			opened := receive()
-			if opened.ID != 2 || opened.Error != nil || p.opens.Load() != 1 {
-				t.Fatal(opened)
-			}
-			// A deliberately misrouted private seed exercises the wrapper's defensive
-			// Run guard through a real kit Run.ReportDelivery, not a fabricated Run value.
-			delivery := kit.DeliveryRequest{MessageID: "message", RunID: "g/1", Body: "do not submit", From: kit.DeliverySource{SessionID: "parent@local", Product: "fixture", Groups: []string{}}}
-			send(protocol.RequestBytes(3, "message.deliver", delivery))
-			answer := receive()
-			var receipt kit.DeliveryReceipt
-			if answer.ID != 3 || protocol.UnmarshalResult("message.deliver", answer.Result, &receipt) != nil || receipt.Disposition != "rejected" || receipt.Reason != "unsupported_delivery_seed" {
-				t.Fatal(answer)
-			}
-			ready := receive()
-			var state protocol.TurnReady
-			if ready.Method != "turn.ready" || json.Unmarshal(ready.Params, &state) != nil || state.State != "unavailable" || state.Outcome != "" || state.Reason != "delivery-seeded runs are not supported by this product" {
-				t.Fatalf("fabricated native terminal: %+v", ready)
-			}
-			send(protocol.ResultBytes(ready.ID, "turn.ready", struct{}{}))
-			send(protocol.RequestBytes(4, "session.close", kit.SessionCloseRequest{SessionID: "fixture-id@local"}))
-			closed := receive()
-			if closed.ID != 4 || closed.Error != nil {
-				t.Fatal(closed)
-			}
-		})
+				send := func(b []byte, e error) {
+					t.Helper()
+					if e != nil {
+						t.Fatal(e)
+					}
+					if _, e = c.Write(b); e != nil {
+						t.Fatal(e)
+					}
+				}
+				hello := receive()
+				decoded, err := protocol.DecodeParams("session.hello", hello.Params)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if decoded.(*protocol.WorkerHello).SupportsMessageRun {
+					t.Fatal("wire hello advertised wake")
+				}
+				send(protocol.ResultBytes(hello.ID, "session.hello", struct{}{}))
+				if mode == "reject-wake" {
+					send(protocol.RequestBytes(1, "session.open", kit.OpenRequest{Name: "parent/fixture@local", Groups: []string{}, Policy: &kit.LanePolicy{IdleMessage: "run"}}))
+					refused := receive()
+					if refused.ID != 1 || refused.Error == nil || refused.Error.Code != protocol.UnsupportedOpen || p.opens.Load() != 0 {
+						t.Fatalf("wake Open reached product: %+v, opens=%d", refused, p.opens.Load())
+					}
+					return
+				}
+				// An independent worker gets one default-stage Open attempt.
+				// Failed Open retry on the same worker is not a product contract.
+				send(protocol.RequestBytes(2, "session.open", kit.OpenRequest{Name: "parent/fixture@local", Groups: []string{}}))
+				opened := receive()
+				if opened.ID != 2 || opened.Error != nil || p.opens.Load() != 1 {
+					t.Fatal(opened)
+				}
+				// A deliberately misrouted private seed exercises the wrapper's defensive
+				// Run guard through a real kit Run.ReportDelivery, not a fabricated Run value.
+				delivery := kit.DeliveryRequest{MessageID: "message", RunID: "g/1", Body: "do not submit", From: kit.DeliverySource{SessionID: "parent@local", Product: "fixture", Groups: []string{}}}
+				send(protocol.RequestBytes(3, "message.deliver", delivery))
+				answer := receive()
+				var receipt kit.DeliveryReceipt
+				if answer.ID != 3 || protocol.UnmarshalResult("message.deliver", answer.Result, &receipt) != nil || receipt.Disposition != "rejected" || receipt.Reason != "unsupported_delivery_seed" {
+					t.Fatal(answer)
+				}
+				ready := receive()
+				var state protocol.TurnReady
+				if ready.Method != "turn.ready" || json.Unmarshal(ready.Params, &state) != nil || state.State != "unavailable" || state.Outcome != "" || state.Reason != "delivery-seeded runs are not supported by this product" {
+					t.Fatalf("fabricated native terminal: %+v", ready)
+				}
+				send(protocol.ResultBytes(ready.ID, "turn.ready", struct{}{}))
+				send(protocol.RequestBytes(4, "session.close", kit.SessionCloseRequest{SessionID: "fixture-id@local"}))
+				closed := receive()
+				if closed.ID != 4 || closed.Error != nil {
+					t.Fatal(closed)
+				}
+			})
+		}
 	}
 }
