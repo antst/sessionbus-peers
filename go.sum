@@ -1,5 +1,7 @@
 github.com/antst/sessionbus/bus/sdk/go v0.1.0-pre.2 h1:Rqb/hc7khNCx6TYFGHDwVfF0wMsbVc7oN6iiA3v8GeU=
 github.com/antst/sessionbus/bus/sdk/go v0.1.0-pre.2/go.mod h1:SujgzvvPHjgVO/vHIixeL9EbOS8NPs/zXJA5ISSFnqM=
+github.com/antst/sessionbus/bus/sdk/go v0.1.0-pre.2.0.20260909060139-fc18c7e4a54e h1:T1lnuqnQf2vFeyScyf4Ud3/0Ia3OE+++6YSwxMXv/T4=
+github.com/antst/sessionbus/bus/sdk/go v0.1.0-pre.2.0.20260909060139-fc18c7e4a54e/go.mod h1:SujgzvvPHjgVO/vHIixeL9EbOS8NPs/zXJA5ISSFnqM=
 github.com/santhosh-tekuri/jsonschema/v5 v5.3.1 h1:lZUw3E0/J3roVtGQ+SCrUrg3ON6NgVqpn3+iol9aGu4=
 github.com/santhosh-tekuri/jsonschema/v5 v5.3.1/go.mod h1:uToXkOrWAZ6/Oc07xWQrPOhJotwFIyu2bBVN41fcDUY=
 golang.org/x/sys v0.30.0 h1:QjkSwP/36a20jFYWkSue1YwXzLmsV5Gfq7Eiy72C1uc=

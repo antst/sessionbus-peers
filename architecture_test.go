@@ -23,7 +23,7 @@ import (
 const (
 	peersModule             = "github.com/antst/sessionbus-peers"
 	sdkModule               = "github.com/antst/sessionbus/bus/sdk/go"
-	sdkVersion              = "v0.1.0-pre.2"
+	sdkVersion              = "v0.1.0-pre.2.0.20260909060139-fc18c7e4a54e"
 	citationCount           = 255
 	citationReachabilitySHA = "21daf6711345d78f02bdc5f2062bdd3b0c726633bb9f565adc325dbd06bec6d9"
 	factsHeader             = "> Historical source note: citations to pre-split Sessionbus paths resolve in\n> the Forgejo `ai/sessionbus` repository through its `legacy-*` branches.\n> Citations to product source resolve in the external repository and full\n> commit recorded by the split archive manifest. Host evidence paths are\n> immutable external artifacts, not repository paths."
@@ -249,7 +249,7 @@ func TestRepositoryURLsAndRemovedPaths(t *testing.T) {
 
 func TestRetainedManifestCommandReachability(t *testing.T) {
 	installed := map[string]bool{
-		"node":        true,
+		"${CLAUDE_PLUGIN_ROOT}/bin/sessionbus-mcp": true,
 		"claude-peer": true,
 		"codex-peer":  true,
 		"grok-peer":   true,
@@ -474,35 +474,26 @@ func read(t *testing.T, path string) []byte {
 }
 
 func TestClaudeInteractivePackageBoundary(t *testing.T) {
-	var manifest struct {
-		Name         string            `json:"name"`
-		Bin          map[string]string `json:"bin"`
-		Dependencies map[string]string `json:"dependencies"`
+	for _, name := range []string{"launch.go", "owner.go", "mcp.go", "delivery.go", "tools.go"} {
+		if !regular(t, filepath.Join("wrappers/claude/interactive", name)) {
+			t.Errorf("missing Go module %s", name)
+		}
 	}
-	if err := json.Unmarshal(read(t, "claude/package.json"), &manifest); err != nil {
-		t.Fatal(err)
+	if manifestCommand(t, "claude/.mcp.json") != "${CLAUDE_PLUGIN_ROOT}/bin/sessionbus-mcp" {
+		t.Fatal("private MCP alias changed")
 	}
-	if manifest.Name != "@sessionbus/claude" || manifest.Bin["claude-peer"] != "main.mjs" || len(manifest.Bin) != 1 {
-		t.Fatal("Claude Node executable ownership is incorrect")
-	}
-	if len(manifest.Dependencies) != 1 || manifest.Dependencies["@sessionbus/kit"] != "https://pkg.pr.new/@sessionbus/kit@fdff89c" {
-		t.Fatal("Claude kit dependency changed")
+	if _, err := os.Stat("claude/package.json"); !os.IsNotExist(err) {
+		t.Fatal("active plugin must not require npm")
 	}
 	for _, name := range []string{"main.mjs", "mcp.mjs", "owner.mjs", "delivery.mjs", "tools.mjs"} {
-		if !regular(t, filepath.Join("claude", name)) {
-			t.Errorf("missing Claude module %s", name)
+		if !regular(t, filepath.Join("docs/designs/claude-0.5.0/node-reference", name)) {
+			t.Errorf("reviewed Node reference missing: %s", name)
 		}
 	}
-	for _, name := range []string{"peer.go", "peer_test.go"} {
-		if regular(t, filepath.Join("wrappers/claude", name)) {
-			t.Errorf("obsolete Claude Go interactive file %s", name)
-		}
+	if !bytes.Contains(read(t, "wrappers/claude/claude.go"), []byte("func (p *Wrapper) Open")) {
+		t.Fatal("held lane source removed")
 	}
-	lane := read(t, "wrappers/claude/claude.go")
-	if bytes.Contains(lane, []byte("func InteractivePlan")) || !bytes.Contains(lane, []byte("func (p *Wrapper) Open")) {
-		t.Fatal("Claude removal must preserve held lane source only")
-	}
-	if !bytes.Contains(read(t, "cmd/claude-peer/main.go"), []byte("mcp.NewLaneBackend")) {
-		t.Fatal("held lane MCP half removed")
+	if !bytes.Contains(read(t, "cmd/claude-peer/main.go"), []byte("interactive.PrivateAlias")) {
+		t.Fatal("private alias dispatch missing")
 	}
 }
