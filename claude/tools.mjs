@@ -11,7 +11,7 @@ spawn fresh: {product:string, name:string, open:object, host?:string, extra_grou
 run: {session_id:string, input:nonempty string}; waits for the terminal result.
 start: same fields as run; returns a local turn_id for collection.
 status: {turn_id:string}; running is non-consuming; a completed/unavailable result is consumed once.
-wait: {turn_id:string, timeout_ms?:nonnegative integer}; collects the result or returns running at the explicit bound. Handles belong to this MCP owner, not daemon session IDs.
+wait: {turn_id:string, timeout_ms?:nonnegative integer}; collects the result or returns running at the explicit bound. Cancelling a pending wait leaves its run/result collectible; it does not interrupt the remote turn. Handles belong to this MCP owner, not daemon session IDs.
 interrupt: {session_id:string}; acknowledgment is not terminal completion.
 close: {session_id:string, forget?:boolean}; forget: {session_id:string} closes with forget=true.
 No unlisted argument fields. Message and input strings have a 262144-character wire limit. Native policy can deny any public call.`,
@@ -24,5 +24,8 @@ export function callTool(owner, input, signal) {
       !ACTIONS.includes(input.action) || !input.arguments || typeof input.arguments !== 'object' || Array.isArray(input.arguments)) {
     throw new Error('expected a Sessionbus action and arguments object');
   }
+  signal?.throwIfAborted();
+  // The public Caller action path passes this signal to cancellable wait.
+  // Do not race a consuming result or keep an adapter result cache.
   return owner.action(input.action,input.arguments,signal);
 }

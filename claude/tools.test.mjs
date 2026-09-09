@@ -70,8 +70,8 @@ test('real Caller start/status/wait collects a validated run result once',async 
   await assert.rejects(async()=>w.call('status',{turn_id}),/unknown_turn/);
 });
 
-test('real Caller wait settles on owner disconnect without an adapter result cache',async t=>{
+test('real Caller wait is cancelled on owner disconnect without an adapter result cache',async t=>{
   const w=await wire(t);const {turn_id}=await w.call('start',{session_id:'daemon-lane',input:'work'});await w.next();
-  const waiting=w.call('wait',{turn_id});await Promise.resolve();w.owner.end();
-  assert.deepEqual(await waiting,{turn_id,session_id:'daemon-lane',state:'unavailable',reason:'-32002 not_connected'});
+  const waiting=w.call('wait',{turn_id});const rejected=assert.rejects(waiting,/not_connected/);await Promise.resolve();w.owner.end();
+  await rejected;
 });

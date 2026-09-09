@@ -485,7 +485,7 @@ func TestClaudeInteractivePackageBoundary(t *testing.T) {
 	if manifest.Name != "@sessionbus/claude" || manifest.Bin["claude-peer"] != "main.mjs" || len(manifest.Bin) != 1 {
 		t.Fatal("Claude Node executable ownership is incorrect")
 	}
-	if len(manifest.Dependencies) != 1 || manifest.Dependencies["@sessionbus/kit"] != "https://pkg.pr.new/@sessionbus/kit@5f93fbb" {
+	if len(manifest.Dependencies) != 1 || manifest.Dependencies["@sessionbus/kit"] != "https://pkg.pr.new/@sessionbus/kit@fdff89c" {
 		t.Fatal("Claude kit dependency changed")
 	}
 	for _, name := range []string{"main.mjs", "mcp.mjs", "owner.mjs", "delivery.mjs", "tools.mjs"} {

@@ -49,30 +49,20 @@ export function serve(owner, input, output) {
       const controller=p.name===tool.name ? new AbortController() : null;
       if(controller) pending.set(id,controller);
       try {
-        const value=controller ? await cancellable(callTool(owner,p.arguments,controller.signal),controller.signal) : await owner.report(p.arguments);
+        const value=controller ? await callTool(owner,p.arguments,controller.signal) : await owner.report(p.arguments);
         result=content(value ?? {});
       } catch(e) {
+        if (controller?.signal.aborted && e === controller.signal.reason) return;
         result={...content(e instanceof ProtocolError ? {code:e.code,message:e.message,...(e.data===undefined?{}:{data:e.data})} : {error:e.message}),isError:true};
       } finally { if(controller) pending.delete(id); }
-      if(controller?.signal.aborted) return; // No late response to a cancelled request.
+      // A fulfilled consuming operation won settlement; never drop its result
+      // because a cancellation notification arrived after that completion.
     } else {error(id,-32601,'Method not found');return;}
     write({jsonrpc:'2.0',id,result});
   }
   lines.on('line',line=>{void dispatch(line).catch(stop);});
   lines.on('close',stop); input.on('error',stop); output.on('error',stop); output.on('close',stop);
   return {close:stop};
-}
-
-// Some Caller-local actions (wait/status) do not use a wire cancellation signal.
-// Stop this MCP wait only; never claim remote interruption or message withdrawal.
-function cancellable(value, signal) {
-  return new Promise((resolve,reject)=>{
-    const finish=(call,result)=>{signal.removeEventListener('abort',abort);call(result);};
-    const abort=()=>finish(reject,signal.reason);
-    signal.addEventListener('abort',abort,{once:true});
-    if(signal.aborted) abort();
-    Promise.resolve(value).then(value=>finish(resolve,value),error=>finish(reject,error));
-  });
 }
 
 if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {

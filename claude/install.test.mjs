@@ -35,7 +35,7 @@ for (const route of ['packed','folder']) test(`${route} npm install resolves onl
   const manifest=json(join(installed,'package.json'));
   assert.deepEqual(manifest.bin,{'claude-peer':'main.mjs'});
   assert.equal(existsSync(join(prefix,'bin/sessionbus-claude-mcp')),false);
-  assert.equal(manifest.dependencies['@sessionbus/kit'],'https://pkg.pr.new/@sessionbus/kit@5f93fbb');
+  assert.equal(manifest.dependencies['@sessionbus/kit'],'https://pkg.pr.new/@sessionbus/kit@fdff89c');
   assert.equal(json(join(installed,'.claude-plugin/plugin.json')).version,manifest.version);
   const server=json(join(installed,'.mcp.json')).mcpServers.sessionbus;
   assert.deepEqual(server,{command:'node',args:['${CLAUDE_PLUGIN_ROOT}/mcp.mjs']});

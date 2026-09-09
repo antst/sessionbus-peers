@@ -27,7 +27,7 @@
     "test": "node --test *.test.mjs"
   },
   "dependencies": {
-    "@sessionbus/kit": "https://pkg.pr.new/@sessionbus/kit@5f93fbb"
+    "@sessionbus/kit": "https://pkg.pr.new/@sessionbus/kit@fdff89c"
   },
   "repository": {
     "type": "git",

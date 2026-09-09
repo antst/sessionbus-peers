@@ -5,8 +5,8 @@
   "method": "Physical lines use bytes.splitlines; whole tracked repository and whole files, including unchanged guidance. Self-accounting file included in final totals, omitted from content digest. npm pack lists real tarball files; dependencies count installed production bytes separately. No native runtime acceptance.",
   "scope": "Interactive only; held Go lane and other products/dependencies remain. Runtime/test targets are review triggers, not total implementation size.",
   "generator": {
-    "path": "/home/antst/sessionbus-evidence/claude-interactive-offline-20260909/review-c02-c03/size.py",
-    "sha256": "62eabe3a425b8a428adb7c4691c7c8876723d66655fd3f003407f551de76b465",
+    "path": "/home/antst/sessionbus-evidence/claude-interactive-offline-20260909/review-c01/size.py",
+    "sha256": "4697e749c6d10617ee9c4dbf730bb2daac211e707582fe37bd7cd29aeb3159e2",
     "bytes": 6059,
     "physical_lines": 28,
     "scope": "Offline accounting helper outside runtime/package; bytes and lines reported, no installation/helper process added"
@@ -46,24 +46,24 @@
   "after": {
     "repository": {
       "files": 146,
-      "bytes": 1051642,
-      "physical_lines": 20700
+      "bytes": 1057135,
+      "physical_lines": 20762
     },
     "claude_package": {
       "files": 19,
-      "bytes": 61682,
-      "physical_lines": 1050
+      "bytes": 65815,
+      "physical_lines": 1095
     },
     "package_categories": {
       "runtime": {
         "files": 5,
-        "bytes": 15545,
-        "physical_lines": 290
+        "bytes": 15361,
+        "physical_lines": 283
       },
       "tests": {
         "files": 6,
-        "bytes": 32116,
-        "physical_lines": 441
+        "bytes": 36281,
+        "physical_lines": 491
       },
       "manifests_and_lock": {
         "files": 5,
@@ -72,8 +72,8 @@
       },
       "guidance_and_retained_scripts": {
         "files": 3,
-        "bytes": 10514,
-        "physical_lines": 173
+        "bytes": 10666,
+        "physical_lines": 175
       }
     },
     "runtime_modules": [
@@ -145,13 +145,13 @@
     },
     {
       "path": "claude/mcp.mjs",
-      "bytes": 4268,
-      "physical_lines": 81
+      "bytes": 3812,
+      "physical_lines": 71
     },
     {
       "path": "claude/mcp.test.mjs",
-      "bytes": 5807,
-      "physical_lines": 73
+      "bytes": 10014,
+      "physical_lines": 123
     },
     {
       "path": "claude/owner.mjs",
@@ -175,17 +175,17 @@
     },
     {
       "path": "claude/skills/sessionbus/SKILL.md",
-      "bytes": 2561,
-      "physical_lines": 46
+      "bytes": 2713,
+      "physical_lines": 48
     },
     {
       "path": "claude/tools.mjs",
-      "bytes": 2376,
-      "physical_lines": 28
+      "bytes": 2648,
+      "physical_lines": 31
     },
     {
       "path": "claude/tools.test.mjs",
-      "bytes": 5305,
+      "bytes": 5263,
       "physical_lines": 77
     }
   ],
@@ -475,16 +475,16 @@
       "path": "claude/mcp.mjs",
       "before": null,
       "after": {
-        "bytes": 4268,
-        "physical_lines": 81
+        "bytes": 3812,
+        "physical_lines": 71
       }
     },
     {
       "path": "claude/mcp.test.mjs",
       "before": null,
       "after": {
-        "bytes": 5807,
-        "physical_lines": 73
+        "bytes": 10014,
+        "physical_lines": 123
       }
     },
     {
@@ -622,23 +622,23 @@
         "physical_lines": 78
       },
       "after": {
-        "bytes": 2561,
-        "physical_lines": 46
+        "bytes": 2713,
+        "physical_lines": 48
       }
     },
     {
       "path": "claude/tools.mjs",
       "before": null,
       "after": {
-        "bytes": 2376,
-        "physical_lines": 28
+        "bytes": 2648,
+        "physical_lines": 31
       }
     },
     {
       "path": "claude/tools.test.mjs",
       "before": null,
       "after": {
-        "bytes": 5305,
+        "bytes": 5263,
         "physical_lines": 77
       }
     },
@@ -713,8 +713,8 @@
       "path": "docs/designs/claude-0.5.0/IMPLEMENTATION-BASE.md",
       "before": null,
       "after": {
-        "bytes": 1738,
-        "physical_lines": 9
+        "bytes": 2414,
+        "physical_lines": 11
       }
     },
     {
@@ -729,8 +729,8 @@
       "path": "docs/designs/claude-0.5.0/KIT-BINDING.json",
       "before": null,
       "after": {
-        "bytes": 1194,
-        "physical_lines": 36
+        "bytes": 1877,
+        "physical_lines": 51
       }
     },
     {
@@ -903,10 +903,10 @@
   "npm_pack": {
     "name": "@sessionbus/claude",
     "version": "0.5.0-interactive.0",
-    "size": 10146,
-    "unpackedSize": 28815,
-    "shasum": "f3017afee7f52daabcae7d2418cb940f3d85c07d",
-    "integrity": "sha512-nFGjXj24QFnWg6Lia2RmRg0b+QbpE3e2Nwcvek3HPfKKXZeigpiITiXAIohC/8CFchQOT2NJQCKhV1BfTuUQxA==",
+    "size": 10177,
+    "unpackedSize": 28783,
+    "shasum": "5187b9080d64e6eb68f4cba2b7301cbcac461df8",
+    "integrity": "sha512-VLoCUpskUc8Auv2YOLErlv5elDsutPq8GE3DjxwtK0dDOV6AKPjAUcTfkY9aWFOqdD4ZuNSMivsgKgnbsEVb1Q==",
     "filename": "sessionbus-claude-0.5.0-interactive.0.tgz",
     "files": [
       {
@@ -946,7 +946,7 @@
       },
       {
         "path": "mcp.mjs",
-        "size": 4268,
+        "size": 3812,
         "mode": 493
       },
       {
@@ -961,12 +961,12 @@
       },
       {
         "path": "skills/sessionbus/SKILL.md",
-        "size": 2561,
+        "size": 2713,
         "mode": 420
       },
       {
         "path": "tools.mjs",
-        "size": 2376,
+        "size": 2648,
         "mode": 420
       }
     ],
@@ -980,8 +980,8 @@
     ],
     "installed_tree": {
       "files": 8,
-      "bytes": 49638,
-      "physical_lines": 882
+      "bytes": 49823,
+      "physical_lines": 890
     },
     "installed_file_bytes": [
       {
@@ -1002,7 +1002,7 @@
       },
       {
         "path": "@sessionbus/kit/sdk/js/caller.js",
-        "bytes": 5069
+        "bytes": 5254
       },
       {
         "path": "@sessionbus/kit/sdk/js/connection.js",
@@ -1020,9 +1020,9 @@
     "kit_binding": "KIT-BINDING.json",
     "scope": "Includes installed kit and npm metadata; no dependency removal credited. Shared Go SDK retained and excluded from Node dependency subtotal."
   },
-  "final_content_digest_excluding_this_file": "1e90f7e38fc5ebc809cf769705721f89e556c9c76cd4db3b0353e24e58493497",
+  "final_content_digest_excluding_this_file": "6655fb93b7e05dba38f6f1891ab20f1c02ff570117b40e2d5523c348dc906ceb",
   "validation": {
-    "claude_tests": 30,
+    "claude_tests": 33,
     "opencode_tests": 31,
     "go_test": "pass",
     "go_race": "pass",

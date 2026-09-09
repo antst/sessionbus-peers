@@ -35,7 +35,9 @@ and errors exactly at their stated boundary. Unexpected connection loss ends
 this integration instance; report the failure rather than attempting repair.
 
 `start`, `status` and `wait` use the public Caller's explicit turn handles.
-Keep returned IDs/results intact. An explicit wait bound is the caller's
+Keep returned IDs/results intact. Cancelling a pending wait stops only that
+wait; collect the retained result later with status or wait. A completed
+collection consumes the handle once. An explicit wait bound is the caller's
 request, not permission to poll, reconnect or replay. Caller forwarding to a
 daemon-supported product does not make this interactive Claude candidate a
 Claude lane provider: token-selected Claude lane mode is unavailable here.

@@ -11,7 +11,7 @@ Use Node.js >=24.0.0 with `process.execve`, npm, Claude installed on the login
 PATH with working native authentication, and a separately installed compatible
 Sessionbus user service. The service must support optional names and `written`
 receipts (bus b1d7adb or a compatible release). This package pins the reviewed
-public kit preview at `https://pkg.pr.new/@sessionbus/kit@5f93fbb` in its lockfile.
+public kit preview at `https://pkg.pr.new/@sessionbus/kit@fdff89c` in its lockfile.
 Go is not needed to install this Node package; the daemon is a separate install.
 
 From this candidate repository checkout:
