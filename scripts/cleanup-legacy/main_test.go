@@ -14,7 +14,10 @@ import (
 
 func fixture(t *testing.T) *cleaner {
 	t.Helper()
-	home := t.TempDir()
+	home, err := filepath.EvalSymlinks(t.TempDir()) // Match main's canonical home on macOS too.
+	if err != nil {
+		t.Fatal(err)
+	}
 	return &cleaner{home: home, config: filepath.Join(home, ".config"), out: &bytes.Buffer{}, run: func(bin string, args ...string) ([]byte, error) {
 		t.Fatalf("unexpected command: %s %v", bin, args)
 		return nil, nil
