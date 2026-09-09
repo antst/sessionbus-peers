@@ -131,11 +131,7 @@ func (p *Wrapper) Open(ctx context.Context, r kit.OpenRequest) (result kit.OpenR
 	p.stream = s
 	processDone := p.processDone
 	p.mu.Unlock()
-	go func() {
-		_ = child.Wait()
-		close(processDone)
-		// The stream reader owns EOF. Wait must not discard buffered native output.
-	}()
+	go waitNative(child, processDone)
 	init, err := s.control(nativeCtx, map[string]string{"subtype": "initialize"})
 	if err != nil {
 		return result, err
@@ -317,3 +313,9 @@ func (p *Wrapper) Close(context.Context, kit.SessionCloseRequest) error {
 	return nil
 }
 func shellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'" }
+
+// The stream reader owns EOF; process exit must not discard buffered output.
+func waitNative(child *exec.Cmd, done chan struct{}) {
+	_ = child.Wait()
+	close(done)
+}

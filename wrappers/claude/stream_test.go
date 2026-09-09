@@ -7,6 +7,8 @@ import (
 	"errors"
 	kit "github.com/antst/sessionbus/bus/sdk/go"
 	"io"
+	"os"
+	"os/exec"
 	"testing"
 )
 
@@ -184,4 +186,45 @@ func TestCancellationClosesBlockedNativeWrite(t *testing.T) {
 		t.Fatal(err)
 	}
 	<-s.done
+}
+
+type gatedNativeReader struct {
+	io.ReadCloser
+	release <-chan struct{}
+}
+
+func (r gatedNativeReader) Read(p []byte) (int, error) { <-r.release; return r.ReadCloser.Read(p) }
+func TestProcessExitBeforeReaderPreservesBufferedTerminal(t *testing.T) {
+	input, write := io.Pipe()
+	output, childOutput, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	release := make(chan struct{})
+	s := newStream(write, gatedNativeReader{output, release}, nil)
+	t.Cleanup(func() { s.stop(io.EOF); _ = input.Close(); _ = childOutput.Close() })
+	done := make(chan runResult, 1)
+	go func() { v, e := s.run(context.Background(), "id", "input", func() {}); done <- runResult{v, e} }()
+	var user map[string]json.RawMessage
+	if err = json.NewDecoder(input).Decode(&user); err != nil {
+		t.Fatal(err)
+	}
+	id := rawString(t, user["uuid"])
+	replay, _ := json.Marshal(map[string]any{"type": "user", "session_id": "id", "uuid": id, "isReplay": true})
+	terminal, _ := json.Marshal(map[string]any{"type": "result", "session_id": "id", "user_message_uuid": id, "subtype": "success", "result": "buffered terminal"})
+	// A controlled process writes the native-shaped frames. No product runs here.
+	child := exec.Command("sh", "-c", `printf '%s\n' "$1" "$2"`, "fixture", string(replay), string(terminal))
+	child.Stdout = childOutput
+	if err = child.Start(); err != nil {
+		t.Fatal(err)
+	}
+	_ = childOutput.Close()
+	exited := make(chan struct{})
+	go waitNative(child, exited)
+	<-exited
+	close(release)
+	got := <-done
+	if got.err != nil || got.value.Result != "buffered terminal" {
+		t.Fatalf("%+v", got)
+	}
 }
