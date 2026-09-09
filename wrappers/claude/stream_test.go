@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"sync"
 	"testing"
 )
 
@@ -257,5 +258,48 @@ func TestCanceledInterruptResponseWaitKeepsLaneTransport(t *testing.T) {
 		t.Fatalf("request cancellation retired lane: %v", failure)
 	}
 	f.send(t, map[string]any{"type": "control_response", "response": map[string]any{"subtype": "success", "request_id": rawString(t, request["request_id"]), "response": map[string]any{}}})
+	f.barrier(t)
+}
+
+type cancelledFailedWriter struct {
+	cancel context.CancelFunc
+	short  bool
+	closed chan struct{}
+	once   sync.Once
+}
+
+func (w *cancelledFailedWriter) Write(p []byte) (int, error) {
+	w.cancel()
+	if w.short {
+		return len(p) - 1, nil
+	}
+	return 1, io.ErrUnexpectedEOF
+}
+func (w *cancelledFailedWriter) Close() error { w.once.Do(func() { close(w.closed) }); return nil }
+func TestFailedWriteWithCancellationAlwaysRetiresTransport(t *testing.T) {
+	for _, short := range []bool{false, true} {
+		t.Run(map[bool]string{false: "failed", true: "short"}[short], func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			w := &cancelledFailedWriter{cancel: cancel, short: short, closed: make(chan struct{})}
+			input, output := io.Pipe()
+			defer output.Close()
+			s := newStream(w, input, nil)
+			attempted, err := s.write(ctx, map[string]string{"type": "control_request"})
+			if !attempted || err == nil {
+				t.Fatalf("attempted=%v err=%v", attempted, err)
+			}
+			<-s.done
+			<-w.closed
+		})
+	}
+}
+func TestPreCancelledWriteDoesNotSubmitOrRetire(t *testing.T) {
+	f := streamFixture(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	attempted, err := f.s.write(ctx, map[string]string{"type": "user"})
+	if attempted || !errors.Is(err, context.Canceled) {
+		t.Fatal(attempted, err)
+	}
 	f.barrier(t)
 }

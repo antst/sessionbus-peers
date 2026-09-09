@@ -119,6 +119,9 @@ func (s *stream) stop(err error) {
 // Cancellation of a blocked pipe ends this transport; an attempted write is
 // never relabelled as a native rejection.
 func (s *stream) write(ctx context.Context, value any) (bool, error) {
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
 	body, err := json.Marshal(value)
 	if err != nil {
 		return false, err
@@ -149,28 +152,29 @@ func (s *stream) write(ctx context.Context, value any) (bool, error) {
 		}
 		done <- written{attempted: true, err: err}
 	}()
+	var result written
 	select {
-	case result := <-done:
-		if result.err != nil && result.attempted {
-			s.stop(result.err)
-		}
-		if result.err != nil && ctx.Err() != nil {
-			result.err = ctx.Err()
-		}
-		return result.attempted, result.err
+	case result = <-done:
 	case <-ctx.Done():
 		// A completed write wins over later request cancellation. Only an
 		// outstanding write needs transport closure to unblock it.
 		select {
-		case result := <-done:
-			return result.attempted, result.err
+		case result = <-done:
 		default:
+			s.stop(ctx.Err())
+			result = <-done
+			result.err = ctx.Err()
 		}
-		s.stop(ctx.Err())
-		result := <-done
-		result.err = ctx.Err()
-		return result.attempted, result.err
 	}
+	// Both completion paths enforce the same broken-stream boundary.
+	if result.attempted && result.err != nil {
+		s.stop(result.err)
+	}
+	if result.err != nil && ctx.Err() != nil {
+		result.err = ctx.Err()
+	}
+	return result.attempted, result.err
+
 }
 func (s *stream) control(ctx context.Context, request any) (json.RawMessage, error) {
 	id, err := correlationID()
