@@ -179,8 +179,8 @@ func TestSPDXAndLicenseCoverage(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, path := range []string{
-		"claude/skills/codex-lane/scripts/lane-preflight",
-		"claude/skills/grok-lane/scripts/lane-preflight",
+		"docs/designs/claude-0.5.0/held-lane-skills/codex-lane/scripts/lane-preflight",
+		"docs/designs/claude-0.5.0/held-lane-skills/grok-lane/scripts/lane-preflight",
 		"grok/scripts/native-entry", "scripts/codex-mcp", "scripts/test-codex-mcp",
 	} {
 		if firstOrSecondLine(read(t, path)) != "# SPDX-License-Identifier: MIT" {
@@ -249,6 +249,7 @@ func TestRepositoryURLsAndRemovedPaths(t *testing.T) {
 
 func TestRetainedManifestCommandReachability(t *testing.T) {
 	installed := map[string]bool{
+		"node":        true,
 		"claude-peer": true,
 		"codex-peer":  true,
 		"grok-peer":   true,
@@ -315,7 +316,7 @@ func TestReadmeIsTheSourceInstallAuthority(t *testing.T) {
 	readme := read(t, "README.md")
 	for _, exact := range []string{
 		`git clone https://github.com/antst/sessionbus.git && cd sessionbus && GOBIN="$HOME/.local/bin" go install ./bus/cmd/...`,
-		`git clone https://github.com/antst/sessionbus-peers.git && cd sessionbus-peers && go test -race ./... && GOBIN="$HOME/.local/bin" go install ./cmd/...`,
+		`git clone https://github.com/antst/sessionbus-peers.git && cd sessionbus-peers && go test -race ./... && GOBIN="$HOME/.local/bin" go install ./cmd/codex-peer ./cmd/grok-peer ./cmd/qwen-peer ./cmd/opencode-peer`,
 		"`go install <pkg>@version` is not available",
 		"this README is the installation authority until then",
 	} {
@@ -470,4 +471,38 @@ func read(t *testing.T, path string) []byte {
 		t.Fatal(err)
 	}
 	return body
+}
+
+func TestClaudeInteractivePackageBoundary(t *testing.T) {
+	var manifest struct {
+		Name         string            `json:"name"`
+		Bin          map[string]string `json:"bin"`
+		Dependencies map[string]string `json:"dependencies"`
+	}
+	if err := json.Unmarshal(read(t, "claude/package.json"), &manifest); err != nil {
+		t.Fatal(err)
+	}
+	if manifest.Name != "@sessionbus/claude" || manifest.Bin["claude-peer"] != "main.mjs" || len(manifest.Bin) != 1 {
+		t.Fatal("Claude Node executable ownership is incorrect")
+	}
+	if len(manifest.Dependencies) != 1 || manifest.Dependencies["@sessionbus/kit"] != "https://pkg.pr.new/@sessionbus/kit@fdff89c" {
+		t.Fatal("Claude kit dependency changed")
+	}
+	for _, name := range []string{"main.mjs", "mcp.mjs", "owner.mjs", "delivery.mjs", "tools.mjs"} {
+		if !regular(t, filepath.Join("claude", name)) {
+			t.Errorf("missing Claude module %s", name)
+		}
+	}
+	for _, name := range []string{"peer.go", "peer_test.go"} {
+		if regular(t, filepath.Join("wrappers/claude", name)) {
+			t.Errorf("obsolete Claude Go interactive file %s", name)
+		}
+	}
+	lane := read(t, "wrappers/claude/claude.go")
+	if bytes.Contains(lane, []byte("func InteractivePlan")) || !bytes.Contains(lane, []byte("func (p *Wrapper) Open")) {
+		t.Fatal("Claude removal must preserve held lane source only")
+	}
+	if !bytes.Contains(read(t, "cmd/claude-peer/main.go"), []byte("mcp.NewLaneBackend")) {
+		t.Fatal("held lane MCP half removed")
+	}
 }

@@ -1,17 +1,13 @@
 {
   "name": "sessionbus",
-  "version": "0.4.0",
-  "description": "Start, collect, message, resume, and archive named Codex, Claude, Grok, and Qwen lanes.",
+  "version": "0.5.0-interactive.0",
+  "description": "Explicit Claude peer sessions and Sessionbus communication; Claude lane mode is unavailable in this candidate.",
   "author": {
     "name": "Sessionbus contributors"
   },
   "keywords": [
-    "codex",
     "claude",
-    "grok",
-    "qwen",
-    "orchestration",
-    "delegation",
-    "cross-session-messaging"
+    "sessionbus",
+    "peer-messaging"
   ]
 }

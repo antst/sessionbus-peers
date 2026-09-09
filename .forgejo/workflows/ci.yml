@@ -29,6 +29,9 @@ jobs:
           go vet ./...
           go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2
           golangci-lint run ./...
+          npm ci --prefix claude --ignore-scripts
+          npm test --prefix claude
+          (cd claude && npm pack --dry-run --json)
           ./scripts/test-codex-mcp
           npm install --prefix opencode --ignore-scripts --no-package-lock
           npm test --prefix opencode

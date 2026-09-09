@@ -1,9 +1,9 @@
 {
   "mcpServers": {
     "sessionbus": {
-      "command": "claude-peer",
+      "command": "node",
       "args": [
-        "mcp"
+        "${CLAUDE_PLUGIN_ROOT}/mcp.mjs"
       ]
     }
   }

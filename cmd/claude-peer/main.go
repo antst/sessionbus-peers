@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"os/signal"
 	"syscall"
 
@@ -28,19 +27,12 @@ func main() {
 }
 
 func run(ctx context.Context, arguments []string) error {
+	// Held lane source only. The Node package owns the interactive executable.
 	if !host.LaneMode() {
-		if len(arguments) == 1 && arguments[0] == "mcp" {
+		if len(arguments) == 1 && arguments[0] == "mcp" && os.Getenv(mcp.LaneSocketEnv) != "" {
 			return runMCP(ctx)
 		}
-		plan, err := claude.InteractivePlan(arguments, os.Environ())
-		if err != nil {
-			return err
-		}
-		path, err := exec.LookPath(plan.Path)
-		if err != nil {
-			return err
-		}
-		return syscall.Exec(path, append([]string{path}, plan.Args...), plan.Env)
+		return errors.New("Go Claude interactive path removed; use the @sessionbus/claude interactive package")
 	}
 	if len(arguments) != 0 {
 		return errors.New("lane mode accepts no arguments")
@@ -64,10 +56,5 @@ func runMCP(ctx context.Context) error {
 		}
 		return (&mcp.Server{Backend: backend}).Serve(ctx, os.Stdin, os.Stdout)
 	}
-	backend, err := claude.NewPeerBackend(ctx)
-	if err != nil {
-		return err
-	}
-	defer backend.Shutdown()
-	return (&mcp.Server{Backend: backend}).Serve(ctx, os.Stdin, os.Stdout)
+	return errors.New("held Claude lane MCP endpoint is required")
 }
