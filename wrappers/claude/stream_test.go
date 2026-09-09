@@ -124,6 +124,7 @@ func TestAppendWaitsForNativeReplay(t *testing.T) {
 		t.Fatal("delivery started work")
 	}
 	f.send(t, map[string]any{"type": "user", "session_id": "wrong", "uuid": id, "isReplay": true})
+	f.send(t, map[string]any{"type": "user", "session_id": "native-id", "uuid": "wrong-uuid", "isReplay": true})
 	f.barrier(t)
 	select {
 	case v := <-done:
@@ -133,6 +134,88 @@ func TestAppendWaitsForNativeReplay(t *testing.T) {
 	f.send(t, map[string]any{"type": "user", "session_id": "native-id", "uuid": id, "isReplay": true})
 	if got := <-done; got != "queued_for_next_turn" {
 		t.Fatal(got)
+	}
+}
+func TestAppendClassifiesAtReplayAcrossRunBoundaries(t *testing.T) {
+	for _, scenario := range []string{"idle", "active", "idle-start", "idle-start-end", "active-end", "replacement", "unconfirmed"} {
+		t.Run(scenario, func(t *testing.T) {
+			f := streamFixture(t)
+			type running struct {
+				id   string
+				done chan runResult
+			}
+			start := func(confirm bool) running {
+				r := running{done: make(chan runResult, 1)}
+				admitted := make(chan struct{}, 1)
+				go func() {
+					v, err := f.s.run(context.Background(), "native-id", "run", func() { admitted <- struct{}{} })
+					r.done <- runResult{v, err}
+				}()
+				r.id = rawString(t, f.next(t)["uuid"])
+				if confirm {
+					f.send(t, map[string]any{"type": "user", "session_id": "native-id", "uuid": r.id, "isReplay": true})
+					<-admitted
+				}
+				return r
+			}
+			finish := func(r running) {
+				// Deliberately excludes the append UUID: admission needs no terminal membership.
+				f.send(t, map[string]any{"type": "result", "session_id": "native-id", "subtype": "success", "user_message_uuid": r.id})
+				if result := <-r.done; result.err != nil {
+					t.Fatal(result.err)
+				}
+			}
+			var active running
+			if scenario == "active" || scenario == "active-end" || scenario == "replacement" || scenario == "unconfirmed" {
+				active = start(scenario != "unconfirmed")
+			}
+			type delivered struct {
+				receipt kit.DeliveryReceipt
+				err     error
+			}
+			done := make(chan delivered, 1)
+			go func() {
+				r, err := f.s.append(context.Background(), "native-id", "append")
+				done <- delivered{r, err}
+			}()
+			id := rawString(t, f.next(t)["uuid"])
+			switch scenario {
+			case "idle-start", "idle-start-end":
+				active = start(true)
+				if scenario == "idle-start-end" {
+					finish(active)
+					active = running{}
+				}
+			case "active-end", "replacement":
+				finish(active)
+				active = running{}
+				if scenario == "replacement" {
+					active = start(true)
+				}
+			case "unconfirmed":
+				f.send(t, map[string]any{"type": "user", "session_id": "native-id", "uuid": active.id, "isReplay": true})
+				f.barrier(t)
+			}
+			f.send(t, map[string]any{"type": "user", "session_id": "native-id", "uuid": id, "isReplay": true})
+			got := <-done
+			if scenario == "idle" || scenario == "active" {
+				want := "queued_for_next_turn"
+				if scenario == "active" {
+					want = "injected"
+				}
+				if got.err != nil || got.receipt.Disposition != want {
+					t.Fatalf("%+v", got)
+				}
+			} else {
+				var protocol *kit.ProtocolError
+				if !errors.As(got.err, &protocol) || protocol.Code != -32603 || string(protocol.Data) != `"uncertain_native_admission"` || got.receipt.Disposition != "" {
+					t.Fatalf("boundary manufactured a receipt: %+v", got)
+				}
+			}
+			if active.id != "" {
+				finish(active)
+			}
+		})
 	}
 }
 func TestAttemptedAppendWithoutAdmissionIsUncertain(t *testing.T) {

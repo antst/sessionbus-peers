@@ -10,15 +10,16 @@
 
 The interactive candidate is now one Go binary plus native plugin assets; it
 preserves reviewed Node behavior at `9644348` and pins the public Go kit to
-merged `f8d409e98218`. The current installed artifact on umka is `a056303`,
+merged `f8d409e98218`. The accepted interactive artifact on umka was `a056303`,
 SHA256 `dc5d8b745a393e32721a5f2c14d59dc2c455f59419f34a88881657bb2083d805`.
 It requires no Node/npm integration runtime. The
 [Go migration](../designs/claude-0.5.0/GO-MIGRATION.md),
 [Go dependency binding](../designs/claude-0.5.0/GO-KIT-BINDING.json) and
 [installed ledger](../designs/claude-0.5.0/interactive-candidate.md) supersede the
 archived Node installation instructions. Actual installed interactive checks
-ran in the real umka environment; lane L02/OB03 and lane implementation remain
-unfinished. Offline fixtures establish implementation behavior separately.
+ran in the real umka environment. Lane development now replaces that same
+permanent installation; the scoped lane observations below do not establish
+complete lane acceptance. Offline fixtures establish implementation behavior separately.
 
 Current interactive publication follows the first usable native report, with no launch/prompt/turn deadline and no generated identity or name. A usable Stop can establish unnamed presence; a later title report supplies the name. Native rename refreshes at a subsequent report. `written` acknowledges only the local native-carrier write. Missing native EOF evidence stays a limitation; implementation stdio cleanup is tested separately. The older inherited lock, injected-on-write, option-parser and PID-lookup prescriptions below are historical; they are removed from this interactive implementation.
 
@@ -54,6 +55,32 @@ and limitations are in the [installed ledger](../designs/claude-0.5.0/interactiv
 | Exact invalid option has identical native/wrapper stderr hash and exit1 | invalid | Exact tested option only; wider argv semantics covered by controlled exec tests. |
 | Real removal and reinstall restore exact payload; candidate remains installed | remove-reinstall | Only listed configuration/native/service hashes compared; no universal cache/history claim. |
 
+
+## Go lane development observations — Claude 2.1.266
+
+These rows use the same permanent umka installation and real daemon `b1d7adb`.
+Raw evidence root: `/home/antst/sessionbus-evidence/claude-go-lane-runtime-20260909/raw/`.
+Each named row has an immutable SHA256 manifest; `FINAL-SHA256SUMS` is the final
+manifest where present. This section supplements the accepted interactive
+observations; it does not relabel older receipts or extend cleanup credit.
+
+| Observation | Installed source / raw row | Limit |
+|---|---|---|
+| Zero-input Open returns a native ID with the bound initialize/title/tool gates; worker/native/MCP share the worker group | fd1e89f / ob03-first | OpenResult plus bound gate code; native control response bodies not independently retained. |
+| Killing the idle worker causes four identified pidfd exits | fd1e89f / l02-worker-death, first-open-cleanup | Immediate child zombies, later identified PIDs absent; endpoint removal was operator cleanup. No active-tool guarantee. |
+| Idle replay stages a marker without starting an assistant turn; one explicit run invokes the real public list and consumes it | fd1e89f / lfc-core | Exact projected result; no following-run duplicate check in this row. |
+| Default native permissions refuse the requested Bash command with “requires approval”; the model still completes its turn | fd1e89f / lfc-active | Tool refusal is not automatically a failed native terminal. No adapter permission substitution. |
+| Interrupt produces native aborted_streaming; following explicit run succeeds | fd1e89f / lfc-interrupt | This sealed build incorrectly mapped the terminal to failed; the mapping correction and regression are separate source changes. |
+| Caller-supplied exact Bash allow rule admits the held tool; replay and exact marker occur in the current run, following run returns only NEXT | 7f40b24 / lfc-active-allowed | Recorded queued_for_next_turn was a receipt defect, preserved as observed. No sole permission-classifier attribution. |
+| Bash tool PID/pgrp 1730226 is outside worker pgrp 1729921 | 7f40b24 / lfc-active-allowed | A worker-group signal does not directly reach this tool; normal cleanup does not prove death cleanup. |
+| Invalid argv/cwd fail Open; concurrent distinct lanes and exact saved-ID resume succeed; connected-ID resume returns AlreadyConnected | 7f40b24 / lfc-config | Zero model input. Same repeated model values establish argv order only; failed-start diagnostics/reaping not captured. Closing one leaves the others connected. |
+
+The [stamped receipt correction](../designs/claude-0.5.0/LANE-DELIVERY-AMENDMENT.md)
+requires exact message UUID/session replay: `injected` during the same confirmed
+active run, `queued_for_next_turn` for demonstrated idle staging, and uncertainty
+across an unclassified run boundary. These receipts acknowledge admission or
+staging, never consumption. The corrected source has controlled boundary tests;
+the original active row remains evidence of the old incorrect label.
 
 ## Historical split archive (unchanged citations)
 
