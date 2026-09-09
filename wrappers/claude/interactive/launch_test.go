@@ -15,10 +15,15 @@ func TestLaunchPreservesNativeArgumentsAndGroupGrammar(t *testing.T) {
 		native []string
 		groups string
 	}{
-		{[]string{"-n", "a", "--", "-g", "native"}, []string{"-n", "a", "--"}, `["native"]`},
-		{[]string{"-n", "", "-n", "b", "--", "positional", "-g", "a,, a,a"}, []string{"-n", "", "-n", "b", "--", "positional"}, `["a",""," a","a"]`},
+		{[]string{"--resume", "test1", "-g", "test,test2", "--yolo"}, []string{"--resume", "test1", "--dangerously-skip-permissions"}, `["test","test2"]`},
+		{[]string{"--resume", "test1", "-g", "test,test2", "--dangerously-skip-permissions"}, []string{"--resume", "test1", "--dangerously-skip-permissions"}, `["test","test2"]`},
+		{[]string{"--resume", "test1", "-g", "test", "-g", "test2,test3", "--yolo"}, []string{"--resume", "test1", "--dangerously-skip-permissions"}, `["test","test2","test3"]`},
+		{[]string{"-g", "first", "--resume", "test1", "--yolo", "-g", "last"}, []string{"--resume", "test1", "--dangerously-skip-permissions"}, `["first","last"]`},
+		{[]string{"-n", "a", "--", "-g", "native", "--yolo"}, []string{"-n", "a", "--", "-g", "native", "--yolo"}, `[]`},
+		{[]string{"-n", "", "-g", "a,, a,a", "-n", "b", "--", "positional"}, []string{"-n", "", "-n", "b", "--", "positional"}, `["a",""," a","a"]`},
 		{[]string{"mcp", "--unknown", "-g", ""}, []string{"mcp", "--unknown"}, `[]`},
 		{[]string{"--", "-g"}, []string{"--", "-g"}, `[]`},
+		{[]string{"--unknown", "a value", "-g", "one", "--model", "first", "--model", "", "--future=value"}, []string{"--unknown", "a value", "--model", "first", "--model", "", "--future=value"}, `["one"]`},
 	}
 	for _, tc := range cases {
 		args, values, err := LaunchPlan(tc.args, map[string]string{"SESSIONBUS_GROUPS": `["inherited"]`, "KEEP": "value", "SESSIONBUS_SOCKET": "relative.sock"}, "/cwd", "/root with spaces/plugin", 1000)
@@ -32,6 +37,14 @@ func TestLaunchPreservesNativeArgumentsAndGroupGrammar(t *testing.T) {
 		env := Environment(values)
 		if env["SESSIONBUS_GROUPS"] != tc.groups || env["KEEP"] != "value" || env["SESSIONBUS_SOCKET"] != "/cwd/relative.sock" {
 			t.Fatalf("unexpected launch environment")
+		}
+	}
+}
+
+func TestLaunchRejectsMissingGroupValueBeforeNativeBoundary(t *testing.T) {
+	for _, args := range [][]string{{"-g"}, {"--resume", "test1", "-g"}, {"-g", "--", "literal"}} {
+		if _, _, err := LaunchPlan(args, nil, "/cwd", "/plugin", 1000); err == nil || err.Error() != "-g requires a group list" {
+			t.Fatalf("args=%q err=%v", args, err)
 		}
 	}
 }
