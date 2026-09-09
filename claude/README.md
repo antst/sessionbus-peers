@@ -3,8 +3,8 @@
 `claude-peer` runs your installed Claude with Sessionbus communication. The
 integration is one Go binary and a small native plugin; it requires no Node or
 npm. Claude, its login, permissions, configuration and history remain native.
-The interactive path is accepted. The direct Go lane path is under development;
-its installed Open, delivery and lifecycle checks are not yet complete.
+Both interactive and lane paths are accepted at the documented scope below,
+including installed Open, delivery, lifecycle and shared-policy checks.
 
 ## Install
 
@@ -96,7 +96,7 @@ Unexpected bus loss ends this resident integration. Cancelled public waits
 leave results readable through their lane/run references; cancellation does not interrupt a
 native turn or retract a message.
 
-## Lane development status
+## Lane behavior
 
 The daemon launches this same binary as a token-selected lane worker. Use the
 public Sessionbus tool: `spawn` with `product: "claude-peer"`, `name` and `open`,
