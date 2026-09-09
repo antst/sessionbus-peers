@@ -8,6 +8,17 @@ including installed Open, delivery, lifecycle and shared-policy checks.
 
 ## Install
 
+Install the binary and native plugin in one step (native Claude and Sessionbus
+must already be installed):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/antst/sessionbus-peers/develop/scripts/install-claude.sh | sh
+```
+
+The default is the development prerelease. Set `SESSIONBUS_VERSION` on `sh`
+to select a published release tag. The installer verifies its archive checksum
+and uses the same permanent layout documented below.
+
 Use the archive for your operating system and architecture. Development builds
 are produced from the pinned repository with Go 1.24 or newer:
 

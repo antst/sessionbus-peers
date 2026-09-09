@@ -17,7 +17,8 @@ mkdir -p "$stage/plugin/bin"
 cp -R claude/.claude-plugin claude/.mcp.json claude/hooks claude/skills claude/commands "$stage/plugin/"
 ln -s ../../claude-peer "$stage/plugin/bin/sessionbus-mcp"
 ln -s ../../claude-peer "$stage/plugin/bin/sessionbus-hook"
-cp LICENSE claude/README.md "$stage/"
+cp LICENSE claude/README.md claude/install "$stage/"
+printf 'claude\n' > "$stage/ROLE"
 archive="$output/claude-peer-$goos-$goarch.tar.gz"
-tar -czf "$archive" -C "$stage" claude-peer plugin LICENSE README.md
+tar -czf "$archive" -C "$stage" claude-peer plugin LICENSE README.md install ROLE
 printf '%s\n' "$archive"

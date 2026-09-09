@@ -1,0 +1,37 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+set -eu
+src=$(CDPATH='' cd "$(dirname "$0")" && pwd -P)
+product=$(cat "$src/ROLE")
+case "$product" in grok|qwen|opencode) ;; *) echo 'Unknown product' >&2; exit 1;; esac
+command -v "$product" >/dev/null || { echo "Install native $product first." >&2; exit 1; }
+if [ "$product" = opencode ]; then command -v node >/dev/null || { echo 'OpenCode plugin installation requires Node.js.' >&2; exit 1; }; fi
+root="$HOME/.local/libexec/sessionbus/$product"
+[ ! -L "$root" ] || { echo 'Indirect package root; review before replacing.' >&2; exit 1; }
+mkdir -p "$root" "$HOME/.local/bin"
+stage=$(mktemp -d "$root/.plugin.XXXXXX")
+trap 'rm -rf "$stage"' 0
+trap 'exit 1' HUP INT TERM
+cp -R "$src/plugin/." "$stage/"
+install -m 755 "$src/$product-peer" "$root/$product-peer.new"
+mv -f "$root/$product-peer.new" "$root/$product-peer"
+rm -rf "$root/plugin"
+mv "$stage" "$root/plugin"
+cp "$src/LICENSE" "$src/README.md" "$root/"
+ln -sfn "$root/$product-peer" "$HOME/.local/bin/$product-peer"
+export PATH="$HOME/.local/bin:$PATH"
+case "$product" in
+ grok)
+  if [ -d "$HOME/.grok/plugins/sessionbus" ]; then grok plugin uninstall sessionbus --keep-data; fi
+  grok plugin install "$root/plugin" --trust
+  ;;
+ qwen)
+  if [ -d "$HOME/.qwen/extensions/sessionbus" ]; then qwen extensions uninstall sessionbus; fi
+  qwen extensions install "$root/plugin" --consent --scope user
+  ;;
+ opencode)
+  specifier=$(node --input-type=module -e 'import {pathToFileURL} from "node:url"; console.log(pathToFileURL(process.argv[1]).href)' "$root/plugin")
+  node "$root/plugin/bin.mjs" --specifier "$specifier"
+  ;;
+esac
+printf 'Installed %s. Ensure ~/.local/bin is on your login PATH.\n' "$HOME/.local/bin/$product-peer"

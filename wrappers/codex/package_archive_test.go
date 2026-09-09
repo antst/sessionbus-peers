@@ -63,7 +63,7 @@ func TestCodexArchiveContainsOneArtifactAndOneGenericSkill(t *testing.T) {
 		}
 	}
 	sort.Strings(regular)
-	want := []string{"LICENSE", "THIRD-PARTY-NOTICES.txt", "README.md", "bin/codex-peer", "install", "marketplace/.agents/plugins/marketplace.json", "marketplace/codex/.codex-plugin/plugin.json", "marketplace/codex/.mcp.json", "marketplace/codex/skills/sessionbus/SKILL.md", "uninstall"}
+	want := []string{"LICENSE", "ROLE", "THIRD-PARTY-NOTICES.txt", "README.md", "bin/codex-peer", "install", "marketplace/.agents/plugins/marketplace.json", "marketplace/codex/.codex-plugin/plugin.json", "marketplace/codex/.mcp.json", "marketplace/codex/skills/sessionbus/SKILL.md", "uninstall"}
 	sort.Strings(want)
 	if !reflect.DeepEqual(regular, want) {
 		t.Fatalf("regular payload=%q", regular)
@@ -126,7 +126,11 @@ func main(){if filepath.Base(os.Args[0])!="codex-peer-install"||len(os.Args)!=2{
 		t.Fatal(err)
 	}
 	cmd := exec.Command("sh", filepath.Join(payload, "install"))
-	cmd.Env = append(os.Environ(), "HOME="+home)
+	// Satisfy the native prerequisite without executing a native product in CI.
+	if err := os.Symlink(filepath.Join(payload, "bin", "codex-peer"), filepath.Join(payload, "bin", "codex")); err != nil {
+		t.Fatal(err)
+	}
+	cmd.Env = append(os.Environ(), "HOME="+home, "PATH="+filepath.Join(payload, "bin")+string(os.PathListSeparator)+os.Getenv("PATH"))
 	if raw, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("install recipe: %v %s", err, raw)
 	}

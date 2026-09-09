@@ -1,0 +1,29 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+set -eu
+product=${1:?usage: scripts/package-product PRODUCT OUTPUT_DIRECTORY}
+out=${2:?usage: scripts/package-product PRODUCT OUTPUT_DIRECTORY}
+case "$product" in grok|qwen|opencode) ;; *) echo 'Use package-claude or package-codex for those products.' >&2; exit 1;; esac
+mkdir -p "$out"
+out=$(CDPATH='' cd "$out" && pwd -P)
+repo=$(CDPATH='' cd "$(dirname "$0")/.." && pwd -P)
+cd "$repo"
+stage=$(mktemp -d)
+trap 'rm -rf "$stage"' 0
+trap 'exit 1' HUP INT TERM
+platform=${GOOS:-$(go env GOOS)}
+arch=${GOARCH:-$(go env GOARCH)}
+CGO_ENABLED=0 GOOS="$platform" GOARCH="$arch" go build -trimpath -ldflags='-s -w' -o "$stage/$product-peer" "./cmd/$product-peer"
+mkdir "$stage/plugin"
+cp -R "$product/." "$stage/plugin/"
+if [ "$product" = opencode ]; then
+ # Bundle the native JavaScript plugin and pinned production dependencies so
+ # the target needs Node for this product, but not npm or a source checkout.
+ npm ci --prefix "$stage/plugin" --omit=dev --ignore-scripts
+ rm -f "$stage/plugin/"*.test.mjs
+fi
+cp LICENSE "$stage/"
+cp scripts/release/install-product "$stage/install"
+if [ -f "$product/README.md" ]; then cp "$product/README.md" "$stage/README.md"; else cp "docs/products/$product.md" "$stage/README.md"; fi
+printf '%s\n' "$product" > "$stage/ROLE"
+tar -czf "$out/$product-peer-$platform-$arch.tar.gz" -C "$stage" "$product-peer" plugin LICENSE README.md install ROLE
