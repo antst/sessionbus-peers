@@ -93,7 +93,7 @@ the next report that carries its title.
 or model consumption. A failure after possible submission remains uncertain.
 There are no retries, reconnects, queues, polling or alternative delivery paths.
 Unexpected bus loss ends this resident integration. Cancelled public waits
-leave their result handles collectible; cancellation does not interrupt a
+leave results readable through their lane/run references; cancellation does not interrupt a
 native turn or retract a message.
 
 ## Lane development status
@@ -101,18 +101,51 @@ native turn or retract a message.
 The daemon launches this same binary as a token-selected lane worker. Use the
 public Sessionbus tool: `spawn` with `product: "claude-peer"`, `name` and `open`,
 then `run` or `start` with the returned `session_id` and `input`. `status`/`wait`
-collect a started turn; `interrupt` requests native interruption; `close`
+read a started turn without consuming it; `ack` consumes the oldest terminal
+after the caller handles its state: use the result for `done`, or record/report
+the reason for `unavailable` (which has no result). Never acknowledge `running`
+or treat an RPC error as a retained record. References contain `session_id` and
+`run_id` and remain usable by another authorized collector while that worker
+lives. `interrupt` requests native interruption; `close`
 ends native stdin and waits for native exit after any active interruption.
 Forced failure still aborts. Resume passes that exact ID as `resume_session_id` to spawn.
 No lane-specific public launcher is installed.
 
 Open waits for native initialize, the initial root ID/title report and the
-required Sessionbus tool. An idle message does not start work. A matching
+required Sessionbus tool. Open itself starts no work. With the default
+`idle_message:"stage"`, an idle message does not start work. A matching
 native replay during the same confirmed active run returns `injected`; idle
 native staging returns `queued_for_next_turn` for a later explicit run. Neither
 receipt promises model consumption. An unclassified run boundary leaves
 admission uncertain; write completion alone earns no receipt. Explicit runs
-return the native terminal result and reason.
+return the native terminal result and reason. With explicit `idle_message:"run"`,
+a message received while idle uses the same native query path and one shared
+run. Exact native replay returns `injected`; its terminal is separately readable
+through the shared worker's cursor. No Claude scheduler or output cache is added.
+
+Spawn/resume policies are independent. `persistent:false` (fresh default) retires
+the lane when its authenticated owner leaves; `true` survives owner exit.
+`auto_close_ms` defaults to 60000 after a native completed, failed or interrupted
+terminal; zero disables automatic close. An unavailable record without a native
+terminal does not start a new grace.
+New work cancels the old deadline; collection and staged messages do not extend
+it. Resume preserves persistence and omitted idle-message policy, but omitted
+`auto_close_ms` resets to 60000. Pass zero again to keep automatic close disabled.
+Persistence may be promoted, not silently demoted.
+
+Parent-owned lanes notify their owner by default unless `notify:false` is set.
+Persistent lanes need an explicit `notify_target` (or a retained target on resume
+or promotion). The completion message contains a lane/run pointer and state,
+never the answer. It is an ordinary peer message under the lane's identity and
+follows the recipient's normal admission policy: active admission, idle staging
+under `stage`, or idle wake under `run`; interactive wake follows the native
+carrier. Delivery does not prove collection. Read with `status`/`wait`, then
+explicitly `ack` after using a `done` result or recording/reporting an
+`unavailable` reason. Both terminal states advance the cursor only on ack.
+Reads do not consume; acknowledgment is oldest-first.
+Closing, automatic close or worker/daemon loss invalidates unacknowledged output.
+There is no promise of answer recovery after retirement. Native saved history
+and the lane's resume recipe remain separate from that transient result cursor.
 
 With native default permissions, a lane has nobody to approve an interactive
 tool request. A tool can return “requires approval” and the model can still

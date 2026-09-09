@@ -240,10 +240,10 @@ func (*workerProduct) Hello(context.Context) (sessionkit.HelloDescription, error
 func (*workerProduct) Open(context.Context, sessionkit.OpenRequest) (sessionkit.OpenResult, error) {
 	return sessionkit.OpenResult{SessionID: "session"}, nil
 }
-func (p *workerProduct) Run(ctx context.Context, run *sessionkit.Run, input string) (sessionkit.TurnResult, error) {
+func (p *workerProduct) Run(ctx context.Context, run *sessionkit.Run, input sessionkit.RunInput) (sessionkit.TurnResult, error) {
 	close(p.before)
 	<-p.release
-	return p.h.Run(ctx, run, input, p.start)
+	return p.h.Run(ctx, run, *input.Text, p.start)
 }
 func (p *workerProduct) Interrupt(ctx context.Context, run *sessionkit.Run) error {
 	close(p.interrupt)
@@ -273,7 +273,8 @@ func TestHandoffSDKInterruptCrossings(t *testing.T) {
 				close(p.release)
 			}
 			connection, reader := startWorker(t, p)
-			writeRequest(t, connection, 2, "turn.run", map[string]any{"session_id": "session@local", "input": "input"})
+			writeRequest(t, connection, 2, "turn.execute", map[string]any{"session_id": "session@local", "run_id": "g/1", "input": "input"})
+			readFrames(t, connection, reader, 1)
 			if phase == "before callback" {
 				<-p.before
 			} else {
@@ -283,7 +284,7 @@ func TestHandoffSDKInterruptCrossings(t *testing.T) {
 			<-p.interrupt
 			if phase == "before callback" {
 				close(p.release)
-				frames := readFrames(t, reader, 2)
+				frames := readFrames(t, connection, reader, 2)
 				check(t, !called && strings.Contains(frames, `"outcome":"interrupted"`), "created = %v, frames = %s", called, frames)
 				return
 			}
@@ -292,10 +293,10 @@ func TestHandoffSDKInterruptCrossings(t *testing.T) {
 			}
 			<-turn.interrupted
 			close(turn.done)
-			frames := readFrames(t, reader, map[bool]int{true: 1, false: 2}[phase == "active turn"])
+			frames := readFrames(t, connection, reader, map[bool]int{true: 1, false: 2}[phase == "active turn"])
 			close(turn.interruptBlock)
 			if phase == "active turn" {
-				frames += readFrames(t, reader, 1)
+				frames += readFrames(t, connection, reader, 1)
 			}
 			check(t, turn.interrupts.Load() == 1 && strings.Contains(frames, `"outcome":"completed"`), "interrupts/frames = %d/%s", turn.interrupts.Load(), frames)
 		})
@@ -317,7 +318,7 @@ func startWorker(t *testing.T, product *workerProduct) (net.Conn, *bufio.Reader)
 	_, err = connection.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":{}}` + "\n"))
 	must(t, err)
 	writeRequest(t, connection, 1, "session.open", map[string]any{"name": "name@local", "groups": []string{}, "open": map[string]any{}})
-	readFrames(t, reader, 1)
+	readFrames(t, connection, reader, 1)
 	t.Cleanup(func() { _ = connection.Close(); <-worker.Closed(); _ = listener.Close() })
 	return connection, reader
 }
@@ -328,10 +329,22 @@ func writeRequest(t *testing.T, connection net.Conn, id int, method string, para
 	_, err = connection.Write(append(body, '\n'))
 	must(t, err)
 }
-func readFrames(t *testing.T, reader *bufio.Reader, count int) string {
+func readFrames(t *testing.T, connection net.Conn, reader *bufio.Reader, count int) string {
 	var frames strings.Builder
 	for range count {
-		frames.Write(readLine(t, reader))
+		line := readLine(t, reader)
+		frames.Write(line)
+		var frame struct {
+			ID     int64  `json:"id"`
+			Method string `json:"method"`
+		}
+		must(t, json.Unmarshal(line, &frame))
+		if frame.Method == "turn.ready" {
+			body, err := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": frame.ID, "result": map[string]any{}})
+			must(t, err)
+			_, err = connection.Write(append(body, '\n'))
+			must(t, err)
+		}
 	}
 	return frames.String()
 }

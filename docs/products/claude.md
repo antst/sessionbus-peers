@@ -6,7 +6,24 @@
 > commit recorded by the split archive manifest. Host evidence paths are
 > immutable external artifacts, not repository paths.
 
-## Current interactive candidate — 2026-09-09
+## Current shared lifecycle — installed 2026-09-09
+
+The [shared lifecycle mapping](../designs/claude-0.5.0/shared-lifecycle.md) and
+[installed acceptance ledger](../designs/claude-0.5.0/shared-lifecycle-acceptance.json)
+bind the merged PR48 SDK/daemon `d11fa7433694` and permanent Go Claude installation.
+Actual parent-tool calls establish the independent persistence/archive policies,
+idle staging versus message-triggered work, lane-originated completion pointer,
+non-consuming reads, explicit ordered ack and collection after parent exit.
+Same-install ordinary/mixed-group/idle-wake/quit regressions are included.
+Tests ran on `7d5fb9f`; `c138131` changes only tool/skill/README deadline wording.
+Automatic close follows native completed/failed/interrupted terminals; an
+unavailable record alone does not establish that native event.
+
+Exact scope and accounting limits are in the ledger. The older installation,
+SDK bindings and native results below remain historical evidence at their own
+revisions; they are not the current dependency or installation instructions.
+
+## Historical interactive acceptance — 2026-09-09
 
 The interactive candidate is now one Go binary plus native plugin assets; it
 preserves reviewed Node behavior at `9644348` and pins the public Go kit to

@@ -1,125 +1,67 @@
 {
   "language": "Go",
   "behavior_reference": "964434895d93232a71883cb55785c1605014a5e8",
-  "measured_code_commit": "569ce9f8a8cff524d452b415f5a4ff0b80f93951",
+  "measured_code_commit": "c1381319a34a05753505b2131ac2ff5e0442bc19",
   "artifact": {
-    "commit": "569ce9f8a8cff524d452b415f5a4ff0b80f93951",
-    "tree": "ac9e341e9f456403e18d2d3fe1b17c6277e5aede",
-    "clean": true,
-    "archive_sha256": "eb2f5e2d87de907fbd4f2af6b4d52dd261157548b8f11d1f75f2261bff9ea415",
-    "build_argv": [
-      "scripts/package-claude",
-      "/home/antst/sessionbus-evidence/claude-launch-flags-r2-20260909/build"
-    ],
+    "commit": "c1381319a34a05753505b2131ac2ff5e0442bc19",
+    "tree": "cd1e6049b7af44fa258c0fb787b103f1bee98c50",
+    "sdk_commit": "d11fa7433694c077f57b1f0af05a48325b464516",
+    "archive_sha256": "680ebe3499a2086c8e765cf754d381ed338fd4ede986cfd6db8c51b2ae28be9c",
     "members": [
       {
         "path": "claude-peer",
-        "size": 3653794,
-        "linkname": "",
-        "sha256": "bf7bdebca086726b9982cf0c315dd15c4230eed01be4c28710dea0a1c7768faf"
-      },
-      {
-        "path": "plugin",
-        "size": 0,
-        "linkname": "",
-        "sha256": null
-      },
-      {
-        "path": "plugin/.claude-plugin",
-        "size": 0,
-        "linkname": "",
-        "sha256": null
-      },
-      {
-        "path": "plugin/.claude-plugin/plugin.json",
-        "size": 292,
-        "linkname": "",
-        "sha256": "c3d76b9aaa47e429dab43ce7fbb7782308e1673cd147c6c221ad2849ee4b8794"
-      },
-      {
-        "path": "plugin/bin",
-        "size": 0,
-        "linkname": "",
-        "sha256": null
-      },
-      {
-        "path": "plugin/bin/sessionbus-hook",
-        "size": 0,
-        "linkname": "../../claude-peer",
-        "sha256": null
-      },
-      {
-        "path": "plugin/bin/sessionbus-mcp",
-        "size": 0,
-        "linkname": "../../claude-peer",
-        "sha256": null
-      },
-      {
-        "path": "plugin/.mcp.json",
-        "size": 130,
-        "linkname": "",
-        "sha256": "91d631cbbe6c34d5af24d88cd596e2951820ee77deb1bcc3ca6937ec6143920e"
-      },
-      {
-        "path": "plugin/commands",
-        "size": 0,
-        "linkname": "",
-        "sha256": null
+        "bytes": 3682466,
+        "sha256": "4cad46558a7ced91b7cc3c83161e4da020d3780a0f7032d81a48ad45d2add266"
       },
       {
         "path": "plugin/commands/doctor.md",
-        "size": 1701,
-        "linkname": "",
+        "bytes": 1701,
         "sha256": "a0f63b32b4b5e95aa1abaff510982327ffdc1b80b314dee4c20f243c19b28184"
       },
       {
-        "path": "plugin/hooks",
-        "size": 0,
-        "linkname": "",
-        "sha256": null
+        "path": "plugin/.claude-plugin/plugin.json",
+        "bytes": 292,
+        "sha256": "c3d76b9aaa47e429dab43ce7fbb7782308e1673cd147c6c221ad2849ee4b8794"
+      },
+      {
+        "path": "plugin/bin/sessionbus-hook",
+        "symlink": "../../claude-peer"
+      },
+      {
+        "path": "plugin/bin/sessionbus-mcp",
+        "symlink": "../../claude-peer"
       },
       {
         "path": "plugin/hooks/hooks.json",
-        "size": 1496,
-        "linkname": "",
+        "bytes": 1496,
         "sha256": "e4f0a721bf68965609609a0b75ffaf0915595009812bb6dbf44a87d192d84d35"
       },
       {
-        "path": "plugin/skills",
-        "size": 0,
-        "linkname": "",
-        "sha256": null
-      },
-      {
-        "path": "plugin/skills/sessionbus",
-        "size": 0,
-        "linkname": "",
-        "sha256": null
+        "path": "plugin/.mcp.json",
+        "bytes": 130,
+        "sha256": "91d631cbbe6c34d5af24d88cd596e2951820ee77deb1bcc3ca6937ec6143920e"
       },
       {
         "path": "plugin/skills/sessionbus/SKILL.md",
-        "size": 4980,
-        "linkname": "",
-        "sha256": "6ca2eacfbaaaaacbf972baaebafe6c04a94b4c0c1289598504daf8ac74d81391"
+        "bytes": 8590,
+        "sha256": "df94db0beecee310805035b287d1e2567d615b97893545b88942da06f0a6dad4"
       },
       {
         "path": "LICENSE",
-        "size": 1080,
-        "linkname": "",
+        "bytes": 1080,
         "sha256": "5eab6128815879aded938085ac18293e4a09ed84cb425405c5810cdacde776e8"
       },
       {
         "path": "README.md",
-        "size": 7924,
-        "linkname": "",
-        "sha256": "93f1e3a646b3a13c2921fe411ab0e6d940fe2b08e48b17010ae5e27d77569fbf"
+        "bytes": 10304,
+        "sha256": "f970f0dd57449ef4ce6a0efeb62c8432da377f77031a2f44d248cb7109f87dd7"
       }
     ]
   },
   "runtime_source": {
     "files": 9,
-    "bytes": 52696,
-    "lines": 1874,
+    "bytes": 56981,
+    "lines": 1949,
     "members": [
       {
         "path": "cmd/claude-peer/main.go",
@@ -129,9 +71,9 @@
       },
       {
         "path": "wrappers/claude/claude.go",
-        "bytes": 10713,
-        "lines": 377,
-        "sha256": "19591f5b28bfb02da1f1d21bd245fdea25673d839407d85c035024501aa294b2"
+        "bytes": 11507,
+        "lines": 401,
+        "sha256": "f77e24f257d86ad132e775e67e8610626580e7fe47373e65af5dea740efe8e34"
       },
       {
         "path": "wrappers/claude/interactive/delivery.go",
@@ -159,9 +101,9 @@
       },
       {
         "path": "wrappers/claude/interactive/tools.go",
-        "bytes": 3216,
-        "lines": 50,
-        "sha256": "31e96f2a4b6965291c7d49f28eb690b1accf392caea8766adb27aefae927eda2"
+        "bytes": 5122,
+        "lines": 52,
+        "sha256": "66a25c4c9b296cbffd61aa36d44f54e918b829c19da5be7f4c973807529b133f"
       },
       {
         "path": "wrappers/claude/lane_endpoint.go",
@@ -171,16 +113,16 @@
       },
       {
         "path": "wrappers/claude/stream.go",
-        "bytes": 10490,
-        "lines": 389,
-        "sha256": "e810be2137cc00bdb5832e6889154b521ef08d42c3f3703c9351f18e802efa8f"
+        "bytes": 12075,
+        "lines": 438,
+        "sha256": "869b4c5b05ac44f73bad07af4e4652131deb187246e855a757328178478d699b"
       }
     ]
   },
   "tests": {
-    "files": 11,
-    "bytes": 69903,
-    "lines": 2171,
+    "files": 13,
+    "bytes": 81524,
+    "lines": 2517,
     "members": [
       {
         "path": "cmd/claude-peer/main_test.go",
@@ -190,9 +132,9 @@
       },
       {
         "path": "wrappers/claude/claude_test.go",
-        "bytes": 13643,
-        "lines": 414,
-        "sha256": "08ea1b518b4f782ec59422bf10f6dc309318725f6c535b87b10cd6320df2fdcb"
+        "bytes": 14132,
+        "lines": 421,
+        "sha256": "ce7ba93ce917f88980e095db5779761a56d71d3b8d8dccb096a67074d6547516"
       },
       {
         "path": "wrappers/claude/interactive/delivery_test.go",
@@ -214,21 +156,21 @@
       },
       {
         "path": "wrappers/claude/interactive/mcp_test.go",
-        "bytes": 9699,
-        "lines": 308,
-        "sha256": "2cf67326444dc04a43573e035504ff0dd9f68437ed8c83d0f137b6f03c3f57b5"
+        "bytes": 10558,
+        "lines": 338,
+        "sha256": "7e923b0b730e16fa92f408fe74899bebc8d59f3f733f22e10e4ba2218114b54b"
       },
       {
         "path": "wrappers/claude/interactive/owner_test.go",
-        "bytes": 6915,
-        "lines": 258,
-        "sha256": "244478680d61bb6961327cf334a0a2ef58b55e43dcdd33ef6fd9b6b9b54f7f05"
+        "bytes": 7273,
+        "lines": 270,
+        "sha256": "a725571703e9d76073efd0388d8a7b89c9c6fe3232a8275d83559d52f74964b1"
       },
       {
         "path": "wrappers/claude/interactive/tools_test.go",
-        "bytes": 2784,
-        "lines": 69,
-        "sha256": "7f317dad5348c2157431d2ccb519815422ed49d473b950a5d59dee2cf4edfd7a"
+        "bytes": 3301,
+        "lines": 73,
+        "sha256": "c49dc02f78a517cf8bfbf1e91c98130fbdc22e25c260c98e9bc63c362cb3b4e1"
       },
       {
         "path": "wrappers/claude/interactive/transport_test.go",
@@ -247,13 +189,25 @@
         "bytes": 12923,
         "lines": 388,
         "sha256": "af8112c3cc9c70e5585caf59b94e7418f58d67d592d66783b69314f17dc431b6"
+      },
+      {
+        "path": "wrappers/claude/wake_test.go",
+        "bytes": 3721,
+        "lines": 126,
+        "sha256": "b98fd647dc310ca46828c8fcea902628606574a9610325d59db7416d9ce0e17f"
+      },
+      {
+        "path": "wrappers/claude/wake_worker_test.go",
+        "bytes": 5677,
+        "lines": 167,
+        "sha256": "69c714499c3b10dd6698391a62db52e0864b53307e8593d3e758c75d9ebffd77"
       }
     ]
   },
   "active_assets": {
     "files": 6,
-    "bytes": 16523,
-    "lines": 365,
+    "bytes": 22513,
+    "lines": 456,
     "members": [
       {
         "path": "claude/.claude-plugin/plugin.json",
@@ -269,9 +223,9 @@
       },
       {
         "path": "claude/README.md",
-        "bytes": 7924,
-        "lines": 154,
-        "sha256": "93f1e3a646b3a13c2921fe411ab0e6d940fe2b08e48b17010ae5e27d77569fbf"
+        "bytes": 10304,
+        "lines": 187,
+        "sha256": "f970f0dd57449ef4ce6a0efeb62c8432da377f77031a2f44d248cb7109f87dd7"
       },
       {
         "path": "claude/commands/doctor.md",
@@ -287,9 +241,9 @@
       },
       {
         "path": "claude/skills/sessionbus/SKILL.md",
-        "bytes": 4980,
-        "lines": 104,
-        "sha256": "6ca2eacfbaaaaacbf972baaebafe6c04a94b4c0c1289598504daf8ac74d81391"
+        "bytes": 8590,
+        "lines": 162,
+        "sha256": "df94db0beecee310805035b287d1e2567d615b97893545b88942da06f0a6dad4"
       }
     ]
   },
@@ -519,9 +473,9 @@
     ]
   },
   "whole_repository_excluding_this_self_report": {
-    "files": 176,
-    "bytes": 1241256,
-    "lines": 25165,
+    "files": 181,
+    "bytes": 1293534,
+    "lines": 26320,
     "members": [
       {
         "path": ".forgejo/workflows/ci.yml",
@@ -575,7 +529,7 @@
         "path": "architecture_test.go",
         "bytes": 17135,
         "lines": 492,
-        "sha256": "e4f006930203cd2e3cc0fc41598c50dad6a957ea27de7e6212c4f38ac47e7688"
+        "sha256": "0c4388334c38c339dab6d6a414e75ef95457b699d42764a78abdcafd31b6727b"
       },
       {
         "path": "claude/.claude-plugin/plugin.json",
@@ -591,9 +545,9 @@
       },
       {
         "path": "claude/README.md",
-        "bytes": 7924,
-        "lines": 154,
-        "sha256": "93f1e3a646b3a13c2921fe411ab0e6d940fe2b08e48b17010ae5e27d77569fbf"
+        "bytes": 10304,
+        "lines": 187,
+        "sha256": "f970f0dd57449ef4ce6a0efeb62c8432da377f77031a2f44d248cb7109f87dd7"
       },
       {
         "path": "claude/commands/doctor.md",
@@ -609,9 +563,9 @@
       },
       {
         "path": "claude/skills/sessionbus/SKILL.md",
-        "bytes": 4980,
-        "lines": 104,
-        "sha256": "6ca2eacfbaaaaacbf972baaebafe6c04a94b4c0c1289598504daf8ac74d81391"
+        "bytes": 8590,
+        "lines": 162,
+        "sha256": "df94db0beecee310805035b287d1e2567d615b97893545b88942da06f0a6dad4"
       },
       {
         "path": "cmd/claude-peer/main.go",
@@ -980,10 +934,22 @@
         "sha256": "f6c6c5e1b3ff8f88d71ce53da6db9afa651bc7774056fbcbb3e7bce5ba7174bc"
       },
       {
+        "path": "docs/designs/claude-0.5.0/shared-lifecycle-acceptance.json",
+        "bytes": 11436,
+        "lines": 230,
+        "sha256": "644736bebddc4ecd5542964a7fe3c372105ce52ea3260c7ce6e949cf1bc52894"
+      },
+      {
+        "path": "docs/designs/claude-0.5.0/shared-lifecycle.md",
+        "bytes": 6756,
+        "lines": 109,
+        "sha256": "de6f90ac7db2ee695c644f297e8fc00f5af9d9c1cd3ed8bc7dd71e9c76b2be5c"
+      },
+      {
         "path": "docs/products/claude.md",
-        "bytes": 22140,
-        "lines": 165,
-        "sha256": "68f686ad66bc099e070c07a87b0afe7a424d5fde3e548e14526195dc23a186e4"
+        "bytes": 23217,
+        "lines": 182,
+        "sha256": "bd33d2328f6471560bbd34626f2d8f4cca254e8a45994d3f468a013e22163339"
       },
       {
         "path": "docs/products/codex.md",
@@ -1037,13 +1003,13 @@
         "path": "go.mod",
         "bytes": 172,
         "lines": 8,
-        "sha256": "4c7ecce513ab9fe0ad77a8cea0700f67879ce5ee1d45765e5865f1b5d80b174b"
+        "sha256": "03ec755bbfb4e520227ed6ac74f45a6ac2453d6cde74101a330dae42a158b9ea"
       },
       {
         "path": "go.sum",
-        "bytes": 1093,
-        "lines": 10,
-        "sha256": "bfe6a37689ff657b6ee25f359bfa56e38a39770d7575e00422e351f2230c9259"
+        "bytes": 619,
+        "lines": 6,
+        "sha256": "7d3545cb3a4dc62a8c72e07bd340c2908f9ef4c1968ff8ee8820219f0ba15a72"
       },
       {
         "path": "grok/.grok-plugin/plugin.json",
@@ -1215,15 +1181,15 @@
       },
       {
         "path": "wrappers/claude/claude.go",
-        "bytes": 10713,
-        "lines": 377,
-        "sha256": "19591f5b28bfb02da1f1d21bd245fdea25673d839407d85c035024501aa294b2"
+        "bytes": 11507,
+        "lines": 401,
+        "sha256": "f77e24f257d86ad132e775e67e8610626580e7fe47373e65af5dea740efe8e34"
       },
       {
         "path": "wrappers/claude/claude_test.go",
-        "bytes": 13643,
-        "lines": 414,
-        "sha256": "08ea1b518b4f782ec59422bf10f6dc309318725f6c535b87b10cd6320df2fdcb"
+        "bytes": 14132,
+        "lines": 421,
+        "sha256": "ce7ba93ce917f88980e095db5779761a56d71d3b8d8dccb096a67074d6547516"
       },
       {
         "path": "wrappers/claude/interactive/delivery.go",
@@ -1263,9 +1229,9 @@
       },
       {
         "path": "wrappers/claude/interactive/mcp_test.go",
-        "bytes": 9699,
-        "lines": 308,
-        "sha256": "2cf67326444dc04a43573e035504ff0dd9f68437ed8c83d0f137b6f03c3f57b5"
+        "bytes": 10558,
+        "lines": 338,
+        "sha256": "7e923b0b730e16fa92f408fe74899bebc8d59f3f733f22e10e4ba2218114b54b"
       },
       {
         "path": "wrappers/claude/interactive/owner.go",
@@ -1275,21 +1241,21 @@
       },
       {
         "path": "wrappers/claude/interactive/owner_test.go",
-        "bytes": 6915,
-        "lines": 258,
-        "sha256": "244478680d61bb6961327cf334a0a2ef58b55e43dcdd33ef6fd9b6b9b54f7f05"
+        "bytes": 7273,
+        "lines": 270,
+        "sha256": "a725571703e9d76073efd0388d8a7b89c9c6fe3232a8275d83559d52f74964b1"
       },
       {
         "path": "wrappers/claude/interactive/tools.go",
-        "bytes": 3216,
-        "lines": 50,
-        "sha256": "31e96f2a4b6965291c7d49f28eb690b1accf392caea8766adb27aefae927eda2"
+        "bytes": 5122,
+        "lines": 52,
+        "sha256": "66a25c4c9b296cbffd61aa36d44f54e918b829c19da5be7f4c973807529b133f"
       },
       {
         "path": "wrappers/claude/interactive/tools_test.go",
-        "bytes": 2784,
-        "lines": 69,
-        "sha256": "7f317dad5348c2157431d2ccb519815422ed49d473b950a5d59dee2cf4edfd7a"
+        "bytes": 3301,
+        "lines": 73,
+        "sha256": "c49dc02f78a517cf8bfbf1e91c98130fbdc22e25c260c98e9bc63c362cb3b4e1"
       },
       {
         "path": "wrappers/claude/interactive/transport_test.go",
@@ -1311,15 +1277,27 @@
       },
       {
         "path": "wrappers/claude/stream.go",
-        "bytes": 10490,
-        "lines": 389,
-        "sha256": "e810be2137cc00bdb5832e6889154b521ef08d42c3f3703c9351f18e802efa8f"
+        "bytes": 12075,
+        "lines": 438,
+        "sha256": "869b4c5b05ac44f73bad07af4e4652131deb187246e855a757328178478d699b"
       },
       {
         "path": "wrappers/claude/stream_test.go",
         "bytes": 12923,
         "lines": 388,
         "sha256": "af8112c3cc9c70e5585caf59b94e7418f58d67d592d66783b69314f17dc431b6"
+      },
+      {
+        "path": "wrappers/claude/wake_test.go",
+        "bytes": 3721,
+        "lines": 126,
+        "sha256": "b98fd647dc310ca46828c8fcea902628606574a9610325d59db7416d9ce0e17f"
+      },
+      {
+        "path": "wrappers/claude/wake_worker_test.go",
+        "bytes": 5677,
+        "lines": 167,
+        "sha256": "69c714499c3b10dd6698391a62db52e0864b53307e8593d3e758c75d9ebffd77"
       },
       {
         "path": "wrappers/codex/app.go",
@@ -1347,15 +1325,15 @@
       },
       {
         "path": "wrappers/codex/codex.go",
-        "bytes": 16408,
-        "lines": 557,
-        "sha256": "06a4d2865dda8d2a44431fa7be890ba671ab5638ce8c7585b54a2ecf00adf3da"
+        "bytes": 16932,
+        "lines": 568,
+        "sha256": "f367bfc5966277d8a413e1e01fb83ae16a66b998b7a13306b6731cf0be45f774"
       },
       {
         "path": "wrappers/codex/codex_test.go",
-        "bytes": 17242,
-        "lines": 431,
-        "sha256": "255559b5424bad82e741095b71be003ec515ab6203b7f8314f36e0c8ad116660"
+        "bytes": 17691,
+        "lines": 440,
+        "sha256": "53fdf3480167cfd137a73080dd54cde64323675781fd4f065fbb0702179cd78d"
       },
       {
         "path": "wrappers/codex/peer.go",
@@ -1395,15 +1373,15 @@
       },
       {
         "path": "wrappers/grok/grok.go",
-        "bytes": 19421,
-        "lines": 621,
-        "sha256": "bb73f427a61d1d9f77e4b3bd6a3284934bc7324853f2a60cc942291608cb779d"
+        "bytes": 19945,
+        "lines": 632,
+        "sha256": "102cdcc99b83398164ae3ff3ab2693a52f97fd5588b7eaf4f5c14756ea3174a4"
       },
       {
         "path": "wrappers/grok/grok_test.go",
-        "bytes": 29538,
-        "lines": 673,
-        "sha256": "81a347fa979176f3426ebddf15908a9a9570c63c75da1d564fd0209eb213468d"
+        "bytes": 32064,
+        "lines": 729,
+        "sha256": "0bc1578128e59da5c6bb9a01ee91d8f3692a7c8c09c1ee19212c7d8be4d9b8b0"
       },
       {
         "path": "wrappers/grok/peer.go",
@@ -1449,9 +1427,9 @@
       },
       {
         "path": "wrappers/host/handoff_test.go",
-        "bytes": 14164,
-        "lines": 358,
-        "sha256": "99c13e7beb0f0a220e8467cf804196e4efc9dfa18c726fc06153dfa77d0c517c"
+        "bytes": 14683,
+        "lines": 371,
+        "sha256": "eb32e0ecab777c3dba61957283bc2682f69d59c73b39f1f0f2377761d404a183"
       },
       {
         "path": "wrappers/host/launch.go",
@@ -1496,6 +1474,12 @@
         "sha256": "3b6fd04eb1d829f0e5313e350e624ebc27cd2e1e86286a68e395dd731e6d46bf"
       },
       {
+        "path": "wrappers/host/wake_test.go",
+        "bytes": 4959,
+        "lines": 131,
+        "sha256": "ef485fef36398e94d44ac9bcf8fca7fa66ea9a693ea533581a1603662dee69d3"
+      },
+      {
         "path": "wrappers/mcp/lane.go",
         "bytes": 2989,
         "lines": 104,
@@ -1503,9 +1487,9 @@
       },
       {
         "path": "wrappers/mcp/lane_test.go",
-        "bytes": 6791,
-        "lines": 161,
-        "sha256": "8b22bb0784d68448c14ad8a0a57c9ca85295774977d0b98b2785a9185843f739"
+        "bytes": 7133,
+        "lines": 171,
+        "sha256": "e7445ffaed03a51edd3e40439f70da2d407097f2b5af36c3542f57522298a139"
       },
       {
         "path": "wrappers/mcp/server.go",
@@ -1515,9 +1499,9 @@
       },
       {
         "path": "wrappers/mcp/server_test.go",
-        "bytes": 9714,
-        "lines": 229,
-        "sha256": "fbbbead6ff36427745c78c78f79c5362cb4c2b021b147ecd875db8576a6b73ab"
+        "bytes": 9777,
+        "lines": 237,
+        "sha256": "21b0d44c7d38cc8c26fda0073524b84426a8ecc2ea3ad5a52dcc8e4c484cfa0c"
       },
       {
         "path": "wrappers/opencode/arguments.go",
@@ -1533,9 +1517,9 @@
       },
       {
         "path": "wrappers/opencode/opencode.go",
-        "bytes": 18130,
-        "lines": 654,
-        "sha256": "f27d52e69218caafd96dfac140de2aef49741867eef95853329ca8e610173331"
+        "bytes": 18654,
+        "lines": 665,
+        "sha256": "b1e71dccbfbad3b838029b0c8cfb71abb8025b9a79fc3de5c77029a9d8ef9e44"
       },
       {
         "path": "wrappers/opencode/opencode_test.go",
@@ -1563,15 +1547,15 @@
       },
       {
         "path": "wrappers/qwen/qwen.go",
-        "bytes": 14423,
-        "lines": 448,
-        "sha256": "639a69f3fd56ec9d1c00fb3639985d027319436b0f41e17bc7872bbf5863ae4c"
+        "bytes": 14947,
+        "lines": 459,
+        "sha256": "e6f038da4300eeb41bd520107a8c5c46dde9f342525607999b187aec4c2a7ad8"
       },
       {
         "path": "wrappers/qwen/qwen_test.go",
-        "bytes": 19338,
-        "lines": 450,
-        "sha256": "db86e723c4a3bc7495bbbefec099678e5d1a3f05e992dc83a24a62ef30017869"
+        "bytes": 19971,
+        "lines": 470,
+        "sha256": "a6db7b2bd3374f9072ae3d992c107c300c9895732a3f1468ed853f435986ddf0"
       },
       {
         "path": "wrappers/qwen/testdata/qwen-0.23.0-resume-result.jsonl",
@@ -1594,11 +1578,11 @@
     "native_claude_rss_kib": 247584,
     "note": "One checkpoint on76b921b after first prompt+idle message, not peak/steady-state/full-host memory; no comparable Node baseline measured."
   },
-  "acceptance": "Both modes remain installed. This correction changes only interactive launch argument projection and documents the owner override of suffix-only grammar. Installed569ce9f mixed -g/--group/--group= values and --yolo native argv, actual public list and independent groups, native exit0 and exact three PID absence verified. Four informational argv cases pass. No owner session resumed. Original lane/hard-death limits remain. Counts measure current source; archive is signed569ce9f.",
+  "acceptance": "Shared lifecycle Claude adaptation and paired daemon are installed on real umka. Public native parent-policy/pointer/collection and replacement-collector rows retained in shared-lifecycle-acceptance.json. Final c138131 artifact differs from tested7d5fb9f only in tool/skill/README native-terminal grace qualification; earlier native evidence remains historical. Scope limits and source generations are explicit. Historical memory checkpoint is not current lane memory.",
   "scope": "whole combined Claude Go artifact; filename retained for existing links, no interactive-only exclusion",
   "whole_repository_including_this_report": {
-    "files": 177,
-    "bytes": 1295067,
-    "lines": 26769
+    "files": 182,
+    "bytes": 1347573,
+    "lines": 27908
   }
 }

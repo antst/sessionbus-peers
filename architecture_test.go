@@ -23,7 +23,7 @@ import (
 const (
 	peersModule             = "github.com/antst/sessionbus-peers"
 	sdkModule               = "github.com/antst/sessionbus/bus/sdk/go"
-	sdkVersion              = "v0.1.0-pre.2.0.20260909061716-f8d409e98218"
+	sdkVersion              = "v0.1.0-pre.2.0.20260909151934-d11fa7433694"
 	citationCount           = 255
 	citationReachabilitySHA = "21daf6711345d78f02bdc5f2062bdd3b0c726633bb9f565adc325dbd06bec6d9"
 	factsHeader             = "> Historical source note: citations to pre-split Sessionbus paths resolve in\n> the Forgejo `ai/sessionbus` repository through its `legacy-*` branches.\n> Citations to product source resolve in the external repository and full\n> commit recorded by the split archive manifest. Host evidence paths are\n> immutable external artifacts, not repository paths."

@@ -77,6 +77,9 @@ func TestWorkerHelloUsesActualProtocolSchema(t *testing.T) {
 	if _, err := protocol.DecodeParams("session.hello", raw); err != nil {
 		t.Fatal(err)
 	}
+	if !h.SupportsMessageRun {
+		t.Fatal("Claude omitted waking-run capability")
+	}
 	description, err := json.Marshal(h)
 	if err != nil {
 		t.Fatal(err)
@@ -109,7 +112,7 @@ func (p *workerStreamProduct) Open(context.Context, kit.OpenRequest) (kit.OpenRe
 	p.mu.Unlock()
 	return kit.OpenResult{SessionID: "native-id"}, nil
 }
-func TestWorkerSerializesTerminalBeforeNativeEOFShutdown(t *testing.T) {
+func TestWorkerPublishesTerminalReadyBeforeNativeEOFShutdown(t *testing.T) {
 	path := filepath.Join(testsocket.Directory(t), "bus.sock")
 	listener, err := net.Listen("unix", path)
 	if err != nil {
@@ -167,7 +170,11 @@ func TestWorkerSerializesTerminalBeforeNativeEOFShutdown(t *testing.T) {
 	if err = protocol.UnmarshalResult("session.open", opened.Result, &openResult); err != nil {
 		t.Fatal(err)
 	}
-	send(protocol.RequestBytes(2, "turn.run", kit.TurnRunRequest{SessionID: "native-id", Input: "prompt"}))
+	send(protocol.RequestBytes(2, "turn.execute", protocol.ExecuteRequest{SessionID: "native-id@local", RunID: "g/1", Input: "prompt"}))
+	admission := receive()
+	if admission.ID != 2 || string(admission.Result) != `{"session_id":"native-id@local","run_id":"g/1"}` {
+		t.Fatal(admission)
+	}
 	var input map[string]json.RawMessage
 	if err = json.NewDecoder(nativeInput).Decode(&input); err != nil {
 		t.Fatal(err)
@@ -181,14 +188,14 @@ func TestWorkerSerializesTerminalBeforeNativeEOFShutdown(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = nativeOutput.Close()
-	result := receive()
-	var terminal kit.TurnResult
-	if err = protocol.UnmarshalResult("turn.run", result.Result, &terminal); err != nil {
-		t.Fatal(err)
+	ready := receive()
+	var terminal protocol.TurnReady
+	if ready.Method != "turn.ready" || json.Unmarshal(ready.Params, &terminal) != nil || terminal.RunID != "g/1" || terminal.State != "done" || terminal.Outcome != "completed" {
+		t.Fatalf("terminal metadata did not precede shutdown: %+v", ready)
 	}
-	if result.ID != 2 || terminal.Outcome != "completed" || terminal.Result != "retained terminal" {
-		t.Fatalf("%+v %+v", result, terminal)
-	}
+	// Native EOF still ends this worker; detached output does not survive its
+	// retirement. The shared ready event, not a terminal-body RPC, precedes it.
+	send(protocol.ResultBytes(ready.ID, "turn.ready", struct{}{}))
 	if _, err = reader.ReadByte(); err != io.EOF {
 		t.Fatalf("worker did not retire after terminal: %v", err)
 	}
