@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -153,7 +154,7 @@ func (p *Wrapper) Open(ctx context.Context, request sessionkit.OpenRequest) (res
 	p.mu.Lock()
 	p.endpoint = endpoint
 	p.mu.Unlock()
-	command := laneCommand("codex", append([]string{"app-server", "--stdio", "-c", "features.plugins=true", "-c", `plugins."codex@sessionbus-peers".enabled=true`}, arguments...)...)
+	command := laneCommand("codex", append(append([]string{"app-server", "--stdio"}, ActivationArguments()...), arguments...)...)
 	command.Dir, command.Stderr = request.Open.Cwd, os.Stderr
 	command.Env = slices.DeleteFunc(os.Environ(), func(value string) bool { return strings.HasPrefix(value, EndpointEnv+"=") })
 	command.Env = append(command.Env, EndpointEnv+"="+endpoint.path)
@@ -696,9 +697,11 @@ func (p *Wrapper) Close(ctx context.Context, _ sessionkit.SessionCloseRequest) e
 	p.closing = true
 	child, app, endpoint, cancel := p.child, p.app, p.endpoint, p.cancel
 	graceful := p.opened && p.failure == nil && ctx.Err() == nil
+	var cleanupErr error
 	p.mu.Unlock()
 	if graceful && app != nil {
 		if err := app.close(); err != nil {
+			cleanupErr = errors.Join(cleanupErr, err)
 			p.fail(err)
 			graceful = false
 		}
@@ -733,16 +736,24 @@ func (p *Wrapper) Close(ctx context.Context, _ sessionkit.SessionCloseRequest) e
 			}
 		}
 	}
+	if child != nil {
+		cleanupErr = errors.Join(cleanupErr, child.Wait())
+	}
+	if app != nil {
+		app.mu.Lock()
+		drainErr := app.failed
+		app.mu.Unlock()
+		if drainErr != nil && !errors.Is(drainErr, io.EOF) {
+			cleanupErr = errors.Join(cleanupErr, drainErr)
+		}
+	}
 	if cancel != nil {
 		cancel()
 	}
 	if endpoint != nil {
-		_ = endpoint.Close()
+		cleanupErr = errors.Join(cleanupErr, endpoint.Close())
 	}
-	if ctx.Err() != nil {
-		return ctx.Err()
-	}
-	return nil
+	return errors.Join(cleanupErr, ctx.Err())
 }
 
 func textInput(text string) []map[string]string {

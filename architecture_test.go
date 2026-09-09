@@ -34,7 +34,7 @@ func TestRepositoryBoundary(t *testing.T) {
 		".forgejo": true, ".git": true,
 		".github": true, ".gitignore": true,
 		".golangci.yml": true, "LICENSE": true, "README.md": true,
-		"architecture_test.go": true, "claude": true, "cmd": true,
+		"architecture_test.go": true, "claude": true, "codex": true, "cmd": true,
 		"docs": true, "go.mod": true, "go.sum": true, "grok": true,
 		"internal": true, "opencode": true, "qwen": true, "scripts": true, "wrappers": true,
 	}

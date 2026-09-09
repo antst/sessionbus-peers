@@ -1,0 +1,22 @@
+{
+  "name": "codex",
+  "version": "0.5.0-codex.0",
+  "description": "Sessionbus peers and lanes through native Codex tools.",
+  "author": {
+    "name": "Sessionbus"
+  },
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Sessionbus",
+    "shortDescription": "Message peers and delegate to Sessionbus lanes.",
+    "defaultPrompt": "Use Sessionbus to discover peers or delegate an authorized task.",
+    "capabilities": [
+      "Write",
+      "Read"
+    ],
+    "longDescription": "Use one Sessionbus tool and skill for authorized peer messaging and lane lifecycle.",
+    "developerName": "Sessionbus",
+    "category": "Productivity"
+  }
+}

@@ -55,10 +55,20 @@ type appFrame struct {
 	Error  *appError       `json:"error"`
 }
 
+const nativeRequestLimit = 256
+
+var errNativeRequestLimit = errors.New("Codex App Server request capacity exhausted")
+
 type appPending struct {
 	reply   chan appReply
 	observe func(json.RawMessage) error
 }
+type appServing struct {
+	context context.Context
+	cancel  context.CancelFunc
+	thread  string
+}
+
 type appRequestHandler func(context.Context, string, json.RawMessage) (any, error)
 
 type appClient struct {
@@ -74,6 +84,8 @@ type appClient struct {
 	context   context.Context
 	cancel    context.CancelFunc
 	request   appRequestHandler
+	serving   map[string]*appServing
+	handlers  sync.WaitGroup
 }
 
 func newAppClient(input io.WriteCloser, output io.ReadCloser, notify func(string, json.RawMessage), failure func(error), handler ...appRequestHandler) *appClient {
@@ -82,7 +94,7 @@ func newAppClient(input io.WriteCloser, output io.ReadCloser, notify func(string
 
 func newTransportClient(transport appTransport, notify func(string, json.RawMessage), failure func(error), handler ...appRequestHandler) *appClient {
 	ctx, cancel := context.WithCancel(context.Background())
-	c := &appClient{transport: transport, pending: map[int64]appPending{}, done: make(chan struct{}), notify: notify, onFailure: failure, context: ctx, cancel: cancel, writeGate: make(chan struct{}, 1)}
+	c := &appClient{transport: transport, pending: map[int64]appPending{}, done: make(chan struct{}), notify: notify, onFailure: failure, context: ctx, cancel: cancel, writeGate: make(chan struct{}, 1), serving: map[string]*appServing{}}
 	c.writeGate <- struct{}{}
 	if len(handler) > 0 {
 		c.request = handler[0]
@@ -118,6 +130,10 @@ func (c *appClient) callObserved(ctx context.Context, method string, params, res
 		c.mu.Unlock()
 		return err
 	}
+	if len(c.pending) >= nativeRequestLimit {
+		c.mu.Unlock()
+		return errNativeRequestLimit
+	}
 	c.next++
 	id, reply := c.next, make(chan appReply, 1)
 	c.pending[id] = appPending{reply: reply, observe: observe}
@@ -130,11 +146,20 @@ func (c *appClient) callObserved(ctx context.Context, method string, params, res
 	select {
 	case response = <-reply:
 	case <-ctx.Done():
-		select {
-		case response = <-reply:
-		default:
+		c.mu.Lock()
+		_, unclaimed := c.pending[id]
+		if unclaimed {
+			// Keep only the ID until its response is drained. The reader cannot
+			// retain a cancelled recipient or execute its abandoned observer.
+			c.pending[id] = appPending{}
+		}
+		c.mu.Unlock()
+		if unclaimed {
 			return ctx.Err()
 		}
+		// The reader (or failure path) already claimed completion under mu.
+		// Its result wins a later cancellation, including observer completion.
+		response = <-reply
 	}
 	if response.err != nil {
 		return response.err
@@ -198,11 +223,13 @@ func (c *appClient) writeContext(ctx context.Context, value any) (bool, error) {
 	}
 	return result.attempted, result.err
 }
-func (c *appClient) serveRequest(frame appFrame) {
+func (c *appClient) serveRequest(frame appFrame, key string, work *appServing) {
+	defer c.handlers.Done()
+	defer func() { work.cancel(); c.mu.Lock(); delete(c.serving, key); c.mu.Unlock() }()
 	var value any
 	var err error
 	if c.request != nil {
-		value, err = c.request(c.context, frame.Method, frame.Params)
+		value, err = c.request(work.context, frame.Method, frame.Params)
 	} else {
 		err = &appError{Code: -32601, Message: "unsupported client exchange: " + frame.Method}
 	}
@@ -216,11 +243,12 @@ func (c *appClient) serveRequest(frame appFrame) {
 	} else {
 		response["result"] = value
 	}
-	_ = c.write(response)
+	_, _ = c.writeContext(work.context, response)
 }
 
 func (c *appClient) read() {
 	defer close(c.done)
+	defer c.handlers.Wait()
 	if stream, ok := c.transport.(*streamTransport); ok {
 		defer stream.output.Close()
 	}
@@ -237,7 +265,38 @@ func (c *appClient) read() {
 		}
 		if frame.Method != "" {
 			if len(frame.ID) != 0 {
-				go c.serveRequest(frame)
+				key, err := nativeRequestKey(frame.ID)
+				if err != nil {
+					c.fail(err)
+					return
+				}
+				var scope struct {
+					ThreadID string `json:"threadId"`
+				}
+				_ = json.Unmarshal(frame.Params, &scope)
+				c.mu.Lock()
+				_, duplicate := c.serving[key]
+				if len(c.serving) >= nativeRequestLimit {
+					c.mu.Unlock()
+					c.fail(errNativeRequestLimit)
+					return
+				}
+				if duplicate {
+					c.mu.Unlock()
+					c.fail(errors.New("Codex App Server duplicate request ID"))
+					return
+				}
+				ctx, cancel := context.WithCancel(c.context)
+				work := &appServing{context: ctx, cancel: cancel, thread: scope.ThreadID}
+				c.serving[key] = work
+				c.mu.Unlock()
+				c.handlers.Add(1)
+				go c.serveRequest(frame, key, work)
+			} else if frame.Method == "serverRequest/resolved" {
+				if err := c.resolveRequest(frame.Params); err != nil {
+					c.fail(err)
+					return
+				}
 			} else if c.notify != nil {
 				c.notify(frame.Method, frame.Params)
 			}
@@ -253,12 +312,15 @@ func (c *appClient) read() {
 			return
 		}
 		c.mu.Lock()
-		reply := c.pending[id]
+		reply, known := c.pending[id]
 		delete(c.pending, id)
 		c.mu.Unlock()
-		if reply.reply == nil {
+		if !known {
 			c.fail(errors.New("Codex App Server returned an unknown response id"))
 			return
+		}
+		if reply.reply == nil {
+			continue // A validated late response releases its cancelled drain slot.
 		}
 		if frame.Error != nil {
 			reply.reply <- appReply{err: frame.Error}
@@ -295,7 +357,9 @@ func (c *appClient) fail(err error) {
 	c.pending = map[int64]appPending{}
 	c.mu.Unlock()
 	for _, reply := range pending {
-		reply.reply <- appReply{err: err}
+		if reply.reply != nil {
+			reply.reply <- appReply{err: err}
+		}
 	}
 	c.cancel()
 	_ = c.transport.Close()
@@ -309,4 +373,37 @@ func (c *appClient) fail(err error) {
 
 func (c *appClient) close() error {
 	return c.transport.Close()
+}
+
+// Native IDs may be strings or integers; preserve their distinct namespaces.
+func nativeRequestKey(raw json.RawMessage) (string, error) {
+	var text string
+	if len(raw) > 0 && raw[0] == '"' && json.Unmarshal(raw, &text) == nil {
+		return "s:" + text, nil
+	}
+	var number int64
+	if string(raw) != "null" && json.Unmarshal(raw, &number) == nil {
+		return fmt.Sprintf("n:%d", number), nil
+	}
+	return "", errors.New("invalid native server request ID")
+}
+func (c *appClient) resolveRequest(raw json.RawMessage) error {
+	var resolved struct {
+		ThreadID  string          `json:"threadId"`
+		RequestID json.RawMessage `json:"requestId"`
+	}
+	if json.Unmarshal(raw, &resolved) != nil || resolved.ThreadID == "" {
+		return errors.New("invalid native request resolution")
+	}
+	key, err := nativeRequestKey(resolved.RequestID)
+	if err != nil {
+		return err
+	}
+	c.mu.Lock()
+	work := c.serving[key]
+	if work != nil && work.thread == resolved.ThreadID {
+		work.cancel()
+	}
+	c.mu.Unlock()
+	return nil
 }

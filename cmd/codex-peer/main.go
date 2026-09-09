@@ -28,7 +28,16 @@ func main() {
 }
 
 func run(ctx context.Context, arguments []string) error {
-	if filepath.Base(os.Args[0]) == "codex-peer-mcp" && os.Getenv(codex.EndpointEnv) != "" {
+	if filepath.Base(os.Args[0]) == codex.InstallAlias {
+		if len(arguments) != 1 {
+			return errors.New("installer requires the permanent marketplace path")
+		}
+		return codex.RegisterPlugin(ctx, arguments[0], os.Stdout)
+	}
+	if filepath.Base(os.Args[0]) == codex.MCPAlias {
+		if os.Getenv(codex.EndpointEnv) == "" {
+			return errors.New("Codex MCP requires its launch endpoint")
+		}
 		return codex.Forward(ctx, os.Getenv(codex.EndpointEnv), os.Stdin, os.Stdout)
 	}
 	if !host.LaneMode() {

@@ -95,3 +95,68 @@ func TestClosingExpectedEOFDoesNotAbortNativeLifetime(t *testing.T) {
 		t.Fatal("malformed frame ignored during close")
 	}
 }
+
+type closeErrorInput struct {
+	io.WriteCloser
+	err error
+}
+
+func (w closeErrorInput) Close() error { return errors.Join(w.WriteCloser.Close(), w.err) }
+func TestCodexCloseProcess(t *testing.T) {
+	mode := os.Getenv("CODEX_CLOSE_FIXTURE")
+	if mode == "" {
+		return
+	}
+	_, _ = io.Copy(io.Discard, os.Stdin)
+	if mode == "nonzero" {
+		os.Exit(23)
+	}
+	if mode == "malformed" {
+		_, _ = os.Stdout.WriteString("not-json\n")
+	}
+	os.Exit(0)
+}
+func TestCloseRetainsExitDrainAndInputErrors(t *testing.T) {
+	for _, mode := range []string{"normal", "nonzero", "malformed", "input-error"} {
+		t.Run(mode, func(t *testing.T) {
+			cmd := exec.Command(os.Args[0], "-test.run=TestCodexCloseProcess")
+			cmd.Env = append(os.Environ(), "CODEX_CLOSE_FIXTURE="+mode)
+			child, input, output, err := startNative(cmd)
+			if err != nil {
+				t.Fatal(err)
+			}
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			stop := context.AfterFunc(ctx, child.abort)
+			defer stop()
+			p := New()
+			p.ctx, p.cancel, p.child, p.opened = ctx, cancel, child, true
+			var writer io.WriteCloser = input
+			inputErr := errors.New("fixture stdin close failed")
+			if mode == "input-error" {
+				writer = closeErrorInput{input, inputErr}
+			}
+			p.app = newAppClient(writer, output, nil, p.nativeFailure)
+			err = p.Close(context.Background(), kit.SessionCloseRequest{})
+			switch mode {
+			case "normal":
+				if err != nil {
+					t.Fatal(err)
+				}
+			case "nonzero":
+				var exit *exec.ExitError
+				if !errors.As(err, &exit) || exit.ExitCode() != 23 {
+					t.Fatalf("exit lost: %v", err)
+				}
+			case "malformed":
+				if err == nil {
+					t.Fatal("drain failure lost")
+				}
+			case "input-error":
+				if !errors.Is(err, inputErr) {
+					t.Fatalf("input error lost: %v", err)
+				}
+			}
+		})
+	}
+}
