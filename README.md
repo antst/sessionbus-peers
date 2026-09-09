@@ -7,6 +7,10 @@ the public Go SDK and the pinned public JavaScript kit.
 
 ## Install 0.5.0 from source
 
+Upgrading from Agent Sessions v0.3/v0.4 or development installations? Use the
+[legacy cleanup tool](docs/development/legacy-cleanup.md) to preview and remove
+old integrations without unlinking the new Sessionbus peer commands.
+
 Install the daemon and public SDK commands from their repository:
 
 ```sh
