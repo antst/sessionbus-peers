@@ -1,0 +1,36 @@
+{
+  "reviewed_commit": "5f93fbb2532b0119edbd427aba21507989dddbfb",
+  "merged_commit": "b1d7adbc922c24734abc729a49503eff4bcd3484",
+  "lock": {
+    "version": "0.1.0-pre.2",
+    "resolved": "https://pkg.pr.new/@sessionbus/kit@5f93fbb",
+    "integrity": "sha512-HQ0SP9ypQhmQYdYwZZG3ML5EDgHX7AGWpalF5l1i19zIe6BVeiduw8f8IASB0tpFJd+2PGeKjVVfFEVrdfq4Aw==",
+    "license": "MIT"
+  },
+  "files": [
+    {
+      "path": "sdk/go/protocol/session.schema.json",
+      "sha256": "773b0a48ee0b4476e86474bf56ee21530b3376a7dc7cbe98a77db76459782b31"
+    },
+    {
+      "path": "sdk/js/LICENSE",
+      "sha256": "5eab6128815879aded938085ac18293e4a09ed84cb425405c5810cdacde776e8"
+    },
+    {
+      "path": "sdk/js/caller.js",
+      "sha256": "28686e14e7ee63a605fb2061c9f13b0c4cbbcc8c93a9221ca057a5c1f40588b7"
+    },
+    {
+      "path": "sdk/js/connection.js",
+      "sha256": "f10d5aa5e0d9472cbce63c3b3ff740805ebd70840902352b9a4516b6880c9ac7"
+    },
+    {
+      "path": "sdk/js/index.js",
+      "sha256": "be6cdd0f737676136bf29b563c772eb8875a90c7397c425871364e98c03c72f5"
+    },
+    {
+      "path": "sdk/js/schema.js",
+      "sha256": "b70477aa0d5c81f43d4f513aec438a33a4752c40917c1de3a8e0adc2ec255e1e"
+    }
+  ]
+}
