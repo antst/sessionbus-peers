@@ -1,5 +1,43 @@
 # Codex product facts
 
+## Current Go candidate, 2026-09-09
+
+Current installation and policies are described in `codex/README.md` and
+`docs/designs/codex-0.5.0/{LANE-SELECTION,INTERACTIVE-SELECTION}.md`. The older
+facts below retain their original version and topology. In particular, the old
+shared-daemon restriction on per-launch groups and the old archive-on-close
+behavior are historical integration choices, not current Codex limitations.
+
+- Native CLI override keys split literally on dots; embedded quotes around the
+  plugin ID prevent activation. The working per-launch key is
+  `plugins.codex@sessionbus-peers.enabled=true`. Native `config/value/write`
+  has a different quote-aware key parser. The original failed no-input Open and
+  corrected successful Open are preserved in `dev1-lane-open-{ebd5c0a,aaea430}`
+  under `/home/antst/codex-architecture-20260909/`.
+- On installed aaea430/native0.153.4, idle `thread/inject_items` staging received
+  `queued_for_next_turn`; the marker appeared in native user history before any
+  assistant response and was consumed in the following explicit run. The
+  receipt is admission, not consumption. Evidence: `dev1-lane-stage-aaea430`.
+- An omitted approval policy yielded native MCP rejection. Explicit `never`
+  still rejected a tool requiring approval. Caller-selected per-plugin per-tool
+  `approval_mode="approve"` allowed the public Sessionbus call; it grants that
+  tool's actions, not only list. No default policy or read-only annotation was
+  substituted. Evidence: `dev1-lane-{wake,grant}-aaea430`.
+- A message with `idle_message:"run"` started a shared native run, whose
+  retained result was collected, acknowledged and then closed. Successful
+  Open itself submitted no model input. Normal close preserved saved native
+  history. Four identified worker/native/configured-helper processes were
+  absent after close in the grant row; no direct exit-status or arbitrary
+  descendant-containment claim is made.
+
+Interactive installed rows are being consolidated separately. Whole combined
+9b833c3 archive size is 2,978,023 bytes, with one 7,135,394-byte linked executable
+and 7,157,883 bytes across regular payload files. The increase relative to the
+lane checkpoint includes the entire broker integration, not just the WebSocket
+dependency. Build/member hashes are in `dev1-combined-entry/BUILD.json`.
+
+## Retained earlier native and integration evidence
+
 > Historical source note: citations to pre-split Sessionbus paths resolve in
 > the Forgejo `ai/sessionbus` repository through its `legacy-*` branches.
 > Citations to product source resolve in the external repository and full

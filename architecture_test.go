@@ -309,7 +309,9 @@ func TestReadmeIsTheSourceInstallAuthority(t *testing.T) {
 	readme := read(t, "README.md")
 	for _, exact := range []string{
 		`git clone https://github.com/antst/sessionbus.git && cd sessionbus && GOBIN="$HOME/.local/bin" go install ./bus/cmd/...`,
-		`git clone https://github.com/antst/sessionbus-peers.git && cd sessionbus-peers && go test -race ./... && GOBIN="$HOME/.local/bin" go install ./cmd/codex-peer ./cmd/grok-peer ./cmd/qwen-peer ./cmd/opencode-peer`,
+		`git clone https://github.com/antst/sessionbus-peers.git && cd sessionbus-peers && go test -race ./... && GOBIN="$HOME/.local/bin" go install ./cmd/grok-peer ./cmd/qwen-peer ./cmd/opencode-peer`,
+		"scripts/package-codex ./dist",
+		"codex/README.md",
 		"`go install <pkg>@version` is not available",
 		"this README is the installation authority until then",
 	} {

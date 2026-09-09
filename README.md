@@ -20,12 +20,12 @@ instead.
 Install the product peers from this repository:
 
 ```sh
-git clone https://github.com/antst/sessionbus-peers.git && cd sessionbus-peers && go test -race ./... && GOBIN="$HOME/.local/bin" go install ./cmd/codex-peer ./cmd/grok-peer ./cmd/qwen-peer ./cmd/opencode-peer
+git clone https://github.com/antst/sessionbus-peers.git && cd sessionbus-peers && go test -race ./... && GOBIN="$HOME/.local/bin" go install ./cmd/grok-peer ./cmd/qwen-peer ./cmd/opencode-peer
 ```
 
-That command installs `codex-peer`, `grok-peer`, `qwen-peer` and
-`opencode-peer` in `~/.local/bin`. Claude uses its bundled archive recipe
-below so the launcher and native plugin share one installation.
+That command installs `grok-peer`, `qwen-peer` and `opencode-peer` in
+`~/.local/bin`. Claude and Codex use their bundled archive recipes below so
+each launcher and native plugin share one installation.
 
 Claude's candidate is one Go binary with its bundled native plugin
 in [`claude/`](claude/README.md). Build its archive with `scripts/package-claude`
@@ -39,15 +39,19 @@ individual results and limits are in the product facts. The reviewed
 Node implementation and regressions remain a behavioral reference under
 `docs/designs/claude-0.5.0/node-reference`, outside the installed plugin.
 
-Codex's `scripts/codex-mcp` receives `$HOME/.local/bin/codex-peer` as its
-exact path; Grok's native entry defaults to `$HOME/.local/bin/grok-peer`;
+Codex uses `scripts/package-codex` and the permanent installer in
+[`codex/README.md`](codex/README.md). One Go binary supplies the launcher,
+interactive broker, lane worker and private MCP entry. Native plugin
+registration is disabled for ordinary Codex and activated per managed launch.
+The earlier `scripts/codex-mcp` hookup is retained historical source and is not
+the current installation route. Grok's native entry defaults to `$HOME/.local/bin/grok-peer`;
 Qwen's MCP manifest invokes `qwen-peer` from PATH; Sessionbus uses
 `opencode-peer` for the retained OpenCode lane source.
 
 Complete each product hookup using only the retained integration:
 
 - Claude: use the bundled candidate recipe and scoped status in [`claude/README.md`](claude/README.md).
-- Codex: source `scripts/codex-mcp`, then run `install_codex_mcp "$(command -v codex)" "$HOME/.local/bin/codex-peer"`.
+- Codex: build with `scripts/package-codex ./dist` and use the archive's installer as documented in [`codex/README.md`](codex/README.md).
 - OpenCode: install the pkg.pr.new preview rooted at `opencode/`, then run its `sessionbus-opencode-install` executable from `bin.mjs`.
 - Grok: install or register the `grok/` plugin directory.
 - Qwen: install or register the `qwen/` plugin directory.
@@ -68,10 +72,10 @@ GOWORK=off go build ./cmd/...
 GOWORK=off go test ./...
 ```
 
-To install the commands into a private prefix:
+To install the standalone commands into a development prefix:
 
 ```sh
-GOBIN="$PWD/bin" GOWORK=off go install ./cmd/codex-peer ./cmd/grok-peer ./cmd/qwen-peer ./cmd/opencode-peer
+GOBIN="$PWD/bin" GOWORK=off go install ./cmd/grok-peer ./cmd/qwen-peer ./cmd/opencode-peer
 ```
 
 No binary release workflow is part of the initial split. The commands are
@@ -92,7 +96,7 @@ Development checks also require Node.js 24 for the Node packages and
 - Claude interactive uses one Go artifact, public Connection/Caller, native exec and a private MCP alias; no Node runtime.
 - `wrappers/<product>` and `cmd/<product>-peer` contain the Go adapters and
   commands.
-- `claude/`, `grok/`, `qwen/`, `opencode/`, and the retained plugin manifests
+- `claude/`, `codex/`, `grok/`, `qwen/`, `opencode/`, and the retained plugin manifests
   contain product integration assets.
 - `docs/products/` preserves verified facts and immutable historical
   citations.
