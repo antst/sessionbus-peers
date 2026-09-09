@@ -1,9 +1,10 @@
-# Claude peer — Go interactive candidate
+# Claude peer — Go candidate
 
 `claude-peer` runs your installed Claude with Sessionbus communication. The
 integration is one Go binary and a small native plugin; it requires no Node or
 npm. Claude, its login, permissions, configuration and history remain native.
-Claude lane mode is still unavailable in this interactive candidate.
+The interactive path is accepted. The direct Go lane path is under development;
+its installed Open, delivery and lifecycle checks are not yet complete.
 
 ## Install
 
@@ -50,9 +51,11 @@ The installed layout is:
 ~/.local/libexec/sessionbus/claude/claude-peer
 ~/.local/libexec/sessionbus/claude/plugin/.mcp.json
 ~/.local/libexec/sessionbus/claude/plugin/bin/sessionbus-mcp -> ../../claude-peer
+~/.local/libexec/sessionbus/claude/plugin/bin/sessionbus-hook -> ../../claude-peer
 ```
 
-The private alias invokes the same binary as the native MCP child. There is
+The private MCP alias invokes the same binary as the native MCP child. Lane
+startup uses the private hook alias for its initial native identity report. There is
 one compiled artifact, one public command and no Node/npm dependency.
 
 ## Use

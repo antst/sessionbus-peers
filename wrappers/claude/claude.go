@@ -1,475 +1,300 @@
 // SPDX-License-Identifier: MIT
-
 package claude
 
 import (
 	"context"
-	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
-	"slices"
+	"path/filepath"
 	"strings"
 	"sync"
 
-	"github.com/antst/sessionbus-peers/wrappers/host"
-	"github.com/antst/sessionbus-peers/wrappers/mcp"
-	sessionkit "github.com/antst/sessionbus/bus/sdk/go"
+	"github.com/antst/sessionbus-peers/wrappers/claude/interactive"
+	kit "github.com/antst/sessionbus/bus/sdk/go"
 )
 
-const (
-	Product       = "claude-peer"
-	LaneSocketEnv = "SESSIONBUS_LANE_SOCKET"
-)
+const Product = "claude-peer"
+const LaneEndpointEnv = interactive.LaneEndpointEnv
+const HookAlias = "sessionbus-hook"
 
 type Wrapper struct {
-	socket                string
-	handoff               host.Handoff
-	backend               mcp.Backend
-	mu                    sync.Mutex
-	child                 *host.Child
-	input                 io.WriteCloser
-	encoder               *json.Encoder
-	expected, controlID   string
-	ready                 chan error
-	readyOne              sync.Once
-	init, opened, closing bool
-	failed                error
-	active                *turn
-	run                   *sessionkit.Run
-	control               chan error
-	writes, replays, next uint64
-	shutdown              func()
+	mu              sync.Mutex
+	caller          *kit.Caller
+	root            string
+	cancel          context.CancelFunc
+	ctx             context.Context
+	endpoint        *laneEndpoint
+	native          *exec.Cmd
+	stream          *stream
+	processDone     chan struct{}
+	spawnReady      chan struct{}
+	reportReady     chan struct{}
+	reportOnce      sync.Once
+	identity, title string
+	opened, closing bool
+	failure         error
+	shutdown        func()
 }
 
-type turn struct {
-	owner    *Wrapper
-	done     chan turnDone
-	write    uint64
-	consumed bool
+func New(root string) *Wrapper {
+	return &Wrapper{root: root, spawnReady: make(chan struct{}), reportReady: make(chan struct{})}
 }
-
-type turnDone struct {
-	result sessionkit.TurnResult
-	err    error
+func (p *Wrapper) SetCaller(c *kit.Caller) { p.caller = c }
+func (p *Wrapper) SetShutdown(f func())    { p.shutdown = f }
+func (*Wrapper) Hello(context.Context) (kit.HelloDescription, error) {
+	return kit.HelloDescription{Product: Product, SupportedOpenFields: []string{"cwd", "permission_mode", "model", "reasoning_effort", "arguments"}}, nil
 }
-
-type frame struct {
-	Type           string
-	Subtype        string
-	SessionID      string `json:"session_id"`
-	Result         string
-	TerminalReason string `json:"terminal_reason"`
-	Error          string
-	IsError        bool `json:"is_error"`
-	IsReplay       bool
-	Response       controlResponse
-}
-
-type controlResponse struct {
-	RequestID string `json:"request_id"`
-	Subtype   string
-	Error     string
-}
-
-func New(socket string) *Wrapper { return &Wrapper{socket: socket} }
-
-func (p *Wrapper) SetShutdown(shutdown func()) { p.shutdown = shutdown }
-
-func (p *Wrapper) SetCall(call func(context.Context, string, any) (json.RawMessage, error)) {
-	p.backend = mcp.BackendFunc(call)
-}
-
-func (*Wrapper) Hello(context.Context) (sessionkit.HelloDescription, error) {
-	return sessionkit.HelloDescription{
-		Product: Product, SupportedOpenFields: []string{"cwd", "permission_mode", "model", "reasoning_effort", "arguments"},
-		ExtraArguments: []sessionkit.ExtraArgument{{Name: "--agent", Description: "Claude agent", TakesValue: true}},
-	}, nil
-}
-
-func (p *Wrapper) Open(ctx context.Context, request sessionkit.OpenRequest) (sessionkit.OpenResult, error) {
-	id, err := sessionID(request.ResumeSessionID)
-	if err != nil {
-		return sessionkit.OpenResult{}, err
-	}
-	lock, err := host.AcquireSessionLock(p.socket, "claude", id)
-	if err != nil {
-		return sessionkit.OpenResult{}, err
-	}
-	endpoint, err := host.ListenPrivate(p.socket, id)
-	if err != nil {
-		_ = lock.Close()
-		return sessionkit.OpenResult{}, err
-	}
-	arguments, err := launchArguments(request, id, endpoint.Path)
-	if err != nil {
-		return sessionkit.OpenResult{}, closeLaunch(lock, endpoint, err)
-	}
-	if p.backend == nil {
-		return sessionkit.OpenResult{}, closeLaunch(lock, endpoint, errors.New("Sessionbus lane backend is unavailable"))
-	}
-	go func() { _ = mcp.ServeLane(ctx, endpoint, p.backend) }()
-	command := exec.Command("claude", arguments...)
-	command.Dir, command.Stderr = request.Open.Cwd, os.Stderr
-	environment := slices.DeleteFunc(os.Environ(), func(value string) bool { return strings.HasPrefix(value, LaneSocketEnv+"=") })
-	command.Env = append(environment, LaneSocketEnv+"="+endpoint.Path)
-	child, input, output, err := host.StartChild(command, lock, endpoint)
-	if err != nil {
-		return sessionkit.OpenResult{}, closeLaunch(lock, endpoint, fmt.Errorf("start Claude stream: %w", err))
-	}
+func (p *Wrapper) Open(ctx context.Context, r kit.OpenRequest) (result kit.OpenResult, err error) {
 	p.mu.Lock()
-	p.child, p.input, p.encoder, p.expected, p.ready, p.opened = child, input, json.NewEncoder(input), id, make(chan error, 1), true
-	p.mu.Unlock()
-	drained := make(chan struct{})
-	go func() {
-		defer close(drained)
-		p.read(output)
-	}()
-	go p.watch(child, drained)
-	return sessionkit.OpenResult{SessionID: id}, nil
-}
-
-func (p *Wrapper) Run(ctx context.Context, run *sessionkit.Run, input string) (sessionkit.TurnResult, error) {
-	p.mu.Lock()
-	p.run = run
-	go p.retireRun(run)
-	p.mu.Unlock()
-	return p.handoff.Run(ctx, run, input, p.start)
-}
-
-func (p *Wrapper) retireRun(run *sessionkit.Run) {
-	<-run.Done()
-	p.mu.Lock()
-	if p.run == run {
-		p.run = nil
-	}
-	p.mu.Unlock()
-}
-
-func (p *Wrapper) Interrupt(ctx context.Context, run *sessionkit.Run) error {
-	return p.handoff.Interrupt(ctx, run)
-}
-
-func (p *Wrapper) Deliver(ctx context.Context, request sessionkit.DeliveryRequest, _ *sessionkit.Run) (sessionkit.DeliveryReceipt, error) {
-	return p.handoff.Deliver(ctx, request, p.inject)
-}
-
-func (p *Wrapper) Close(ctx context.Context, _ sessionkit.SessionCloseRequest) error {
-	p.mu.Lock()
-	p.closing = true
-	child, input := p.child, p.input
-	p.mu.Unlock()
-	if child == nil {
-		return nil
-	}
-	return child.Close(ctx, func(context.Context) error { return input.Close() })
-}
-
-func (p *Wrapper) start(ctx context.Context, prompt string) (host.Turn, error) {
-	p.mu.Lock()
-	if p.failed != nil || p.active != nil {
-		err := firstError(p.failed, errors.New("Claude lane is not idle"))
+	if p.ctx != nil || p.closing {
 		p.mu.Unlock()
-		return nil, err
+		return result, errors.New("Claude worker already opened or closed")
 	}
-	t := &turn{owner: p, done: make(chan turnDone, 1)}
-	p.active = t
-	err := p.write(prompt)
-	needsInit := !p.init
+	p.ctx, p.cancel = context.WithCancel(ctx)
+	nativeCtx := p.ctx
 	p.mu.Unlock()
-	if err == nil && needsInit {
-		err = p.waitReady(ctx)
-	}
+	defer func() {
+		if err != nil {
+			_ = p.Close(context.Background(), kit.SessionCloseRequest{})
+		}
+	}()
+	endpoint, err := newLaneEndpoint(p)
 	if err != nil {
-		p.fail(err)
-		return nil, err
+		return result, err
 	}
-	return t, nil
-}
-
-func (p *Wrapper) inject(_ context.Context, prompt string) (host.Injection, error) {
+	p.mu.Lock()
+	p.endpoint = endpoint
+	p.mu.Unlock()
+	settings := filepath.Join(endpoint.dir, "session-start.json")
+	command := shellQuote(filepath.Join(p.root, "bin", HookAlias))
+	config := map[string]any{"hooks": map[string]any{"SessionStart": []any{map[string]any{"hooks": []any{map[string]string{"type": "command", "command": command}}}}}}
+	body, err := json.Marshal(config)
+	if err != nil {
+		return result, err
+	}
+	if err = os.WriteFile(settings, body, 0600); err != nil {
+		return result, err
+	}
+	args := launchArguments(r, p.root, settings)
+	cwd := r.Open.Cwd
+	if cwd == "" {
+		cwd, err = os.Getwd()
+		if err != nil {
+			return result, err
+		}
+	}
+	env := interactive.Environment(os.Environ())
+	path, err := interactive.NativePath(env, cwd)
+	if err != nil {
+		return result, err
+	}
+	child := exec.CommandContext(nativeCtx, path, args...)
+	child.Dir = cwd
+	child.Stderr = os.Stderr
+	for _, value := range os.Environ() {
+		if !strings.HasPrefix(value, LaneEndpointEnv+"=") && !strings.HasPrefix(value, "SESSIONBUS_LAUNCH_TOKEN=") {
+			child.Env = append(child.Env, value)
+		}
+	}
+	child.Env = append(child.Env, LaneEndpointEnv+"="+endpoint.path)
+	inputRead, inputWrite, err := os.Pipe()
+	if err != nil {
+		return result, err
+	}
+	defer inputRead.Close()
+	outputRead, outputWrite, err := os.Pipe()
+	if err != nil {
+		_ = inputWrite.Close()
+		return result, err
+	}
+	defer outputWrite.Close()
+	child.Stdin = inputRead
+	child.Stdout = outputWrite
+	if err = child.Start(); err != nil {
+		_ = inputWrite.Close()
+		_ = outputRead.Close()
+		return result, err
+	}
+	p.mu.Lock()
+	p.native = child
+	p.processDone = make(chan struct{})
+	p.mu.Unlock()
+	close(p.spawnReady)
+	_ = inputRead.Close()
+	_ = outputWrite.Close()
+	s := newStream(inputWrite, outputRead, p.fail)
+	p.mu.Lock()
+	p.stream = s
+	processDone := p.processDone
+	p.mu.Unlock()
+	go func() {
+		e := child.Wait()
+		close(processDone)
+		if e == nil {
+			e = io.EOF
+		}
+		s.stop(e)
+	}()
+	init, err := s.control(nativeCtx, map[string]string{"subtype": "initialize"})
+	if err != nil {
+		return result, err
+	}
+	var initialized struct {
+		PID int `json:"pid"`
+	}
+	if err = json.Unmarshal(init, &initialized); err != nil {
+		return result, err
+	}
+	if initialized.PID != child.Process.Pid {
+		return result, errors.New("native initialize did not confirm the spawned process")
+	}
+	select {
+	case <-p.reportReady:
+	case <-nativeCtx.Done():
+		return result, nativeCtx.Err()
+	}
+	status, err := s.control(nativeCtx, map[string]string{"subtype": "mcp_status"})
+	if err != nil {
+		return result, err
+	}
+	if err = requiredTools(status); err != nil {
+		return result, err
+	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if p.active == nil || p.failed != nil {
-		return host.NotInjected, nil
+	if p.closing || p.failure != nil {
+		return result, errors.New("native integration ended during open")
 	}
-	return host.Injected, p.write(prompt)
+	if r.ResumeSessionID != "" && r.ResumeSessionID != p.identity {
+		return result, errors.New("native report did not confirm the requested resume identity")
+	}
+	p.opened = true
+	return kit.OpenResult{SessionID: p.identity}, nil
 }
-
-func (p *Wrapper) write(prompt string) error {
-	if strings.TrimSpace(prompt) == "" {
-		return errors.New("Claude lane prompt is empty")
+func launchArguments(r kit.OpenRequest, root, settings string) []string {
+	args := []string{"--allowedTools", interactive.PublicTool, "--plugin-dir", root, "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--replay-user-messages", "--settings", settings}
+	if r.Name != "" {
+		name := r.Name
+		if at := strings.LastIndexByte(name, '@'); at >= 0 {
+			name = name[:at]
+		}
+		args = append(args, "--name", name)
 	}
-	if strings.HasPrefix(strings.TrimSpace(prompt), "<cross-session-message ") {
-		prompt = "The following Sessionbus peer message is the current user turn. Act on its enclosed content and preserve its sender metadata.\n\n" + prompt
+	if r.ResumeSessionID != "" {
+		args = append(args, "--resume", r.ResumeSessionID)
 	}
-	body := map[string]any{"type": "user", "message": map[string]any{"role": "user", "content": []map[string]string{{"type": "text", "text": prompt}}}}
-	if err := p.encoder.Encode(body); err != nil {
+	if r.Open.PermissionMode != "" {
+		args = append(args, "--permission-mode", r.Open.PermissionMode)
+	}
+	if r.Open.Model != "" {
+		args = append(args, "--model", r.Open.Model)
+	}
+	if r.Open.ReasoningEffort != "" {
+		args = append(args, "--effort", r.Open.ReasoningEffort)
+	}
+	return append(args, r.Open.Arguments...)
+}
+func requiredTools(raw json.RawMessage) error {
+	var status struct {
+		Servers []struct {
+			Name   string `json:"name"`
+			Status string `json:"status"`
+			Tools  []struct {
+				Name string `json:"name"`
+			} `json:"tools"`
+		} `json:"mcpServers"`
+	}
+	if err := json.Unmarshal(raw, &status); err != nil {
 		return err
 	}
-	p.writes++
-	if p.active != nil {
-		p.active.write, p.active.consumed = p.writes, false
+	for _, server := range status.Servers {
+		if server.Name != "plugin_sessionbus_sessionbus" {
+			continue
+		}
+		if server.Status != "connected" {
+			return fmt.Errorf("integration open unavailable: required MCP status is %s", server.Status)
+		}
+		for _, tool := range server.Tools {
+			if tool.Name == "sessionbus" || tool.Name == interactive.PublicTool {
+				return nil
+			}
+		}
+		return errors.New("integration open unavailable: required Sessionbus tool not reported")
+	}
+	return errors.New("integration open unavailable: required Sessionbus MCP not reported")
+}
+func (p *Wrapper) current() (*stream, string, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if !p.opened || p.closing || p.failure != nil || p.stream == nil {
+		return nil, "", errors.New("native lane is unavailable")
+	}
+	return p.stream, p.identity, nil
+}
+func (p *Wrapper) Run(ctx context.Context, r *kit.Run, input string) (kit.TurnResult, error) {
+	s, id, err := p.current()
+	if err != nil {
+		return kit.TurnResult{}, err
+	}
+	return s.run(ctx, id, input, r.Admitted)
+}
+func (p *Wrapper) Interrupt(ctx context.Context, _ *kit.Run) error {
+	s, _, err := p.current()
+	if err != nil {
+		return err
+	}
+	_, err = s.control(ctx, map[string]string{"subtype": "interrupt"})
+	if err != nil {
+		p.fail(err)
+	}
+	return err
+}
+func (p *Wrapper) Deliver(ctx context.Context, r kit.DeliveryRequest, _ *kit.Run) (kit.DeliveryReceipt, error) {
+	s, id, err := p.current()
+	if err != nil {
+		return kit.DeliveryReceipt{Disposition: "rejected", Reason: "native_unavailable"}, nil
+	}
+	body, err := json.Marshal(map[string]any{"from": r.From, "message": r.Body})
+	if err != nil {
+		return kit.DeliveryReceipt{}, err
+	}
+	return s.append(ctx, id, string(body))
+}
+func (p *Wrapper) fail(err error) {
+	p.mu.Lock()
+	if p.failure == nil {
+		p.failure = err
+	}
+	cancel, shutdown, closing := p.cancel, p.shutdown, p.closing
+	p.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+	if shutdown != nil && !closing {
+		shutdown()
+	}
+}
+func (p *Wrapper) Close(context.Context, kit.SessionCloseRequest) error {
+	p.mu.Lock()
+	p.closing = true
+	cancel, s, endpoint, done := p.cancel, p.stream, p.endpoint, p.processDone
+	p.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+	if s != nil {
+		s.stop(errors.New("native lane closed"))
+	}
+	if endpoint != nil {
+		endpoint.close()
+	}
+	if done != nil {
+		<-done
 	}
 	return nil
 }
-
-func (t *turn) Wait(ctx context.Context) (sessionkit.TurnResult, error) {
-	select {
-	case <-ctx.Done():
-		return sessionkit.TurnResult{}, ctx.Err()
-	case done := <-t.done:
-		return done.result, done.err
-	}
-}
-
-func (t *turn) Interrupt(ctx context.Context) error { return t.owner.interrupt(ctx, t) }
-
-func (p *Wrapper) interrupt(ctx context.Context, t *turn) error {
-	p.mu.Lock()
-	if p.active != t || p.failed != nil {
-		p.mu.Unlock()
-		return nil
-	}
-	p.control = make(chan error, 1)
-	p.next++
-	p.controlID = fmt.Sprintf("interrupt-%d", p.next)
-	err := p.encoder.Encode(map[string]any{"type": "control_request", "request_id": p.controlID, "request": map[string]string{"subtype": "interrupt"}})
-	control := p.control
-	if err != nil {
-		p.control = nil
-	}
-	p.mu.Unlock()
-	if err != nil {
-		return err
-	}
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case err = <-control:
-		return err
-	}
-}
-
-func (p *Wrapper) read(output io.ReadCloser) {
-	defer output.Close()
-	decoder := json.NewDecoder(output)
-	for {
-		var item frame
-		if err := decoder.Decode(&item); err != nil {
-			if errors.Is(err, io.EOF) {
-				p.fail(io.EOF)
-			} else {
-				p.fail(fmt.Errorf("malformed Claude stream frame: %w", err))
-			}
-			return
-		}
-		p.receive(item)
-	}
-}
-
-func (p *Wrapper) receive(item frame) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	switch item.Type {
-	case "system":
-		if item.Subtype == "init" {
-			if item.SessionID != p.expected {
-				p.failLocked(fmt.Errorf("Claude stream changed native session from %q to %q", p.expected, item.SessionID))
-				return
-			}
-			p.init = true
-			p.signalReady(nil)
-		}
-	case "user":
-		if item.IsReplay {
-			p.replays++
-			if p.active != nil && p.replays >= p.active.write {
-				p.active.consumed = true
-			}
-		}
-	case "control_response":
-		if p.control != nil && item.Response.RequestID == p.controlID {
-			err := errors.New(first(item.Response.Error, "Claude rejected interrupt control request"))
-			if item.Response.Subtype == "success" {
-				err = nil
-			}
-			p.control <- err
-			p.control = nil
-		}
-	case "result":
-		if item.SessionID != "" && item.SessionID != p.expected {
-			p.failLocked(fmt.Errorf("Claude result changed native session from %q to %q", p.expected, item.SessionID))
-			return
-		}
-		if p.active != nil && p.active.consumed {
-			t := p.active
-			p.active = nil
-			t.done <- turnDone{result: terminal(item)}
-		}
-	}
-}
-
-func terminal(item frame) sessionkit.TurnResult {
-	result := sessionkit.TurnResult{Result: item.Result, NativeStopReason: item.TerminalReason}
-	switch {
-	case item.Subtype == "interrupted" || item.TerminalReason == "interrupted" || item.TerminalReason == "aborted_streaming":
-		result.Outcome = "interrupted"
-	case item.Subtype == "success" && !item.IsError:
-		result.Outcome = "completed"
-	default:
-		result.Outcome, result.Result = "failed", first(item.Error, strings.TrimSpace(item.Result), item.Subtype, "Claude turn failed")
-	}
-	return result
-}
-
-func (p *Wrapper) fail(err error) {
-	p.mu.Lock()
-	p.failLocked(err)
-	p.mu.Unlock()
-}
-
-func (p *Wrapper) failLocked(err error) {
-	if p.failed != nil {
-		return
-	}
-	p.failed = err
-	p.signalReady(err)
-	t, control := p.active, p.control
-	p.active, p.control = nil, nil
-	if t != nil {
-		t.done <- turnDone{err: err}
-	}
-	if control != nil {
-		control <- err
-	}
-}
-
-func (p *Wrapper) watch(child *host.Child, drained <-chan struct{}) {
-	err := child.Wait()
-	<-drained
-	if err == nil {
-		err = errors.New("Claude stream exited")
-	}
-	p.fail(err)
-	p.mu.Lock()
-	opened, closing, run := p.opened, p.closing, p.run
-	p.mu.Unlock()
-	if opened && !closing {
-		if run != nil {
-			<-run.Done()
-		}
-		if p.shutdown != nil {
-			p.shutdown()
-		}
-	}
-}
-
-func (p *Wrapper) waitReady(ctx context.Context) error {
-	select {
-	case err := <-p.ready:
-		return err
-	case <-ctx.Done():
-		return ctx.Err()
-	}
-}
-
-func (p *Wrapper) signalReady(err error) {
-	p.readyOne.Do(func() { p.ready <- err; close(p.ready) })
-}
-
-func sessionID(resume string) (string, error) {
-	if resume != "" {
-		return resume, nil
-	}
-	var value [16]byte
-	if _, err := rand.Read(value[:]); err != nil {
-		return "", err
-	}
-	value[6], value[8] = value[6]&0x0f|0x40, value[8]&0x3f|0x80
-	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x", value[0:4], value[4:6], value[6:8], value[8:10], value[10:16]), nil
-}
-
-func launchArguments(request sessionkit.OpenRequest, id, socket string) ([]string, error) {
-	extra, err := extraArguments(request.Open.Arguments)
-	if err != nil {
-		return nil, err
-	}
-	arguments := []string{"-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--replay-user-messages"}
-	if request.ResumeSessionID == "" {
-		index := strings.LastIndexByte(request.Name, '@')
-		if index < 1 {
-			return nil, errors.New("Claude lane name is invalid")
-		}
-		arguments = append(arguments, "--session-id", id, "--name", request.Name[:index])
-	} else {
-		arguments = append(arguments, "--resume", request.ResumeSessionID)
-	}
-	if request.Open.PermissionMode == "bypassPermissions" {
-		arguments = append(arguments, "--dangerously-skip-permissions")
-	} else {
-		mode := request.Open.PermissionMode
-		if mode == "" || mode == "default" {
-			mode = "dontAsk"
-		}
-		arguments = append(arguments, "--permission-mode", mode)
-	}
-	if request.Open.Model != "" {
-		arguments = append(arguments, "--model", request.Open.Model)
-	}
-	if request.Open.ReasoningEffort != "" {
-		arguments = append(arguments, "--effort", request.Open.ReasoningEffort)
-	}
-	mcp, _ := json.Marshal(map[string]any{"mcpServers": map[string]any{"sessionbus": map[string]any{"command": Product, "args": []string{"mcp"}, "env": map[string]string{LaneSocketEnv: socket}}}})
-	arguments = append(arguments, "--mcp-config", string(mcp), "--allowedTools", "mcp__sessionbus__*")
-	return append(arguments, extra...), nil
-}
-
-var argumentConflicts = map[string]string{
-	"-p": "stream", "--print": "stream", "--verbose": "stream", "--replay-user-messages": "stream", "--input-format": "stream", "--output-format": "stream",
-	"--session-id": "session_id", "--resume": "session_id", "-r": "session_id", "--name": "name", "-n": "name",
-	"--permission-mode": "permission_mode", "--dangerously-skip-permissions": "permission_mode", "--yolo": "permission_mode",
-	"--model": "model", "--effort": "reasoning_effort", "--mcp-config": "mcp", "--strict-mcp-config": "mcp",
-	"--allowedTools": "mcp", "--tools": "mcp", "--disallowedTools": "mcp", "--": "arguments",
-}
-
-func extraArguments(arguments []string) ([]string, error) {
-	for index := 0; index < len(arguments); index++ {
-		name, _, attached := strings.Cut(arguments[index], "=")
-		if field := argumentConflicts[name]; field != "" {
-			return nil, errors.New("argument conflicts with typed field " + field)
-		}
-		if name != "--agent" {
-			break
-		}
-		if !attached {
-			index++
-		}
-	}
-	return host.BuildArguments(arguments, []host.ArgumentRule{{Name: "--agent", TakesValue: true}})
-}
-
-func closeLaunch(lock *host.SessionLock, endpoint *host.PrivateEndpoint, err error) error {
-	return errors.Join(err, endpoint.Close(), lock.Close())
-}
-
-func first(values ...string) string {
-	for _, value := range values {
-		if value != "" {
-			return value
-		}
-	}
-	return ""
-}
-
-func firstError(primary, fallback error) error {
-	if primary != nil {
-		return primary
-	}
-	return fallback
-}
-
-var _ sessionkit.WorkerCallbacks = (*Wrapper)(nil)
+func shellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'" }

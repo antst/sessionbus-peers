@@ -13,6 +13,7 @@ import (
 )
 
 const PrivateAlias = "sessionbus-mcp"
+const LaneEndpointEnv = "SESSIONBUS_CLAUDE_ENDPOINT"
 const PublicTool = "mcp__plugin_sessionbus_sessionbus__sessionbus"
 
 func SocketPath(env map[string]string, cwd string, uid int) string {
@@ -55,7 +56,7 @@ func LaunchPlan(args []string, env map[string]string, cwd, root string, uid int)
 	encoded, _ := json.Marshal(groups)
 	values := make([]string, 0, len(env)+2)
 	for k, v := range env {
-		if k != "SESSIONBUS_GROUPS" && k != "SESSIONBUS_SOCKET" {
+		if k != "SESSIONBUS_GROUPS" && k != "SESSIONBUS_SOCKET" && k != LaneEndpointEnv {
 			values = append(values, k+"="+v)
 		}
 	}
@@ -78,18 +79,26 @@ func NativePath(env map[string]string, cwd string) (string, error) {
 	return "", errors.New("claude executable was not found on PATH")
 }
 
-func Launch(args []string) error {
+func InstalledRoot() (string, error) {
 	exe, err := os.Executable()
 	if err != nil {
-		return err
+		return "", err
 	}
 	exe, err = filepath.EvalSymlinks(exe)
 	if err != nil {
-		return err
+		return "", err
 	}
 	root := filepath.Join(filepath.Dir(exe), "plugin")
 	if st, err := os.Stat(filepath.Join(root, ".mcp.json")); err != nil || !st.Mode().IsRegular() {
-		return errors.New("installed Claude plugin is missing beside the executable")
+		return "", errors.New("installed Claude plugin is missing beside the executable")
+	}
+	return root, nil
+}
+
+func Launch(args []string) error {
+	root, err := InstalledRoot()
+	if err != nil {
+		return err
 	}
 	cwd, err := os.Getwd()
 	if err != nil {

@@ -99,6 +99,10 @@ func TestInstalledArchiveExecAndPrivateMCP(t *testing.T) {
 	if err != nil || resolved != binary {
 		t.Fatalf("alias %s %v", resolved, err)
 	}
+	hook, err := filepath.EvalSymlinks(filepath.Join(install, "plugin/bin/sessionbus-hook"))
+	if err != nil || hook != binary {
+		t.Fatalf("hook alias %s %v", hook, err)
+	}
 	manifest, err := os.ReadFile(filepath.Join(install, "plugin/.mcp.json"))
 	if err != nil {
 		t.Fatal(err)
