@@ -56,7 +56,12 @@ func receiveNative(t *testing.T, p *muxPipe) brokerFrame {
 func receiveTUI(t *testing.T, m *brokerMux) brokerFrame {
 	t.Helper()
 	select {
-	case f := <-m.tuiOut:
+	case packet := <-m.tuiOut:
+		m.release(len(packet.body))
+		var f brokerFrame
+		if err := json.Unmarshal(packet.body, &f); err != nil {
+			t.Fatal(err)
+		}
 		return f
 	case <-time.After(3 * time.Second):
 		t.Fatal("no TUI frame")
@@ -201,5 +206,70 @@ func TestBrokerMuxResponseObservationPrecedesNextFrame(t *testing.T) {
 	}
 	if <-events != "thread/start" || <-events != "thread/closed" {
 		t.Fatal("observation order")
+	}
+}
+
+func TestBrokerRejectsNullIDWithoutAliasingEmptyString(t *testing.T) {
+	if _, err := brokerID(json.RawMessage(`null`)); err == nil {
+		t.Fatal("accepted null")
+	}
+	if _, err := brokerID(json.RawMessage(`""`)); err != nil {
+		t.Fatal(err)
+	}
+	m, p := muxFixture(t, nil)
+	initializeMux(t, m, p)
+	if err := m.fromTUI(frame("thread/read", "", map[string]any{})); err != nil {
+		t.Fatal(err)
+	}
+	f := receiveNative(t, p)
+	if err := m.fromTUI(brokerFrame{"id": json.RawMessage(`null`), "method": brokerRaw("thread/read"), "params": brokerRaw(map[string]any{})}); err == nil {
+		t.Fatal("null request aliased empty string")
+	}
+	if err := p.Write(brokerFrame{"id": f["id"], "result": brokerRaw(map[string]any{})}); err != nil {
+		t.Fatal(err)
+	}
+	if got := receiveTUI(t, m); string(got["id"]) != `""` {
+		t.Fatal(got)
+	}
+}
+func TestBrokerAggregateByteBudgetAndRelease(t *testing.T) {
+	// Two independently bounded queues share one byte budget, including an
+	// in-flight native write and original IDs held by response correlations.
+	m, p := muxFixture(t, nil)
+	initializeMux(t, m, p)
+	m.budgetMu.Lock()
+	m.byteLimit = 240
+	m.budgetMu.Unlock()
+	f := frame("notice", nil, map[string]string{"body": "one"})
+	if err := m.enqueue(m.tuiOut, f); err != nil {
+		t.Fatal(err)
+	}
+	packet := <-m.tuiOut
+	if err := m.reserve(m.byteLimit - len(packet.body)); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.enqueue(m.nativeOut, f); err == nil {
+		t.Fatal("other queue escaped aggregate budget")
+	}
+	m.release(m.byteLimit - len(packet.body))
+	m.release(len(packet.body))
+	if err := m.enqueue(m.nativeOut, f); err != nil {
+		t.Fatal(err)
+	}
+	receiveNative(t, p)
+	// Wait for writer release using an ordered subsequent native write.
+	if err := m.fromTUI(frame("thread/read", "small", map[string]string{"body": "still opaque"})); err != nil {
+		t.Fatal(err)
+	}
+	call := receiveNative(t, p)
+	if err := p.Write(brokerFrame{"id": call["id"], "result": brokerRaw(map[string]any{})}); err != nil {
+		t.Fatal(err)
+	}
+	receiveTUI(t, m)
+	m.mu.Lock()
+	retained := len(m.calls)
+	m.mu.Unlock()
+	if retained != 0 {
+		t.Fatal(retained)
 	}
 }

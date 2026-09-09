@@ -18,7 +18,12 @@ the correlation until response or transport close; no retries or replay. Native
 server request IDs are encoded into a separate TUI ID domain, including resolved
 notification references. A resolved request awaiting a late TUI response remains
 bounded by that same pending limit until its response or connection closure.
-Outbound queues also have a 256-frame bound; exhaustion closes the transport.
+Outbound queues also have a 256-frame bound. Queued and in-write serialized
+payloads plus retained original ID/key bytes share one 256 MiB byte budget
+across both directions; exhaustion closes the transport. Response correlations
+retain method and ID only, never arbitrary request params. Incoming decoding
+and the currently serialized frame are transient allocations bounded by the
+native message limit; the byte budget is not a whole-process RSS promise.
 These are admission/resource bounds, not answer storage.
 
 Supported config-mirror forms before native `--`: `-c KEY=VALUE`,

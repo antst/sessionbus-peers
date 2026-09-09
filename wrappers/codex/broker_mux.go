@@ -17,20 +17,26 @@ const brokerMessageLimit = 128 << 20
 
 type brokerFrame map[string]json.RawMessage
 
+type brokerPacket struct{ body json.RawMessage }
+
 type brokerCall struct {
 	original json.RawMessage
 	method   string
-	params   json.RawMessage
 	reply    chan appReply
+	held     int
 }
 type brokerServerCall struct {
 	original json.RawMessage
 	resolved bool
+	held     int
 }
 
 // brokerMux owns both JSON-RPC ID domains. Its reader callbacks must only
 // publish state; blocking native/bus calls run outside the reader.
 type brokerMux struct {
+	budgetMu                                  sync.Mutex
+	buffered                                  int
+	byteLimit                                 int
 	ctx                                       context.Context
 	cancel                                    context.CancelFunc
 	native                                    appTransport
@@ -39,8 +45,8 @@ type brokerMux struct {
 	calls                                     map[string]*brokerCall
 	tuiIDs                                    map[string]bool
 	servers                                   map[string]*brokerServerCall
-	nativeOut                                 chan brokerFrame
-	tuiOut                                    chan brokerFrame
+	nativeOut                                 chan brokerPacket
+	tuiOut                                    chan brokerPacket
 	ready                                     chan struct{}
 	initialized, initializeSeen, initializeOK bool
 	readyOnce                                 sync.Once
@@ -51,13 +57,16 @@ type brokerMux struct {
 
 func newBrokerMux(ctx context.Context, native appTransport, observe func(string, json.RawMessage, json.RawMessage) error) *brokerMux {
 	ctx, cancel := context.WithCancel(ctx)
-	m := &brokerMux{ctx: ctx, cancel: cancel, native: native, calls: map[string]*brokerCall{}, tuiIDs: map[string]bool{}, servers: map[string]*brokerServerCall{}, nativeOut: make(chan brokerFrame, brokerRouteLimit), tuiOut: make(chan brokerFrame, brokerRouteLimit), ready: make(chan struct{}), observe: observe, done: make(chan struct{})}
+	m := &brokerMux{ctx: ctx, cancel: cancel, native: native, byteLimit: 2 * brokerMessageLimit, calls: map[string]*brokerCall{}, tuiIDs: map[string]bool{}, servers: map[string]*brokerServerCall{}, nativeOut: make(chan brokerPacket, brokerRouteLimit), tuiOut: make(chan brokerPacket, brokerRouteLimit), ready: make(chan struct{}), observe: observe, done: make(chan struct{})}
 	go func() { <-ctx.Done(); m.fail(ctx.Err()) }()
 	go m.writeNative()
 	go m.readNative()
 	return m
 }
 func brokerID(raw json.RawMessage) (string, error) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return "", errors.New("App Server ID must not be null")
+	}
 	var s string
 	if json.Unmarshal(raw, &s) == nil {
 		return "s:" + s, nil
@@ -90,7 +99,17 @@ func brokerResponse(f brokerFrame) error {
 	}
 	return nil
 }
-func (m *brokerMux) enqueue(q chan brokerFrame, f brokerFrame) error {
+func (m *brokerMux) reserve(n int) error {
+	m.budgetMu.Lock()
+	defer m.budgetMu.Unlock()
+	if n > m.byteLimit-m.buffered {
+		return errors.New("App Server buffered byte budget exceeded")
+	}
+	m.buffered += n
+	return nil
+}
+func (m *brokerMux) release(n int) { m.budgetMu.Lock(); m.buffered -= n; m.budgetMu.Unlock() }
+func (m *brokerMux) enqueue(q chan brokerPacket, f brokerFrame) error {
 	b, err := json.Marshal(f)
 	if err != nil {
 		return err
@@ -98,15 +117,20 @@ func (m *brokerMux) enqueue(q chan brokerFrame, f brokerFrame) error {
 	if len(b) > brokerMessageLimit {
 		return errors.New("App Server frame exceeds native message limit")
 	}
+	if err = m.reserve(len(b)); err != nil {
+		return err
+	}
 	select {
 	case <-m.ctx.Done():
+		m.release(len(b))
 		return m.ctx.Err()
 	default:
 	}
 	select {
-	case q <- f:
+	case q <- brokerPacket{body: b}:
 		return nil
 	default:
+		m.release(len(b))
 		return errors.New("App Server outbound queue is full")
 	}
 }
@@ -134,7 +158,9 @@ func (m *brokerMux) writeNative() {
 		case <-m.ctx.Done():
 			return
 		case f := <-m.nativeOut:
-			if err := m.native.Write(f); err != nil {
+			err := m.native.Write(f.body)
+			m.release(len(f.body))
+			if err != nil {
 				m.fail(err)
 				return
 			}
@@ -188,7 +214,11 @@ func (m *brokerMux) fromTUI(f brokerFrame) error {
 			}
 			m.next++
 			wire := fmt.Sprintf("sessionbus/client/%d", m.next)
-			m.calls["s:"+wire] = &brokerCall{original: id, method: method, params: f["params"]}
+			held := len(id) + len(key)
+			if err := m.reserve(held); err != nil {
+				return err
+			}
+			m.calls["s:"+wire] = &brokerCall{original: id, method: method, held: held}
 			m.tuiIDs[key] = true
 			f["id"] = brokerRaw(wire)
 		} else if method == "initialized" {
@@ -220,6 +250,7 @@ func (m *brokerMux) fromTUI(f brokerFrame) error {
 		return errors.New("unknown TUI response ID")
 	}
 	delete(m.servers, key)
+	m.release(c.held)
 	if c.resolved {
 		return nil
 	} // Native resolved it while the TUI response was in flight.
@@ -245,7 +276,12 @@ func (m *brokerMux) fromNative(f brokerFrame) error {
 				m.mu.Unlock()
 				return errors.New("native request limit or duplicate ID")
 			}
-			m.servers[key] = &brokerServerCall{original: id}
+			held := len(id) + len(key)
+			if err := m.reserve(held); err != nil {
+				m.mu.Unlock()
+				return err
+			}
+			m.servers[key] = &brokerServerCall{original: id, held: held}
 			f["id"] = mapped
 		} else if method == "serverRequest/resolved" {
 			var p map[string]json.RawMessage
@@ -290,6 +326,7 @@ func (m *brokerMux) fromNative(f brokerFrame) error {
 		return errors.New("unknown native response ID")
 	}
 	delete(m.calls, key)
+	m.release(c.held)
 	if c.original != nil {
 		tuiKey, _ := brokerID(c.original)
 		delete(m.tuiIDs, tuiKey)
@@ -300,7 +337,7 @@ func (m *brokerMux) fromNative(f brokerFrame) error {
 	}
 	m.mu.Unlock()
 	if _, failed := f["error"]; !failed && m.observe != nil {
-		if err := m.observe(c.method, c.params, f["result"]); err != nil {
+		if err := m.observe(c.method, nil, f["result"]); err != nil {
 			return err
 		}
 	}
@@ -351,7 +388,7 @@ func (m *brokerMux) call(ctx context.Context, method string, params, result any)
 	m.next++
 	id := fmt.Sprintf("sessionbus/client/%d", m.next)
 	reply := make(chan appReply, 1)
-	m.calls["s:"+id] = &brokerCall{method: method, params: p, reply: reply}
+	m.calls["s:"+id] = &brokerCall{method: method, reply: reply}
 	err = m.enqueue(m.nativeOut, brokerFrame{"jsonrpc": brokerRaw("2.0"), "id": brokerRaw(id), "method": brokerRaw(method), "params": p})
 	m.mu.Unlock()
 	if err != nil {

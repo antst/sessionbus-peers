@@ -79,10 +79,8 @@ func serveBrokerTUI(m *brokerMux, listener net.Listener) (*http.Server, <-chan s
 				case <-m.ctx.Done():
 					return
 				case f := <-m.tuiOut:
-					b, err := json.Marshal(f)
-					if err == nil {
-						err = c.Write(m.ctx, websocket.MessageText, b)
-					}
+					err := c.Write(m.ctx, websocket.MessageText, f.body)
+					m.release(len(f.body))
 					if err != nil {
 						m.fail(err)
 						return
