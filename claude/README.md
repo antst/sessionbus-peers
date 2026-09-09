@@ -1,9 +1,10 @@
-# Claude peer — Go interactive candidate
+# Claude peer — Go candidate
 
 `claude-peer` runs your installed Claude with Sessionbus communication. The
 integration is one Go binary and a small native plugin; it requires no Node or
 npm. Claude, its login, permissions, configuration and history remain native.
-Claude lane mode is still unavailable in this interactive candidate.
+The interactive path is accepted. The direct Go lane path is under development;
+its installed Open, delivery and lifecycle checks are not yet complete.
 
 ## Install
 
@@ -50,9 +51,11 @@ The installed layout is:
 ~/.local/libexec/sessionbus/claude/claude-peer
 ~/.local/libexec/sessionbus/claude/plugin/.mcp.json
 ~/.local/libexec/sessionbus/claude/plugin/bin/sessionbus-mcp -> ../../claude-peer
+~/.local/libexec/sessionbus/claude/plugin/bin/sessionbus-hook -> ../../claude-peer
 ```
 
-The private alias invokes the same binary as the native MCP child. There is
+The private MCP alias invokes the same binary as the native MCP child. Lane
+startup uses the private hook alias for its initial native identity report. There is
 one compiled artifact, one public command and no Node/npm dependency.
 
 ## Use
@@ -88,6 +91,43 @@ There are no retries, reconnects, queues, polling or alternative delivery paths.
 Unexpected bus loss ends this resident integration. Cancelled public waits
 leave their result handles collectible; cancellation does not interrupt a
 native turn or retract a message.
+
+## Lane development status
+
+The daemon launches this same binary as a token-selected lane worker. Use the
+public Sessionbus tool: `spawn` with `product: "claude-peer"`, `name` and `open`,
+then `run` or `start` with the returned `session_id` and `input`. `status`/`wait`
+collect a started turn; `interrupt` requests native interruption; `close`
+ends native stdin and waits for native exit after any active interruption.
+Forced failure still aborts. Resume passes that exact ID as `resume_session_id` to spawn.
+No lane-specific public launcher is installed.
+
+Open waits for native initialize, the initial root ID/title report and the
+required Sessionbus tool. An idle message does not start work. A matching
+native replay during the same confirmed active run returns `injected`; idle
+native staging returns `queued_for_next_turn` for a later explicit run. Neither
+receipt promises model consumption. An unclassified run boundary leaves
+admission uncertain; write completion alone earns no receipt. Explicit runs
+return the native terminal result and reason.
+
+With native default permissions, a lane has nobody to approve an interactive
+tool request. A tool can return “requires approval” and the model can still
+finish its turn successfully. The adapter does not substitute `dontAsk` or a
+bypass. Callers may explicitly choose `open.permission_mode` or native
+`open.arguments`; those values are passed to Claude. Prefer a rule for the
+specific command needed over a broad grant. Native policy remains authoritative.
+
+Installed Open, public list, staging, active consumption, interruption,
+configuration and independent lanes have been checked at their recorded scope.
+A native Bash tool can have its own process group outside the worker group;
+the daemon’s group kill does not directly reach that tool. A measured hard
+worker kill left it alive, and the earlier forced close path also left a tool
+alive after an interrupted terminal. With the corrected EOF close path, both
+the tool and its parent were absent after held interruption and after held
+close. This does not fix forced-death containment. Pending-wait cancellation,
+forwarder loss and interactive operation on the same build have also been
+checked; each result and its limits are in the product facts. Generic
+forced-death descendant cleanup remains open.
 
 ## Remove
 

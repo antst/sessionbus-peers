@@ -1,369 +1,414 @@
 // SPDX-License-Identifier: MIT
-
 package claude
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/antst/sessionbus-peers/internal/testsocket"
 	"io"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
-	"strings"
 	"testing"
 
-	"github.com/antst/sessionbus-peers/internal/testsocket"
-	"github.com/antst/sessionbus-peers/wrappers/host"
-	"github.com/antst/sessionbus-peers/wrappers/mcp"
-	sessionkit "github.com/antst/sessionbus/bus/sdk/go"
+	"github.com/antst/sessionbus-peers/wrappers/claude/interactive"
+	kit "github.com/antst/sessionbus/bus/sdk/go"
+	"github.com/antst/sessionbus/bus/sdk/go/protocol"
 )
 
-const fixtureID = "00000000-0000-4000-8000-000000000123"
-
-func TestMain(m *testing.M) {
-	if mode := os.Getenv("CLAUDE_TEST_CHILD"); mode != "" {
-		fakeChild(mode)
-		os.Exit(0)
+func TestNativeArgumentsPreserveCallerSuffix(t *testing.T) {
+	var request kit.OpenRequest
+	if err := json.Unmarshal([]byte(`{"name":"parent/child@local","resume_session_id":"native-id","open":{"model":"native-model","permission_mode":"default","reasoning_effort":"high","arguments":["--model","last-model","--","literal"]}}`), &request); err != nil {
+		t.Fatal(err)
 	}
-	os.Exit(m.Run())
+	actual := launchArguments(request, "/installed plugin", "/owned settings")
+	expected := []string{"--allowedTools", interactive.PublicTool, "--plugin-dir", "/installed plugin", "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--replay-user-messages", "--settings", "/owned settings", "--name", "parent/child", "--resume", "native-id", "--permission-mode", "default", "--model", "native-model", "--effort", "high", "--model", "last-model", "--", "literal"}
+	if !reflect.DeepEqual(actual, expected) {
+		t.Fatalf("argv %#v", actual)
+	}
 }
-
-func fakeChild(mode string) {
-	record := map[string]any{"args": os.Args[1:], "lane_socket": os.Getenv(LaneSocketEnv)}
-	for _, name := range []string{host.SocketEnv, host.LocalKeyEnv, host.TokenEnv, host.SessionIDEnv, host.NameEnv, host.GroupsEnv} {
-		record[name] = os.Getenv(name)
-	}
-	body, _ := json.Marshal(record)
-	_ = os.WriteFile(os.Getenv("CLAUDE_TEST_RECORD"), body, 0o600)
-	output := json.NewEncoder(os.Stdout)
-	if mode != "die-delayed-init" {
-		_ = output.Encode(map[string]any{"type": "system", "subtype": "init", "session_id": fixtureID})
-	}
-	scanner := bufio.NewScanner(os.Stdin)
-	for scanner.Scan() {
-		var item map[string]any
-		_ = json.Unmarshal(scanner.Bytes(), &item)
-		if item["type"] == "user" {
-			if mode == "die-delayed-init" {
-				_ = output.Encode(map[string]any{"type": "system", "subtype": "init", "session_id": fixtureID})
-				os.Exit(7)
-			}
-			_ = output.Encode(map[string]any{"type": "user", "isReplay": true})
-			result := "ok"
-			if mode == "large-result-exit" {
-				result = strings.Repeat("x", 300000) + "tail"
-			}
-			_ = output.Encode(map[string]any{"type": "result", "subtype": "success", "session_id": fixtureID, "result": result})
-			if mode == "large-result-exit" {
-				return
-			}
+func TestRequiredToolsNeedsConnectedPresence(t *testing.T) {
+	for _, tc := range []struct {
+		value string
+		ready bool
+	}{
+		{`{"mcpServers":[{"name":"plugin:sessionbus:sessionbus","status":"connected","tools":[{"name":"sessionbus"}]}]}`, true},
+		{`{"mcpServers":[{"name":"plugin:sessionbus:sessionbus","status":"pending","tools":[{"name":"sessionbus"}]}]}`, false},
+		{`{"mcpServers":[{"name":"plugin:sessionbus:sessionbus","status":"connected"}]}`, false},
+		{`{"mcpServers":[{"name":"other","status":"connected","tools":[{"name":"sessionbus"}]}]}`, false},
+	} {
+		if got := requiredTools(json.RawMessage(tc.value)); (got == nil) != tc.ready {
+			t.Fatalf("%s: %v", tc.value, got)
 		}
 	}
 }
-
-func TestLaunchArgumentsTable(t *testing.T) {
-	mcp := `{"mcpServers":{"sessionbus":{"args":["mcp"],"command":"claude-peer","env":{"SESSIONBUS_LANE_SOCKET":"/tmp/lane.sock"}}}}`
-	base := []string{"-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--replay-user-messages"}
-	for _, test := range []struct {
-		name    string
-		request sessionkit.OpenRequest
-		want    []string
-	}{
-		{"fresh typed", sessionkit.OpenRequest{Name: "parent/leaf@local", Open: sessionkit.OpenOptions{Model: "sonnet", ReasoningEffort: "high", Arguments: []string{"--agent", "reviewer"}}}, append(append([]string{}, base...), "--session-id", fixtureID, "--name", "parent/leaf", "--permission-mode", "dontAsk", "--model", "sonnet", "--effort", "high", "--mcp-config", mcp, "--allowedTools", "mcp__sessionbus__*", "--agent", "reviewer")},
-		{"resume bypass", sessionkit.OpenRequest{Name: "ignored@local", ResumeSessionID: fixtureID, Open: sessionkit.OpenOptions{PermissionMode: "bypassPermissions"}}, append(append([]string{}, base...), "--resume", fixtureID, "--dangerously-skip-permissions", "--mcp-config", mcp, "--allowedTools", "mcp__sessionbus__*")},
-		{"native permission", sessionkit.OpenRequest{Name: "leaf@local", Open: sessionkit.OpenOptions{PermissionMode: "acceptEdits"}}, append(append([]string{}, base...), "--session-id", fixtureID, "--name", "leaf", "--permission-mode", "acceptEdits", "--mcp-config", mcp, "--allowedTools", "mcp__sessionbus__*")},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			got, err := launchArguments(test.request, fixtureID, "/tmp/lane.sock")
-			must(t, err)
-			check(t, reflect.DeepEqual(got, test.want), "arguments = %#v", got)
-		})
+func TestFailedOpenRemovesItsEndpoint(t *testing.T) {
+	// Native lookup fails before spawn; Open itself must release its allocated listener.
+	t.Setenv("PATH", t.TempDir())
+	p := New(t.TempDir())
+	_, err := p.Open(context.Background(), kit.OpenRequest{})
+	if err == nil {
+		t.Fatal("missing native executable accepted")
+	}
+	if p.endpoint == nil {
+		t.Fatal("test did not allocate endpoint")
+	}
+	if _, err := os.Stat(p.endpoint.dir); !os.IsNotExist(err) {
+		t.Fatalf("endpoint retained: %v", err)
+	}
+	if !p.closing {
+		t.Fatal("unsuccessful Open did not close")
 	}
 }
 
-func TestArgumentConflicts(t *testing.T) {
-	for _, test := range []struct{ argument, want string }{
-		{"--model=x", "argument conflicts with typed field model"},
-		{"--resume", "argument conflicts with typed field session_id"},
-		{"--strict-mcp-config", "argument conflicts with typed field mcp"},
-		{"--", "argument conflicts with typed field arguments"},
-		{"prompt", "unsupported argument prompt"},
-	} {
-		_, err := launchArguments(sessionkit.OpenRequest{Name: "leaf@local", Open: sessionkit.OpenOptions{Arguments: []string{test.argument}}}, fixtureID, "/tmp/lane.sock")
-		check(t, err != nil && err.Error() == test.want, "%s error = %v", test.argument, err)
-	}
-}
-
-func TestHelloAndIdentity(t *testing.T) {
-	p := New("")
-	hello, err := p.Hello(context.Background())
-	must(t, err)
-	check(t, hello.Product == Product && reflect.DeepEqual(hello.SupportedOpenFields, []string{"cwd", "permission_mode", "model", "reasoning_effort", "arguments"}) && len(hello.ExtraArguments) == 1 && hello.ExtraArguments[0].Name == "--agent", "hello = %#v", hello)
-	id, err := sessionID("")
-	must(t, err)
-	check(t, len(id) == 36 && id[14] == '4' && strings.Contains("89ab", string(id[19])), "uuid = %q", id)
-	writes := &frameLog{wrote: make(chan []byte, 1)}
-	p.expected, p.ready, p.encoder = fixtureID, make(chan error, 1), json.NewEncoder(writes)
-	failed := make(chan error, 1)
-	go func() { _, err := p.start(context.Background(), "first turn"); failed <- err }()
-	<-writes.wrote
-	select {
-	case err := <-failed:
-		t.Fatalf("start returned before init: %v", err)
-	default:
-	}
-	p.receive(frame{Type: "system", Subtype: "init", SessionID: "wrong"})
-	check(t, strings.Contains((<-failed).Error(), `from "00000000-0000-4000-8000-000000000123" to "wrong"`), "identity mismatch changed")
-}
-
-type frameLog struct{ wrote chan []byte }
-
-func (w *frameLog) Write(body []byte) (int, error) {
-	copyOfBody := append([]byte(nil), bytes.TrimSpace(body)...)
-	w.wrote <- copyOfBody
-	return len(body), nil
-}
-
-func newStream() (*Wrapper, *frameLog) {
-	writes := &frameLog{wrote: make(chan []byte, 16)}
-	p := New("")
-	p.expected, p.ready, p.init, p.encoder = fixtureID, make(chan error, 1), true, json.NewEncoder(writes)
-	return p, writes
-}
-
-func TestStreamRunDeliveryAndInterrupt(t *testing.T) {
-	p, writes := newStream()
-	must(t, p.write("  preserved \n"))
-	preserved := <-writes.wrote
-	check(t, string(preserved) == `{"message":{"content":[{"text":"  preserved \n","type":"text"}],"role":"user"},"type":"user"}`, "user frame = %s", preserved)
-	p.writes, p.replays = 0, 0
-	receipt, err := p.Deliver(context.Background(), delivery("queued"), nil)
-	must(t, err)
-	check(t, receipt.Disposition == "queued_for_next_turn", "idle receipt = %#v", receipt)
-	done := make(chan sessionkit.TurnResult, 1)
-	go func() {
-		result, _ := p.Run(context.Background(), &sessionkit.Run{}, "caller")
-		done <- result
-	}()
-	runFrame := prompt(<-writes.wrote)
-	check(t, strings.Index(runFrame, "queued") < strings.Index(runFrame, "caller"), "queued prompt = %q", runFrame)
-	p.receive(frame{Type: "user", IsReplay: true})
-	p.receive(frame{Type: "result", Subtype: "success", SessionID: fixtureID, Result: "answer"})
-	check(t, (<-done).Result == "answer", "run result changed")
-
-	native, err := p.start(context.Background(), "next")
-	must(t, err)
-	<-writes.wrote
-	receipt, err = p.Deliver(context.Background(), delivery("steer"), nil)
-	must(t, err)
-	check(t, receipt.Disposition == "injected" && strings.Contains(prompt(<-writes.wrote), "steer"), "active receipt = %#v", receipt)
-	p.receive(frame{Type: "user", IsReplay: true})
-	p.receive(frame{Type: "user", IsReplay: true})
-	p.receive(frame{Type: "result", Subtype: "success", SessionID: fixtureID})
-	_, err = native.Wait(context.Background())
-	must(t, err)
-	receipt, err = p.Deliver(context.Background(), delivery("after"), nil)
-	must(t, err)
-	check(t, receipt.Disposition == "queued_for_next_turn", "terminal receipt = %#v", receipt)
-
-	native, err = p.start(context.Background(), "interrupt me")
-	must(t, err)
-	<-writes.wrote
-	p.receive(frame{Type: "user", IsReplay: true})
-	interrupted := make(chan error, 1)
-	go func() { interrupted <- native.Interrupt(context.Background()) }()
-	control := <-writes.wrote
-	check(t, string(control) == `{"request":{"subtype":"interrupt"},"request_id":"interrupt-1","type":"control_request"}`, "control frame = %s", control)
-	var response frame
-	must(t, json.Unmarshal([]byte(`{"type":"control_response","response":{"subtype":"success","request_id":"interrupt-1","response":{"still_queued":[]}}}`), &response))
-	p.receive(response)
-	must(t, <-interrupted)
-	p.receive(frame{Type: "result", Subtype: "interrupted", SessionID: fixtureID})
-	result, err := native.Wait(context.Background())
-	must(t, err)
-	check(t, result.Outcome == "interrupted", "terminal = %#v", result)
-}
-
-func TestPreReplayResultIsIgnored(t *testing.T) {
-	p, writes := newStream()
-	native, err := p.start(context.Background(), "caller")
-	must(t, err)
-	<-writes.wrote
-	p.receive(frame{Type: "user", IsReplay: true})
-	receipt, err := p.Deliver(context.Background(), delivery("injected"), nil)
-	must(t, err)
-	check(t, receipt.Disposition == "injected", "receipt = %#v", receipt)
-	<-writes.wrote
-	p.receive(frame{Type: "result", Subtype: "success", SessionID: fixtureID, Result: "before delivery"})
-	select {
-	case <-native.(*turn).done:
-		t.Fatal("result completed before the injected frame replay")
-	default:
-	}
-	p.receive(frame{Type: "user", IsReplay: true})
-	select {
-	case <-native.(*turn).done:
-		t.Fatal("discarded result completed after the injected frame replay")
-	default:
-	}
-	p.receive(frame{Type: "result", Subtype: "success", SessionID: fixtureID, Result: "includes delivery"})
-	result, err := native.Wait(context.Background())
-	must(t, err)
-	check(t, result.Result == "includes delivery", "terminal = %#v", result)
-}
-
-func TestTerminalTable(t *testing.T) {
-	for _, test := range []struct {
-		name string
-		item frame
-		want sessionkit.TurnResult
-	}{
-		{"success", frame{Subtype: "success", Result: "ok"}, sessionkit.TurnResult{Outcome: "completed", Result: "ok"}},
-		{"interrupted", frame{Subtype: "error", TerminalReason: "aborted_streaming"}, sessionkit.TurnResult{Outcome: "interrupted", NativeStopReason: "aborted_streaming"}},
-		{"exact error", frame{Subtype: "error", IsError: true, Error: "denied", Result: "summary"}, sessionkit.TurnResult{Outcome: "failed", Result: "denied"}},
-	} {
-		t.Run(test.name, func(t *testing.T) { check(t, terminal(test.item) == test.want, "terminal = %#v", terminal(test.item)) })
-	}
-}
-
-func TestOpenCommitsBeforeInitAndChildDeathWritesTerminalBeforeEOF(t *testing.T) {
-	directory := testsocket.Directory(t)
-	socket, record := filepath.Join(directory, "bus.sock"), filepath.Join(directory, "child.json")
-	listener, err := net.Listen("unix", socket)
-	must(t, err)
-	t.Setenv(host.TokenEnv, "token")
-	t.Setenv(host.SocketEnv, socket)
-	t.Setenv(host.SessionIDEnv, "secret")
-	t.Setenv(host.NameEnv, "secret")
-	t.Setenv(host.GroupsEnv, "secret")
-	t.Setenv(LaneSocketEnv, "stale")
-	t.Setenv("CLAUDE_TEST_CHILD", "die-delayed-init")
-	t.Setenv("CLAUDE_TEST_RECORD", record)
-	must(t, os.Symlink(os.Args[0], filepath.Join(directory, "claude")))
-	t.Setenv("PATH", directory+string(os.PathListSeparator)+os.Getenv("PATH"))
-	p := New(socket)
-	p.SetCall(func(context.Context, string, any) (json.RawMessage, error) {
-		return json.RawMessage(`{"sessions":[]}`), nil
-	})
-	worker := sessionkit.NewWorker(p)
-	shutdownRequested := make(chan struct{})
-	p.SetShutdown(func() { close(shutdownRequested) })
-	served := make(chan error, 1)
-	go func() { served <- worker.Serve(context.Background()) }()
-	connection, err := listener.Accept()
-	must(t, err)
-	reader := bufio.NewReader(connection)
-	hello := readJSON(t, reader)
-	writeJSON(t, connection, map[string]any{"jsonrpc": "2.0", "id": hello["id"], "result": map[string]any{}})
-	writeJSON(t, connection, map[string]any{"jsonrpc": "2.0", "id": 2, "method": "session.open", "params": map[string]any{"name": "parent/leaf@local", "groups": []string{}, "resume_session_id": fixtureID, "open": map[string]any{}}})
-	opened := readJSON(t, reader)
-	check(t, opened["error"] == nil, "open = %#v", opened)
-	laneSocket := filepath.Join(filepath.Dir(socket), "lanes", fixtureID+".sock")
-	t.Setenv(mcp.LaneSocketEnv, laneSocket)
-	lane, err := mcp.NewLaneBackend()
-	must(t, err)
-	laneResult, err := lane.Action(context.Background(), "list", json.RawMessage(`{}`))
-	must(t, err)
-	check(t, string(laneResult) == `{"sessions":[]}`, "lane result = %s", laneResult)
-	writeJSON(t, connection, map[string]any{"jsonrpc": "2.0", "id": 3, "method": "turn.run", "params": map[string]any{"session_id": fixtureID + "@local", "input": "die"}})
-	terminal := readJSON(t, reader)
-	result := terminal["result"].(map[string]any)
-	check(t, result["outcome"] == "failed", "terminal = %#v", terminal)
-	writeJSON(t, connection, map[string]any{"jsonrpc": "2.0", "id": 4, "method": "turn.run", "params": map[string]any{"session_id": fixtureID + "@local", "input": "again"}})
-	next := readJSON(t, reader)
-	nextResult, admitted := next["result"].(map[string]any)
-	check(t, admitted && next["error"] == nil && nextResult["outcome"] == "failed", "next Run was not admitted after the terminal: %#v", next)
-	var child map[string]any
-	must(t, json.Unmarshal(mustRead(t, record), &child))
-	check(t, child["lane_socket"] == laneSocket, "child environment = %#v", child)
-	for _, name := range []string{host.SocketEnv, host.LocalKeyEnv, host.TokenEnv, host.SessionIDEnv, host.NameEnv, host.GroupsEnv} {
-		check(t, child[name] == "", "%s reached child: %#v", name, child)
-	}
-	<-shutdownRequested
-	worker.Shutdown()
-	_, err = reader.ReadByte()
-	check(t, errors.Is(err, io.EOF), "worker remained connected: %v", err)
-	<-worker.Closed()
-	_ = connection.Close()
-	_ = listener.Close()
-	_ = <-served
-}
-
-func TestLargeResultDrainsAfterChildExit(t *testing.T) {
-	directory := testsocket.Directory(t)
-	socket := filepath.Join(directory, "bus.sock")
-	t.Setenv("CLAUDE_TEST_CHILD", "large-result-exit")
-	t.Setenv("CLAUDE_TEST_RECORD", filepath.Join(directory, "child.json"))
-	must(t, os.Symlink(os.Args[0], filepath.Join(directory, "claude")))
-	t.Setenv("PATH", directory+string(os.PathListSeparator)+os.Getenv("PATH"))
-	p := New(socket)
-	p.SetCall(func(context.Context, string, any) (json.RawMessage, error) {
-		return json.RawMessage(`{"sessions":[]}`), nil
-	})
-	_, err := p.Open(context.Background(), sessionkit.OpenRequest{Name: "large@local", ResumeSessionID: fixtureID})
-	must(t, err)
-	result, err := p.Run(context.Background(), &sessionkit.Run{}, "large")
-	must(t, err)
-	check(t, result.Outcome == "completed" && len(result.Result) == 300004 && strings.HasSuffix(result.Result, "tail"), "terminal = outcome %q, bytes %d", result.Outcome, len(result.Result))
-	must(t, p.Close(context.Background(), sessionkit.SessionCloseRequest{}))
-}
-
-func delivery(body string) sessionkit.DeliveryRequest {
-	return sessionkit.DeliveryRequest{MessageID: "message", Body: body, From: sessionkit.DeliverySource{SessionID: "peer@local", Name: "peer@local", Product: "example", Groups: []string{"project"}}}
-}
-
-func prompt(body []byte) string {
-	var item struct {
-		Message struct {
-			Content []struct {
-				Text string `json:"text"`
-			} `json:"content"`
-		} `json:"message"`
-	}
-	_ = json.Unmarshal(body, &item)
-	return item.Message.Content[0].Text
-}
-
-func writeJSON(t *testing.T, output io.Writer, value any) {
-	t.Helper()
-	must(t, json.NewEncoder(output).Encode(value))
-}
-
-func readJSON(t *testing.T, input *bufio.Reader) map[string]any {
-	t.Helper()
-	var value map[string]any
-	must(t, json.Unmarshal(bytes.TrimSpace(readLine(t, input)), &value))
-	return value
-}
-
-func readLine(t *testing.T, input *bufio.Reader) []byte {
-	t.Helper()
-	body, err := input.ReadBytes('\n')
-	must(t, err)
-	return body
-}
-
-func mustRead(t *testing.T, path string) []byte {
-	t.Helper()
-	body, err := os.ReadFile(path)
-	must(t, err)
-	return body
-}
-
-func must(t *testing.T, err error) {
-	t.Helper()
+func TestWorkerHelloUsesActualProtocolSchema(t *testing.T) {
+	h, err := New("unused").Hello(context.Background())
 	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := json.Marshal(protocol.WorkerHello{Protocol: 1, LaunchToken: "offline-test-token", HelloDescription: h})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := protocol.DecodeParams("session.hello", raw); err != nil {
+		t.Fatal(err)
+	}
+	description, err := json.Marshal(h)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var result kit.LaneDescribeResult
+	if err := protocol.UnmarshalResult("lane.describe", description, &result); err != nil {
 		t.Fatal(err)
 	}
 }
 
-func check(t *testing.T, condition bool, format string, values ...any) {
-	t.Helper()
-	if !condition {
-		t.Fatalf(format, values...)
+func TestOpenTitleRequiresNativeConfirmation(t *testing.T) {
+	for _, title := range []string{"", "${session_title}", "other"} {
+		if confirmTitle("parent/child@local", title) == nil {
+			t.Fatalf("unconfirmed %q admitted", title)
+		}
+	}
+	if err := confirmTitle("parent/child@local", "parent/child"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Only the native boundary is controlled here. Public hello/open/run and result
+// serialization use the installed kit Worker and protocol over an actual socket.
+type workerStreamProduct struct{ *Wrapper }
+
+func (p *workerStreamProduct) Open(context.Context, kit.OpenRequest) (kit.OpenResult, error) {
+	p.mu.Lock()
+	p.opened = true
+	p.identity = "native-id"
+	p.mu.Unlock()
+	return kit.OpenResult{SessionID: "native-id"}, nil
+}
+func TestWorkerSerializesTerminalBeforeNativeEOFShutdown(t *testing.T) {
+	path := filepath.Join(testsocket.Directory(t), "bus.sock")
+	listener, err := net.Listen("unix", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	t.Setenv("SESSIONBUS_SOCKET", path)
+	t.Setenv("SESSIONBUS_LAUNCH_TOKEN", "controlled-token")
+	t.Setenv("SESSIONBUS_LOCAL_KEY", "")
+	p := New(t.TempDir())
+	p.ctx, p.cancel = context.WithCancel(context.Background())
+	nativeInput, workerInput := io.Pipe()
+	workerOutput, nativeOutput := io.Pipe()
+	p.stream = newStream(workerInput, workerOutput, p.fail)
+	worker := kit.NewWorker(&workerStreamProduct{p})
+	p.SetCaller(worker.Caller())
+	p.SetShutdown(worker.Shutdown)
+	done := make(chan error, 1)
+	go func() { done <- worker.Serve(context.Background()) }()
+	c, err := listener.Accept()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	reader := bufio.NewReader(c)
+	receive := func() protocol.Frame {
+		t.Helper()
+		line, err := reader.ReadBytes('\n')
+		if err != nil {
+			t.Fatal(err)
+		}
+		f, err := protocol.DecodeFrame(line[:len(line)-1])
+		if err != nil {
+			t.Fatal(err)
+		}
+		return f
+	}
+	send := func(body []byte, err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err = c.Write(body); err != nil {
+			t.Fatal(err)
+		}
+	}
+	hello := receive()
+	if _, err = protocol.DecodeParams("session.hello", hello.Params); err != nil {
+		t.Fatal(err)
+	}
+	send(protocol.ResultBytes(hello.ID, "session.hello", struct{}{}))
+	send(protocol.RequestBytes(1, "session.open", kit.OpenRequest{Name: "parent/child@local", Groups: []string{}}))
+	opened := receive()
+	var openResult kit.OpenResult
+	if err = protocol.UnmarshalResult("session.open", opened.Result, &openResult); err != nil {
+		t.Fatal(err)
+	}
+	send(protocol.RequestBytes(2, "turn.run", kit.TurnRunRequest{SessionID: "native-id", Input: "prompt"}))
+	var input map[string]json.RawMessage
+	if err = json.NewDecoder(nativeInput).Decode(&input); err != nil {
+		t.Fatal(err)
+	}
+	id := rawString(t, input["uuid"])
+	encoder := json.NewEncoder(nativeOutput)
+	if err = encoder.Encode(map[string]any{"type": "user", "session_id": "native-id", "uuid": id, "isReplay": true}); err != nil {
+		t.Fatal(err)
+	}
+	if err = encoder.Encode(map[string]any{"type": "result", "session_id": "native-id", "subtype": "success", "result": "retained terminal", "user_message_uuid": id}); err != nil {
+		t.Fatal(err)
+	}
+	_ = nativeOutput.Close()
+	result := receive()
+	var terminal kit.TurnResult
+	if err = protocol.UnmarshalResult("turn.run", result.Result, &terminal); err != nil {
+		t.Fatal(err)
+	}
+	if result.ID != 2 || terminal.Outcome != "completed" || terminal.Result != "retained terminal" {
+		t.Fatalf("%+v %+v", result, terminal)
+	}
+	if _, err = reader.ReadByte(); err != io.EOF {
+		t.Fatalf("worker did not retire after terminal: %v", err)
+	}
+	<-done
+	_ = nativeInput.Close()
+}
+
+func TestNativeLifetimeStartupCancellationAndCommit(t *testing.T) {
+	for _, commitFirst := range []bool{false, true} {
+		t.Run(map[bool]string{false: "cancel-pending", true: "cancel-after-commit"}[commitFirst], func(t *testing.T) {
+			type key struct{}
+			ctx, cancel := context.WithCancel(context.WithValue(context.Background(), key{}, "kept"))
+			defer cancel()
+			p := New("unused")
+			stop, err := p.startLifetime(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer stop()
+			defer p.cancel()
+			// A compiled fixture process, never native Claude on the offline host.
+			child := exec.CommandContext(p.ctx, os.Args[0], "-test.run=^TestNativeLifetimeFixture$")
+			child.Env = append(os.Environ(), "CLAUDE_GO_LIFETIME_FIXTURE=1")
+			stdin, err := child.StdinPipe()
+			if err != nil {
+				t.Fatal(err)
+			}
+			stdout, err := child.StdoutPipe()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err = child.Start(); err != nil {
+				t.Fatal(err)
+			}
+			reader := bufio.NewReader(stdout)
+			if line, err := reader.ReadString('\n'); err != nil || line != "ready\n" {
+				t.Fatal(line, err)
+			}
+			if p.ctx.Value(key{}) != "kept" {
+				t.Fatal("Open values lost")
+			}
+			p.identity, p.title = "native-id", "parent/child"
+			request := kit.OpenRequest{Name: "parent/child@local"}
+			if !commitFirst {
+				cancel()
+				<-p.ctx.Done()
+			}
+			_, err = p.commitOpen(ctx, request, stop)
+			if commitFirst {
+				if err != nil {
+					t.Fatal(err)
+				}
+				cancel()
+				if p.ctx.Err() != nil {
+					t.Fatal("completed Open cancellation killed native lifetime")
+				}
+				if _, err := io.WriteString(stdin, "still-alive\n"); err != nil {
+					t.Fatal(err)
+				}
+				if line, err := reader.ReadString('\n'); err != nil || line != "still-alive\n" {
+					t.Fatal(line, err)
+				}
+				_ = stdin.Close()
+				if err := child.Wait(); err != nil {
+					t.Fatal(err)
+				}
+			} else if !errors.Is(err, context.Canceled) || p.opened {
+				t.Fatal("cancelled Open committed", err)
+			} else {
+				if err := child.Wait(); err == nil {
+					t.Fatal("startup cancellation did not abort child")
+				}
+				_ = stdin.Close()
+			}
+		})
+	}
+}
+func TestNativeLifetimeFixture(t *testing.T) {
+	if os.Getenv("CLAUDE_GO_LIFETIME_FIXTURE") != "1" {
+		return
+	}
+	_, _ = io.WriteString(os.Stdout, "ready\n")
+	scanner := bufio.NewScanner(os.Stdin)
+	for scanner.Scan() {
+		_, _ = io.WriteString(os.Stdout, scanner.Text()+"\n")
+	}
+	os.Exit(0)
+}
+
+type lifetimeWorkerProduct struct{ *Wrapper }
+
+func (p *lifetimeWorkerProduct) Open(ctx context.Context, r kit.OpenRequest) (kit.OpenResult, error) {
+	stop, err := p.startLifetime(ctx)
+	if err != nil {
+		return kit.OpenResult{}, err
+	}
+	defer stop()
+	p.mu.Lock()
+	p.identity = "native-id"
+	p.title = nativeName(r.Name)
+	p.mu.Unlock()
+	return p.commitOpen(ctx, r, stop)
+}
+func TestRealWorkerNormalCloseKeepsNativeLifetimeUntilExit(t *testing.T) {
+	for _, scenario := range []string{"stdout-first", "process-first", "close-context-loss"} {
+		t.Run(scenario, func(t *testing.T) {
+			path := filepath.Join(testsocket.Directory(t), "bus.sock")
+			listener, err := net.Listen("unix", path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer listener.Close()
+			t.Setenv("SESSIONBUS_SOCKET", path)
+			t.Setenv("SESSIONBUS_LAUNCH_TOKEN", "controlled-close-token")
+			t.Setenv("SESSIONBUS_LOCAL_KEY", "")
+			p := New("unused")
+			nativeInput, workerInput := io.Pipe()
+			workerOutput, nativeOutput := io.Pipe()
+			defer nativeInput.Close()
+			defer nativeOutput.Close()
+			p.stream = newStream(workerInput, workerOutput, func(err error) { p.end(err, errors.Is(err, io.EOF)) })
+			p.processDone = make(chan struct{})
+			worker := kit.NewWorker(&lifetimeWorkerProduct{p})
+			p.SetCaller(worker.Caller())
+			p.SetShutdown(worker.Shutdown)
+			served := make(chan error, 1)
+			go func() { served <- worker.Serve(context.Background()) }()
+			c, err := listener.Accept()
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer c.Close()
+			reader := bufio.NewReader(c)
+			receive := func() protocol.Frame {
+				t.Helper()
+				line, e := reader.ReadBytes('\n')
+				if e != nil {
+					t.Fatal(e)
+				}
+				f, e := protocol.DecodeFrame(line[:len(line)-1])
+				if e != nil {
+					t.Fatal(e)
+				}
+				return f
+			}
+			send := func(body []byte, e error) {
+				t.Helper()
+				if e != nil {
+					t.Fatal(e)
+				}
+				if _, e = c.Write(body); e != nil {
+					t.Fatal(e)
+				}
+			}
+			hello := receive()
+			send(protocol.ResultBytes(hello.ID, "session.hello", struct{}{}))
+			send(protocol.RequestBytes(1, "session.open", kit.OpenRequest{Name: "parent/child@local", Groups: []string{}}))
+			if f := receive(); f.ID != 1 || len(f.Result) == 0 {
+				t.Fatal("Open failed", f)
+			}
+			send(protocol.RequestBytes(2, "session.close", kit.SessionCloseRequest{SessionID: "native-id"}))
+			var one [1]byte
+			if _, e := nativeInput.Read(one[:]); e != io.EOF {
+				t.Fatal("normal close did not end stdin", e)
+			}
+			// The actual Worker has cancelled its Open-operation context before this
+			// EOF. Its native lifetime must still be live and reports must still work.
+			if p.ctx.Err() != nil {
+				t.Fatal("Worker cancellation killed native before Close")
+			}
+			backendCtx, backendCancel := context.WithCancel(p.ctx)
+			defer backendCancel()
+			backend := &laneBackend{owner: p, ctx: backendCtx, cancel: backendCancel}
+			if _, e := backend.BeginReport(json.RawMessage(`{"hook_event_name":"SessionEnd","session_id":"native-id","agent_id":"${agent_id}"}`)); e != nil {
+				t.Fatal(e)
+			}
+			for _, raw := range []string{`{"hook_event_name":"SessionEnd","session_id":"foreign"}`, `{"hook_event_name":"SessionEnd","session_id":null}`, `{"hook_event_name":"UserPromptSubmit","session_id":"native-id","session_title":"reopen"}`} {
+				if _, e := backend.BeginReport(json.RawMessage(raw)); e == nil {
+					t.Fatal("closing accepted invalid/reopening report", raw)
+				}
+			}
+			backend.End()
+			if p.ctx.Err() != nil || p.title != "parent/child" {
+				t.Fatal("expected report shutdown killed/reopened native")
+			}
+			if scenario == "close-context-loss" {
+				c.Close()
+				<-p.ctx.Done()
+				close(p.processDone)
+				<-served
+				return
+			}
+			if scenario == "process-first" {
+				close(p.processDone)
+				if p.ctx.Err() != nil {
+					t.Fatal("process exit discarded unread stdout")
+				}
+				nativeOutput.Close()
+				<-p.stream.done
+			} else {
+				nativeOutput.Close()
+				<-p.stream.done
+				if p.ctx.Err() != nil {
+					t.Fatal("stdout EOF killed native before exit")
+				}
+				select {
+				case <-served:
+					t.Fatal("stdout EOF completed close without child exit")
+				default:
+				}
+				close(p.processDone)
+			}
+			f := receive()
+			if f.ID != 2 || string(f.Result) != "{}" {
+				t.Fatal("missing close result", f)
+			}
+			if _, e := reader.ReadByte(); e != io.EOF {
+				t.Fatal("worker did not close", e)
+			}
+			<-served
+		})
 	}
 }

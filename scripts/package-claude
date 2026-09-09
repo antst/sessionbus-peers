@@ -16,6 +16,7 @@ GOOS="$goos" GOARCH="$goarch" CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' 
 mkdir -p "$stage/plugin/bin"
 cp -R claude/.claude-plugin claude/.mcp.json claude/hooks claude/skills claude/commands "$stage/plugin/"
 ln -s ../../claude-peer "$stage/plugin/bin/sessionbus-mcp"
+ln -s ../../claude-peer "$stage/plugin/bin/sessionbus-hook"
 cp LICENSE claude/README.md "$stage/"
 archive="$output/claude-peer-$goos-$goarch.tar.gz"
 tar -czf "$archive" -C "$stage" claude-peer plugin LICENSE README.md

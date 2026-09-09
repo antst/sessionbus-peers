@@ -24,16 +24,18 @@ git clone https://github.com/antst/sessionbus-peers.git && cd sessionbus-peers &
 ```
 
 That command installs `codex-peer`, `grok-peer`, `qwen-peer` and
-`opencode-peer` in `~/.local/bin`. The retained Go Claude lane source is held
-and is not installed under the competing `claude-peer` name.
+`opencode-peer` in `~/.local/bin`. Claude uses its bundled archive recipe
+below so the launcher and native plugin share one installation.
 
-Claude's interactive candidate is one Go binary with its bundled native plugin
+Claude's candidate is one Go binary with its bundled native plugin
 in [`claude/`](claude/README.md). Build its archive with `scripts/package-claude`
 and follow the literal permanent user installation in that README. No Node/npm
 runtime or global native plugin registration is required. `claude-peer` loads
 its skill, hooks and tools only for that launch; ordinary `claude` stays ordinary.
-This candidate remains interactive-only: token-selected Claude lane mode is
-explicitly unavailable until the held lane work is completed. The reviewed
+The same Go binary now includes the token-selected lane worker; installed
+lane rows cover open, tools, delivery, interruption, normal close and same-build
+interactive regression. Forced-death descendant containment remains open;
+individual results and limits are in the product facts. The reviewed
 Node implementation and regressions remain a behavioral reference under
 `docs/designs/claude-0.5.0/node-reference`, outside the installed plugin.
 
@@ -44,7 +46,7 @@ Qwen's MCP manifest invokes `qwen-peer` from PATH; Sessionbus uses
 
 Complete each product hookup using only the retained integration:
 
-- Claude: use the interactive candidate recipe and scoped status in [`claude/README.md`](claude/README.md).
+- Claude: use the bundled candidate recipe and scoped status in [`claude/README.md`](claude/README.md).
 - Codex: source `scripts/codex-mcp`, then run `install_codex_mcp "$(command -v codex)" "$HOME/.local/bin/codex-peer"`.
 - OpenCode: install the pkg.pr.new preview rooted at `opencode/`, then run its `sessionbus-opencode-install` executable from `bin.mjs`.
 - Grok: install or register the `grok/` plugin directory.
@@ -53,7 +55,7 @@ Complete each product hookup using only the retained integration:
 Product evidence and constraints are in `docs/products/claude.md`,
 `docs/products/codex.md`, `docs/products/opencode.md`,
 `docs/products/grok.md`, and `docs/products/qwen.md`. Held Claude lane references are outside the activated plugin under
-`docs/designs/claude-0.5.0/held-lane-skills/` for later lane work;
+`docs/designs/claude-0.5.0/held-lane-skills/` as historical references;
 this README is the installation authority until then.
 
 ## Build and test

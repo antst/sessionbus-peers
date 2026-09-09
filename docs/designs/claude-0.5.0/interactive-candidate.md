@@ -4,7 +4,8 @@ The installed Go adapter preserves the reviewed Node behavior at `9644348`,
 including C01 cancellation retention, C02 actual-wire argument validation and
 C03 the single active skill. This is installed interactive acceptance at the
 recorded strength, not a new native capability survey or Claude lane acceptance.
-Token-selected lane mode remains explicitly unavailable.
+At that accepted historical snapshot, token-selected lane mode was unavailable.
+The current combined development section below supersedes that mode status.
 
 Evidence host: **umka-dev1**, real `/home/antst`, login shell/PATH, ordinary
 Claude configuration and the existing `sessionbus.service`. Raw rows are under
@@ -22,7 +23,7 @@ with merged public Go SDK `f8d409e98218`; later PR commits change tests, CI and
 documentation only. G01 is explicitly described in
 [GO-MIGRATION.md](GO-MIGRATION.md).
 
-Current installed binary SHA256:
+Historical accepted interactive binary SHA256:
 `dc5d8b745a393e32721a5f2c14d59dc2c455f59419f34a88881657bb2083d805`.
 The private plugin alias resolves to that same binary. Public path:
 `/home/antst/.local/bin/claude-peer`. Permanent package:
@@ -73,8 +74,56 @@ trace of every file opened at execution. SOURCE-V2's projector filename error
 is retained alongside its corrected manifest and note; no product rerun or
 retroactive seal rewrite occurred. Earlier rows remain immutable.
 
-The current binary is 3,162,274 bytes plus 12,348 asset/README/license bytes;
+The historical accepted interactive binary was 3,162,274 bytes plus 12,348 asset/README/license bytes;
 archive1,349,048 bytes. One Go MCP checkpoint measured5,356KiB RSS, not peak or
 a measured Node comparison. Full source, tests, held assets and Node reference
 are counted in [INTERACTIVE-SIZE.json](INTERACTIVE-SIZE.json).
-Lane L02/OB03 and end-to-end lane implementation remain unfinished.
+Lane L02/OB03 were unfinished at that historical snapshot; the current scoped results follow.
+
+## Current combined lane development
+
+The ledger filename is retained for existing references. The same permanent
+installation now contains both interactive exec and token-selected Go lane
+worker modes; the Node reference and all historical seals remain unchanged.
+Current installed source: `653b41ea6e73653ee167d18ce48bec20e7bbb271`.
+Its artifact/install records are under
+`/home/antst/sessionbus-evidence/claude-go-lane-install-653b41e/` on umka.
+
+The [lane handoff](GO-LANE.md) owns the implementation boundary. The runtime
+ledger below reuses the earlier native facts rather than re-discovering them.
+Raw row root: `/home/antst/sessionbus-evidence/claude-go-lane-runtime-20260909/raw/`.
+Exact per-row manifest hashes are appended to [first-contact.json](first-contact.json).
+
+| Scope | Installed rows | Observed result / remaining limit |
+|---|---|---|
+| L02 idle worker group | ob03-first, l02-worker-death, first-open-cleanup | Native/MCP group bound; exact worker kill causes group pidfd exits. Later identified PIDs absent. Stale endpoint removal operator-owned. |
+| OB03 native open and common forwarder | ob03-first, lfc-core | Native-generated ID, bound title/initialize/status gates, actual public list through installed forwarder; no separate raw init/status bodies. |
+| Idle staging | lfc-core | One native marker user row/no assistant before explicit run; exact next-run marker, own public list; queued receipt. |
+| Native caller permission policy | lfc-active, lfc-active-allowed | Default tool refusal preserved; caller exact allow rule admits held command. No adapter default or broad bypass. |
+| Active admission | lfc-active-allowed, lfc-active-admission | Original queued label is wrong; corrected145cf92 returns injected after replay and before exact same-run marker. Following-run nonduplication observed in original row only. |
+| Interruption | lfc-interrupt, lfc-graceful | Original aborted_streaming mapping defect fixed; later installed aborted_tools maps interrupted. Interrupted terminal alone is not tool-cleanup acknowledgment. |
+| Config/resume/isolation | lfc-config | Invalid argv/cwd fail Open; simultaneous distinct lanes and real saved-ID resume; connected same-ID AlreadyConnected; closing one leaves others connected. Identical repeated model flags prove order, not precedence. |
+| Forced active death | lfc-active-death | Worker/native/MCP group dies; tool and parent survive. Pending call gets no-terminal error. Operator release is separate. Generic containment remains open. |
+| Normal close counterexample | lfc-graceful and cleanup supplements | Interrupt alone ends tool; subsequent close returns success but leaves tool/parent. Preserved source/seal; operator release ends survivors. |
+| Graceful harness partial | lfc-graceful-r2 | One prompt reaches exact Bash command but fixture socket110 bytes fails AF_UNIX path too long; no held-tool or interrupt credit. Idle EOF close succeeds. |
+| Corrected graceful lifetime | lfc-graceful-r3 | Two prompts: separate held interrupt and held close yield interrupted terminals; exact tool/parent absence after each operation. No operator release. No independent before-close-response or raw native exit/signal ordering proof. |
+| Pending wait cancellation | lfc-cancellation | Actual Caller.WaitContext cancellation leaves t-1 collectible after native interrupt; collected interrupted/aborted_streaming. Subsequent status fails after collection. |
+| Installed forwarder loss | lfc-cancellation | Next run followed by exact Go MCP SIGKILL settles failed EOF through public Worker; lane disconnected, five PIDs and endpoint absent. No native terminal or exit-status/reaping claim. |
+| Combined interactive regression | ordinary653, integrated653 under claude-go-lane-interactive-20260909/raw | Same installed binary; ordinary zero-input no peer. Integrated public list/exact reply, idle written/exact reply, quit0/reaped and three identified PIDs absent. |
+
+LGO01–LGO06 source findings are closed by independently reviewed commits: shared
+report placeholder semantics, actual Worker hello schema, drain/Run.Done
+ordering, title gate, cancellation/write retirement and replay-time receipt
+classification. The graceful correction separates native lifetime from completed
+Open cancellation, keeps stdout/reports until native exit, and aborts cancelled
+close or unexpected failure. Real Worker and compiled-child regressions pass.
+Installed graceful, cancellation/forwarder and combined interactive rows are
+sealed at the scopes above. Startup cancellation remains controlled actual-Worker
+and compiled-child evidence, without a separate installed native cancellation
+row. Run-boundary uncertainty is covered by controlled stream tests rather than
+a timing-dependent native race claim. Hard-death descendant containment remains
+a separate generic bus/platform gap; no full descendant-cleanup acceptance is claimed.
+
+The whole combined footprint remains in [INTERACTIVE-SIZE.json](INTERACTIVE-SIZE.json);
+its name is historical. It counts both modes, tests, active assets, linked
+dependencies, and held/reference sources without treating moves as deletion.
