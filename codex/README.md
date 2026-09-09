@@ -36,7 +36,9 @@ codex plugin marketplace add "$HOME/.local/share/sessionbus/codex/marketplace"
 codex plugin add codex@sessionbus-peers --json
 ```
 
-It records native `installedPath`, then uses a zero-input native App Server
+The marketplace command registers its own `marketplaces.sessionbus-peers`
+source entry in native user configuration. The plugin add records native
+`installedPath`, then the installer uses a zero-input native App Server
 connection for the single `config/value/write` request:
 
 ```json
@@ -57,7 +59,8 @@ then keeps the caller's native arguments in order. Caller overrides retain nativ
 precedence; disabling the required tool can make lane Open unavailable.
 There is one generic `sessionbus` skill and public tool, shared across products.
 
-Repeat the same archive install to update the permanent installation. The
+Repeat the same archive install to update the permanent installation. Reinstall
+replaces the owned marketplace payload, so removed skills do not remain active. The
 archive includes a source-revision plugin version so native add sees the new
 payload. Installation does not change the Sessionbus service or other plugins.
 

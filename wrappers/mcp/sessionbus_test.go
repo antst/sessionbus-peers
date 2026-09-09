@@ -76,3 +76,42 @@ func TestSessionbusReportCannotShadowPublicTool(t *testing.T) {
 		}
 	}
 }
+
+type metadataOwner struct {
+	genericOwner
+	received chan json.RawMessage
+}
+
+func (o *metadataOwner) ActionWithMeta(_ context.Context, _ string, _ json.RawMessage, meta json.RawMessage) (json.RawMessage, error) {
+	o.received <- append(json.RawMessage(nil), meta...)
+	return json.RawMessage(`{}`), nil
+}
+func TestSessionbusMetadataIsPerNativeRequest(t *testing.T) {
+	input, writer := io.Pipe()
+	output, reader := io.Pipe()
+	owner := &metadataOwner{received: make(chan json.RawMessage, 1)}
+	done := make(chan error, 1)
+	go func() { done <- ServeSessionbus(owner, input, reader, ReportHandler{}) }()
+	encoder, decoder := json.NewEncoder(writer), json.NewDecoder(output)
+	for _, id := range []string{"first", "second"} {
+		if err := encoder.Encode(map[string]any{"jsonrpc": "2.0", "id": id, "method": "tools/call", "params": map[string]any{"name": "sessionbus", "arguments": map[string]any{"action": "list", "arguments": map[string]any{}}, "_meta": map[string]string{"threadId": id}}}); err != nil {
+			t.Fatal(err)
+		}
+		if got := string(<-owner.received); got != `{"threadId":"`+id+`"}` {
+			t.Fatalf("metadata=%s", got)
+		}
+		var reply map[string]any
+		if err := decoder.Decode(&reply); err != nil {
+			t.Fatal(err)
+		}
+		if reply["id"] != id || reply["error"] != nil {
+			t.Fatal(reply)
+		}
+	}
+	writer.Close()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	output.Close()
+	reader.Close()
+}

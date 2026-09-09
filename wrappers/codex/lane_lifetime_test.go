@@ -160,3 +160,58 @@ func TestCloseRetainsExitDrainAndInputErrors(t *testing.T) {
 		})
 	}
 }
+
+func TestFailedOpenJoinsNativeAndRemovesEndpoint(t *testing.T) {
+	t.Setenv("GO_WANT_CODEX_PROCESS", "1")
+	t.Setenv("CODEX_TEST_STARTUP_STATUS", "failed")
+	t.Setenv("CODEX_TEST_EVIDENCE", filepath.Join(t.TempDir(), "child.json"))
+	cwd := t.TempDir()
+	t.Setenv("CODEX_TEST_CWD", cwd)
+	old := laneCommand
+	laneCommand = func(_ string, args ...string) *exec.Cmd {
+		return exec.Command(os.Args[0], append([]string{"-test.run=TestCodexProcess", "--"}, args...)...)
+	}
+	defer func() { laneCommand = old }()
+	p := New()
+	p.SetCall(func(context.Context, string, any) (json.RawMessage, error) { return json.RawMessage(`{}`), nil })
+	if _, err := p.Open(context.Background(), kit.OpenRequest{Name: "failed@local", Open: kit.OpenOptions{Cwd: cwd}}); err == nil {
+		t.Fatal("failed startup accepted")
+	}
+	if p.child == nil || p.app == nil || p.endpoint == nil {
+		t.Fatal("fixture never reached owned native resources")
+	}
+	select {
+	case <-p.child.Done():
+	default:
+		t.Fatal("failed Open did not join child")
+	}
+	select {
+	case <-p.app.done:
+	default:
+		t.Fatal("failed Open did not finish stdout")
+	}
+	if _, err := os.Stat(p.endpoint.path); !os.IsNotExist(err) {
+		t.Fatalf("failed Open left endpoint: %v", err)
+	}
+}
+func TestForwarderEndRequiresNativeCallBinding(t *testing.T) {
+	for _, meta := range []string{`{}`, `{"threadId":"foreign"}`, `{"threadId":"owned"}`} {
+		t.Run(meta, func(t *testing.T) {
+			p := New()
+			p.ctx, p.cancel = context.WithCancel(context.Background())
+			defer p.cancel()
+			p.id = "owned"
+			p.opened = true
+			owner := &laneToolOwner{owner: p}
+			err := owner.validateCall(context.Background(), json.RawMessage(meta))
+			bound := meta == `{"threadId":"owned"}`
+			if (err == nil) != bound {
+				t.Fatalf("validation=%v", err)
+			}
+			owner.End()
+			if (p.ctx.Err() != nil) != bound {
+				t.Fatalf("bound=%v native cancellation=%v", bound, p.ctx.Err())
+			}
+		})
+	}
+}

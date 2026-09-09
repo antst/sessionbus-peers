@@ -130,7 +130,8 @@ func TestCodexProcess(t *testing.T) {
 				var frame any
 				_ = mcpDecoder.Decode(&frame)
 			}
-			_ = encoder.Encode(map[string]any{"method": "mcpServer/startupStatus/updated", "params": map[string]string{"threadId": "thread-1", "name": "sessionbus", "status": "ready"}})
+			startup := first(os.Getenv("CODEX_TEST_STARTUP_STATUS"), "ready")
+			_ = encoder.Encode(map[string]any{"method": "mcpServer/startupStatus/updated", "params": map[string]string{"threadId": "thread-1", "name": "sessionbus", "status": startup}})
 			result = map[string]any{"thread": map[string]string{"id": "thread-1", "name": title}, "cwd": os.Getenv("CODEX_TEST_CWD"), "approvalPolicy": "never", "sandbox": map[string]string{"type": "readOnly"}}
 		case "thread/name/set":
 			var params struct{ Name string }

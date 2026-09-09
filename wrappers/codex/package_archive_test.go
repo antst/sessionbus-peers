@@ -73,3 +73,78 @@ func TestCodexArchiveContainsOneArtifactAndOneGenericSkill(t *testing.T) {
 		t.Fatalf("private aliases=%v", aliases)
 	}
 }
+
+func TestInstallReplacesOwnedMarketplaceWithoutStaleSkills(t *testing.T) {
+	// Execute the literal shell recipe using one compiled stand-in. No Codex,
+	// service, model or real user configuration runs in this offline fixture.
+	fixture := t.TempDir()
+	home := filepath.Join(fixture, "fixture home")
+	payload := filepath.Join(fixture, "archive payload")
+	if err := os.MkdirAll(filepath.Join(payload, "bin"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	source := filepath.Join(fixture, "main.go")
+	code := `package main
+import("os";"path/filepath")
+func main(){if filepath.Base(os.Args[0])!="codex-peer-install"||len(os.Args)!=2{os.Exit(4)};if err:=os.WriteFile(filepath.Join(filepath.Dir(filepath.Dir(os.Args[0])),"fixture-registration"),[]byte(os.Args[1]),0600);err!=nil{panic(err)}}`
+	if err := os.WriteFile(source, []byte(code), 0600); err != nil {
+		t.Fatal(err)
+	}
+	build := exec.Command("go", "build", "-o", filepath.Join(payload, "bin", "codex-peer"), source)
+	if raw, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("stand-in: %v %s", err, raw)
+	}
+	for _, name := range []string{"install", "uninstall", "README.md"} {
+		body, err := os.ReadFile(filepath.Join("..", "..", "codex", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err = os.WriteFile(filepath.Join(payload, name), body, 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(payload, "LICENSE"), []byte("fixture license"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	wanted := filepath.Join(payload, "marketplace", "codex", "skills", "sessionbus", "SKILL.md")
+	if err := os.MkdirAll(filepath.Dir(wanted), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(wanted, []byte("current generic skill"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	installed := filepath.Join(home, ".local", "share", "sessionbus", "codex", "marketplace")
+	stale := filepath.Join(installed, "codex", "skills", "obsolete", "SKILL.md")
+	if err := os.MkdirAll(filepath.Dir(stale), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(stale, []byte("obsolete"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	unrelated := filepath.Join(home, ".local", "share", "sessionbus", "other-product")
+	if err := os.WriteFile(unrelated, []byte("untouched"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("sh", filepath.Join(payload, "install"))
+	cmd.Env = append(os.Environ(), "HOME="+home)
+	if raw, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("install recipe: %v %s", err, raw)
+	}
+	if _, err := os.Stat(stale); !os.IsNotExist(err) {
+		t.Fatalf("stale active skill survived: %v", err)
+	}
+	if b, err := os.ReadFile(filepath.Join(installed, "codex", "skills", "sessionbus", "SKILL.md")); err != nil || string(b) != "current generic skill" {
+		t.Fatalf("current skill=%q %v", b, err)
+	}
+	if b, err := os.ReadFile(unrelated); err != nil || string(b) != "untouched" {
+		t.Fatalf("unrelated path=%q %v", b, err)
+	}
+	packagePath := filepath.Join(home, ".local", "libexec", "sessionbus", "codex")
+	if b, err := os.ReadFile(filepath.Join(packagePath, "fixture-registration")); err != nil || string(b) != installed {
+		t.Fatalf("private installer dispatch=%q %v", b, err)
+	}
+	public, err := filepath.EvalSymlinks(filepath.Join(home, ".local", "bin", "codex-peer"))
+	if err != nil || public != filepath.Join(packagePath, "bin", "codex-peer") {
+		t.Fatalf("public bin=%q %v", public, err)
+	}
+}
