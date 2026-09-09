@@ -96,8 +96,8 @@
   },
   "tests": {
     "files": 8,
-    "bytes": 32365,
-    "lines": 1073,
+    "bytes": 33751,
+    "lines": 1119,
     "members": [
       {
         "path": "cmd/claude-peer/main_test.go",
@@ -113,9 +113,9 @@
       },
       {
         "path": "wrappers/claude/interactive/install_test.go",
-        "bytes": 5476,
-        "lines": 176,
-        "sha256": "c6a95d868cadf38adf121973fbcdc1e0560ea5da28e73dcc063499fb16c98a4a"
+        "bytes": 6862,
+        "lines": 222,
+        "sha256": "7245d4f45955e39115d3a3f30d098a06517f843efc34997e43b7b78c3d5294f9"
       },
       {
         "path": "wrappers/claude/interactive/launch_test.go",
@@ -419,8 +419,8 @@
   },
   "whole_repository_excluding_this_self_report": {
     "files": 166,
-    "bytes": 1127033,
-    "lines": 22880,
+    "bytes": 1128275,
+    "lines": 22921,
     "members": [
       {
         "path": ".claude-plugin/marketplace.json",
@@ -448,9 +448,9 @@
       },
       {
         "path": ".github/workflows/pkg-pr-new.yml",
-        "bytes": 2197,
-        "lines": 68,
-        "sha256": "adf87fbbfc4abd869283968822524d73a15906ea295a203ef25679db819ee577"
+        "bytes": 2053,
+        "lines": 63,
+        "sha256": "0547e165c892c35d9cea51a58024ad67a28093d0c9470effdc4f625a1d46cdf1"
       },
       {
         "path": ".gitignore",
@@ -1102,9 +1102,9 @@
       },
       {
         "path": "wrappers/claude/interactive/install_test.go",
-        "bytes": 5476,
-        "lines": 176,
-        "sha256": "c6a95d868cadf38adf121973fbcdc1e0560ea5da28e73dcc063499fb16c98a4a"
+        "bytes": 6862,
+        "lines": 222,
+        "sha256": "7245d4f45955e39115d3a3f30d098a06517f843efc34997e43b7b78c3d5294f9"
       },
       {
         "path": "wrappers/claude/interactive/launch.go",
@@ -1436,7 +1436,7 @@
   "acceptance": "Fresh Go installed row reviewed; remaining interactive rows and lane acceptance pending. Numbers include archived/held sources rather than treating moves as removal.",
   "whole_repository_including_this_report": {
     "files": 167,
-    "bytes": 1175651,
-    "lines": 24322
+    "bytes": 1176893,
+    "lines": 24363
   }
 }

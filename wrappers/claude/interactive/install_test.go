@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
 	"os/exec"
@@ -14,6 +15,7 @@ import (
 	"reflect"
 	"runtime"
 	"strings"
+	"syscall"
 	"testing"
 )
 
@@ -115,7 +117,7 @@ func TestInstalledArchiveExecAndPrivateMCP(t *testing.T) {
 	}
 	source := `package main
 import("encoding/json";"os";"io")
-func main(){cwd,_:=os.Getwd();input,_:=io.ReadAll(os.Stdin);_ = json.NewEncoder(os.Stdout).Encode(map[string]any{"pid":os.Getpid(),"args":os.Args[1:],"cwd":cwd,"input":string(input),"groups":os.Getenv("SESSIONBUS_GROUPS")})}`
+func main(){if os.Getenv("GO_TEST_NATIVE_MODE")=="exit"{os.Exit(37)};if os.Getenv("GO_TEST_NATIVE_MODE")=="signal"{_ = json.NewEncoder(os.Stdout).Encode(map[string]int{"pid":os.Getpid()});_,_=io.ReadAll(os.Stdin);return};cwd,_:=os.Getwd();input,_:=io.ReadAll(os.Stdin);_ = json.NewEncoder(os.Stdout).Encode(map[string]any{"pid":os.Getpid(),"args":os.Args[1:],"cwd":cwd,"input":string(input),"groups":os.Getenv("SESSIONBUS_GROUPS")})}`
 	helper := filepath.Join(nativeDir, "main.go")
 	if err = os.WriteFile(helper, []byte(source), 0600); err != nil {
 		t.Fatal(err)
@@ -157,6 +159,50 @@ func main(){cwd,_:=os.Getwd();input,_:=io.ReadAll(os.Stdin);_ = json.NewEncoder(
 	if got.PID != pid || got.Cwd != root || got.Input != "stdin preserved" || got.Groups != `["one",""," two"]` || !reflect.DeepEqual(got.Args, want) {
 		t.Fatalf("native fixture %#v want%q", got, want)
 	}
+	for _, mode := range []string{"exit", "signal"} {
+		native := exec.Command(pub)
+		native.Env = append([]string{}, cmd.Env...)
+		native.Env = append(native.Env, "GO_TEST_NATIVE_MODE="+mode)
+		if mode == "exit" {
+			err := native.Run()
+			var e *exec.ExitError
+			if !errors.As(err, &e) || e.ExitCode() != 37 {
+				t.Fatalf("exit passthrough %v", err)
+			}
+			continue
+		}
+		input, err := native.StdinPipe()
+		if err != nil {
+			t.Fatal(err)
+		}
+		output, err := native.StdoutPipe()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err = native.Start(); err != nil {
+			t.Fatal(err)
+		}
+		var ready struct{ PID int }
+		if err = json.NewDecoder(output).Decode(&ready); err != nil {
+			t.Fatal(err)
+		}
+		if ready.PID != native.Process.Pid {
+			t.Fatal("retained launcher")
+		}
+		if err = native.Process.Signal(syscall.SIGTERM); err != nil {
+			t.Fatal(err)
+		}
+		err = native.Wait()
+		_ = input.Close()
+		var e *exec.ExitError
+		if !errors.As(err, &e) {
+			t.Fatalf("signal passthrough %v", err)
+		}
+		if status, ok := e.Sys().(syscall.WaitStatus); !ok || !status.Signaled() || status.Signal() != syscall.SIGTERM {
+			t.Fatalf("signal status %v", e.Sys())
+		}
+	}
+
 	cmd = exec.Command(private)
 	cmd.Env = append(cmd.Env, "PATH="+nativeDir)
 	cmd.Stdin = strings.NewReader("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2025-03-26\"}}\n{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\"}\n")
