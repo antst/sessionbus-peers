@@ -65,11 +65,15 @@ claude-peer -n NAME -g GROUP
 claude-peer --resume NAME -g GROUP
 ```
 
-Only a final `-g VALUE` pair belongs to the wrapper. Groups are comma-separated;
-no suffix means this launch's empty groups. Native arguments stay ordered and
-unchanged after the fixed activation prefix:
+The wrapper consumes each `-g VALUE` / `--group VALUE` pair or `--group=VALUE` anywhere
+before native `--`. Repeated
+pairs and comma-separated values accumulate in order; no `-g` means this launch's
+empty groups. `--yolo` translates to Claude's `--dangerously-skip-permissions`.
+All other arguments stay ordered and unchanged after the fixed activation prefix:
 `--allowedTools mcp__plugin_sessionbus_sessionbus__sessionbus --plugin-dir ROOT`.
-Native `-n`, resume, `--`, repeated flags and errors remain Claude's own.
+Native `-n`, `--resume`, repeated flags and errors remain Claude's own. After
+native `--`, every argument is passed through literally, including `-g` and
+`--yolo`.
 
 Ordinary `claude` stays ordinary. The wrapper loads the whole plugin only for
 this launch. An unconfigured plain nested `claude` stays ordinary; use an

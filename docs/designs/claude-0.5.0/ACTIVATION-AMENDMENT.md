@@ -1,3 +1,9 @@
+> Historical contract notice (2026-09-09): the owner superseded the suffix-only
+> group grammar below. Current parsing consumes repeated `-g` / `--group` before
+> native `--` and translates `--yolo`; see [R12/R13](REQUIREMENTS.md) and the
+> [installed correction](launch-flags-fix.md). Original probe evidence and the
+> Node reference remain unchanged and predate this correction.
+
 # Interactive activation amendment — B04/B06 and requirements
 
 2026-09-09. **Architect selection submitted for stamp. Activation code remains held until fable releases it.** This amends only activation and affected packaging/tests in the stamped inventory SHA256 `154a594b57bb38fe68dac410d56ea03faea337c8ca7f9b9ca64f9d0478eb0681`, which remains byte-for-byte preserved. Independent implementation continues under its existing release; no new native run or installation is authorized here.

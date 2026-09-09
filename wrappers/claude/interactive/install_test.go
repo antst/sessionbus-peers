@@ -130,7 +130,7 @@ func main(){if os.Getenv("GO_TEST_NATIVE_MODE")=="exit"{os.Exit(37)};if os.Geten
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("fixture build %v %s", err, out)
 	}
-	nativeArgs := []string{"-n", "", "--", "--unknown", "-g", "one,, two"}
+	nativeArgs := []string{"--resume", "test1", "-g", "one", "--group", "two,three", "--yolo", "--", "--unknown", "-g", "literal", "--yolo"}
 	cmd = exec.Command(pub, nativeArgs...)
 	cmd.Dir = alias
 	env := Environment(os.Environ())
@@ -159,8 +159,8 @@ func main(){if os.Getenv("GO_TEST_NATIVE_MODE")=="exit"{os.Exit(37)};if os.Geten
 	if err = json.Unmarshal(out.Bytes(), &got); err != nil {
 		t.Fatal(err)
 	}
-	want := append([]string{"--allowedTools", PublicTool, "--plugin-dir", filepath.Join(install, "plugin")}, nativeArgs[:len(nativeArgs)-2]...)
-	if got.PID != pid || got.Cwd != root || got.Input != "stdin preserved" || got.Groups != `["one",""," two"]` || !reflect.DeepEqual(got.Args, want) {
+	want := append([]string{"--allowedTools", PublicTool, "--plugin-dir", filepath.Join(install, "plugin")}, "--resume", "test1", "--dangerously-skip-permissions", "--", "--unknown", "-g", "literal", "--yolo")
+	if got.PID != pid || got.Cwd != root || got.Input != "stdin preserved" || got.Groups != `["one","two","three"]` || !reflect.DeepEqual(got.Args, want) {
 		t.Fatalf("native fixture %#v want%q", got, want)
 	}
 	for _, mode := range []string{"exit", "signal"} {

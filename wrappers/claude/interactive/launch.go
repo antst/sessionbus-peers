@@ -47,11 +47,31 @@ func LaunchPlan(args []string, env map[string]string, cwd, root string, uid int)
 		return nil, nil, errors.New("interactive entry cannot consume a lane launch token")
 	}
 	groups := []string{}
-	if len(args) >= 2 && args[len(args)-2] == "-g" {
-		if value := args[len(args)-1]; value != "" {
-			groups = strings.Split(value, ",")
+	native := make([]string, 0, len(args))
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--":
+			native = append(native, args[i:]...)
+			i = len(args)
+		case "-g", "--group":
+			if i+1 == len(args) || args[i+1] == "--" {
+				return nil, nil, fmt.Errorf("%s requires a group list", args[i])
+			}
+			i++
+			if args[i] != "" {
+				groups = append(groups, strings.Split(args[i], ",")...)
+			}
+		case "--yolo":
+			native = append(native, "--dangerously-skip-permissions")
+		default:
+			if value, ok := strings.CutPrefix(args[i], "--group="); ok {
+				if value != "" {
+					groups = append(groups, strings.Split(value, ",")...)
+				}
+			} else {
+				native = append(native, args[i])
+			}
 		}
-		args = args[:len(args)-2]
 	}
 	encoded, _ := json.Marshal(groups)
 	values := make([]string, 0, len(env)+2)
@@ -61,7 +81,7 @@ func LaunchPlan(args []string, env map[string]string, cwd, root string, uid int)
 		}
 	}
 	values = append(values, "SESSIONBUS_GROUPS="+string(encoded), "SESSIONBUS_SOCKET="+SocketPath(env, cwd, uid))
-	return append([]string{"--allowedTools", PublicTool, "--plugin-dir", root}, args...), values, nil
+	return append([]string{"--allowedTools", PublicTool, "--plugin-dir", root}, native...), values, nil
 }
 
 // Preserve native PATH lookup, including relative/empty entries, without Go's

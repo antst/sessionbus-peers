@@ -1,22 +1,22 @@
 {
   "language": "Go",
   "behavior_reference": "964434895d93232a71883cb55785c1605014a5e8",
-  "measured_code_commit": "9fd7aa5b4e7a136a94784821ceb7735988f534be",
+  "measured_code_commit": "569ce9f8a8cff524d452b415f5a4ff0b80f93951",
   "artifact": {
-    "commit": "9fd7aa5b4e7a136a94784821ceb7735988f534be",
-    "tree": "c73f9d055be9b89c3f6b30522dafba927913aa07",
+    "commit": "569ce9f8a8cff524d452b415f5a4ff0b80f93951",
+    "tree": "ac9e341e9f456403e18d2d3fe1b17c6277e5aede",
     "clean": true,
-    "archive_sha256": "4034f32e949b8c59411df4fba5c9f95c957d3a0ff7f5094d1ff7fa47d71d6230",
+    "archive_sha256": "eb2f5e2d87de907fbd4f2af6b4d52dd261157548b8f11d1f75f2261bff9ea415",
     "build_argv": [
       "scripts/package-claude",
-      "/home/antst/sessionbus-evidence/claude-parent-lane-20260909/build-9fd7aa5"
+      "/home/antst/sessionbus-evidence/claude-launch-flags-r2-20260909/build"
     ],
     "members": [
       {
         "path": "claude-peer",
-        "size": 3649698,
+        "size": 3653794,
         "linkname": "",
-        "sha256": "148a72feb407f3d8716a620ff6be3d174263a9a11c3c4d1b2c587bd502c35a84"
+        "sha256": "bf7bdebca086726b9982cf0c315dd15c4230eed01be4c28710dea0a1c7768faf"
       },
       {
         "path": "plugin",
@@ -25,22 +25,16 @@
         "sha256": null
       },
       {
-        "path": "plugin/commands",
+        "path": "plugin/.claude-plugin",
         "size": 0,
         "linkname": "",
         "sha256": null
       },
       {
-        "path": "plugin/commands/doctor.md",
-        "size": 1701,
+        "path": "plugin/.claude-plugin/plugin.json",
+        "size": 292,
         "linkname": "",
-        "sha256": "a0f63b32b4b5e95aa1abaff510982327ffdc1b80b314dee4c20f243c19b28184"
-      },
-      {
-        "path": "plugin/.mcp.json",
-        "size": 130,
-        "linkname": "",
-        "sha256": "91d631cbbe6c34d5af24d88cd596e2951820ee77deb1bcc3ca6937ec6143920e"
+        "sha256": "c3d76b9aaa47e429dab43ce7fbb7782308e1673cd147c6c221ad2849ee4b8794"
       },
       {
         "path": "plugin/bin",
@@ -61,16 +55,34 @@
         "sha256": null
       },
       {
-        "path": "plugin/.claude-plugin",
+        "path": "plugin/.mcp.json",
+        "size": 130,
+        "linkname": "",
+        "sha256": "91d631cbbe6c34d5af24d88cd596e2951820ee77deb1bcc3ca6937ec6143920e"
+      },
+      {
+        "path": "plugin/commands",
         "size": 0,
         "linkname": "",
         "sha256": null
       },
       {
-        "path": "plugin/.claude-plugin/plugin.json",
-        "size": 292,
+        "path": "plugin/commands/doctor.md",
+        "size": 1701,
         "linkname": "",
-        "sha256": "c3d76b9aaa47e429dab43ce7fbb7782308e1673cd147c6c221ad2849ee4b8794"
+        "sha256": "a0f63b32b4b5e95aa1abaff510982327ffdc1b80b314dee4c20f243c19b28184"
+      },
+      {
+        "path": "plugin/hooks",
+        "size": 0,
+        "linkname": "",
+        "sha256": null
+      },
+      {
+        "path": "plugin/hooks/hooks.json",
+        "size": 1496,
+        "linkname": "",
+        "sha256": "e4f0a721bf68965609609a0b75ffaf0915595009812bb6dbf44a87d192d84d35"
       },
       {
         "path": "plugin/skills",
@@ -91,18 +103,6 @@
         "sha256": "6ca2eacfbaaaaacbf972baaebafe6c04a94b4c0c1289598504daf8ac74d81391"
       },
       {
-        "path": "plugin/hooks",
-        "size": 0,
-        "linkname": "",
-        "sha256": null
-      },
-      {
-        "path": "plugin/hooks/hooks.json",
-        "size": 1496,
-        "linkname": "",
-        "sha256": "e4f0a721bf68965609609a0b75ffaf0915595009812bb6dbf44a87d192d84d35"
-      },
-      {
         "path": "LICENSE",
         "size": 1080,
         "linkname": "",
@@ -110,16 +110,16 @@
       },
       {
         "path": "README.md",
-        "size": 7677,
+        "size": 7924,
         "linkname": "",
-        "sha256": "ca3e63a301081528b052d5e754354bba8b213ba8154e49b3484cb5cd3aa717e3"
+        "sha256": "93f1e3a646b3a13c2921fe411ab0e6d940fe2b08e48b17010ae5e27d77569fbf"
       }
     ]
   },
   "runtime_source": {
     "files": 9,
-    "bytes": 52163,
-    "lines": 1854,
+    "bytes": 52696,
+    "lines": 1874,
     "members": [
       {
         "path": "cmd/claude-peer/main.go",
@@ -141,9 +141,9 @@
       },
       {
         "path": "wrappers/claude/interactive/launch.go",
-        "bytes": 3231,
-        "lines": 117,
-        "sha256": "ed3ed3205801a256b203b1628232509f2161a1d11e2d5364664ca8df97a27c2b"
+        "bytes": 3764,
+        "lines": 137,
+        "sha256": "b165f496962eaf98fea64d34e5d5dd67f257326dabaed70079c2db413c29fa64"
       },
       {
         "path": "wrappers/claude/interactive/mcp.go",
@@ -179,8 +179,8 @@
   },
   "tests": {
     "files": 11,
-    "bytes": 68116,
-    "lines": 2155,
+    "bytes": 69903,
+    "lines": 2171,
     "members": [
       {
         "path": "cmd/claude-peer/main_test.go",
@@ -202,15 +202,15 @@
       },
       {
         "path": "wrappers/claude/interactive/install_test.go",
-        "bytes": 7032,
+        "bytes": 7168,
         "lines": 226,
-        "sha256": "18a9a00ce1209c9a94af05b0b12967bf5e64a6e072ad8d4288992f21b1aae9bc"
+        "sha256": "98f737cacd0dd5e807ea88c1b51e665d5bc92c097d75a7a0f2485c96b130bcfd"
       },
       {
         "path": "wrappers/claude/interactive/launch_test.go",
-        "bytes": 1898,
-        "lines": 54,
-        "sha256": "7f454dd039c5941129bcd1a078923c9f5b3bf456713ec23e0d478921de6a6fc6"
+        "bytes": 3549,
+        "lines": 70,
+        "sha256": "49cbc3c2160a3c7e7b9c6b2334bbd6af7020a9e2a9fb087760c87a7aee994b8a"
       },
       {
         "path": "wrappers/claude/interactive/mcp_test.go",
@@ -252,8 +252,8 @@
   },
   "active_assets": {
     "files": 6,
-    "bytes": 16276,
-    "lines": 361,
+    "bytes": 16523,
+    "lines": 365,
     "members": [
       {
         "path": "claude/.claude-plugin/plugin.json",
@@ -269,9 +269,9 @@
       },
       {
         "path": "claude/README.md",
-        "bytes": 7677,
-        "lines": 150,
-        "sha256": "ca3e63a301081528b052d5e754354bba8b213ba8154e49b3484cb5cd3aa717e3"
+        "bytes": 7924,
+        "lines": 154,
+        "sha256": "93f1e3a646b3a13c2921fe411ab0e6d940fe2b08e48b17010ae5e27d77569fbf"
       },
       {
         "path": "claude/commands/doctor.md",
@@ -519,9 +519,9 @@
     ]
   },
   "whole_repository_excluding_this_self_report": {
-    "files": 175,
-    "bytes": 1233855,
-    "lines": 25054,
+    "files": 176,
+    "bytes": 1241256,
+    "lines": 25165,
     "members": [
       {
         "path": ".forgejo/workflows/ci.yml",
@@ -591,9 +591,9 @@
       },
       {
         "path": "claude/README.md",
-        "bytes": 7677,
-        "lines": 150,
-        "sha256": "ca3e63a301081528b052d5e754354bba8b213ba8154e49b3484cb5cd3aa717e3"
+        "bytes": 7924,
+        "lines": 154,
+        "sha256": "93f1e3a646b3a13c2921fe411ab0e6d940fe2b08e48b17010ae5e27d77569fbf"
       },
       {
         "path": "claude/commands/doctor.md",
@@ -669,9 +669,9 @@
       },
       {
         "path": "docs/designs/claude-0.5.0/ACTIVATION-AMENDMENT.md",
-        "bytes": 11799,
-        "lines": 78,
-        "sha256": "3123c5203760f6b0b2efcca16b18b1f75a90f285370a9b688252e49adddc72ea"
+        "bytes": 12181,
+        "lines": 84,
+        "sha256": "f643a58dcebba5b88fe7ecb69991eb3b66e69a0a337428143cd71b6922bc4b2d"
       },
       {
         "path": "docs/designs/claude-0.5.0/ACTIVATION-REVIEW.md",
@@ -735,9 +735,9 @@
       },
       {
         "path": "docs/designs/claude-0.5.0/INTERACTIVE-IMPLEMENTATION-INVENTORY.md",
-        "bytes": 29465,
-        "lines": 124,
-        "sha256": "154a594b57bb38fe68dac410d56ea03faea337c8ca7f9b9ca64f9d0478eb0681"
+        "bytes": 29847,
+        "lines": 130,
+        "sha256": "587ae5d9f62b3065f9c44325c1f3ef59fd513fb9c73a1b09d5ab6e0789aef2df"
       },
       {
         "path": "docs/designs/claude-0.5.0/KIT-BINDING.json",
@@ -759,9 +759,9 @@
       },
       {
         "path": "docs/designs/claude-0.5.0/REQUIREMENTS.md",
-        "bytes": 18315,
+        "bytes": 18524,
         "lines": 88,
-        "sha256": "f7de8f34f96f9e1a354611a23cf74bfa9baace5a27bb1f2f50f2683767a9aa18"
+        "sha256": "a51bf95ebc86062f2bf08411ee90b3b3d70be2ab769f535a35569fb1892efa01"
       },
       {
         "path": "docs/designs/claude-0.5.0/first-contact.json",
@@ -852,6 +852,12 @@
         "bytes": 14958,
         "lines": 140,
         "sha256": "b3d541e03fc62d9dda0683481ce0c9f47145e58c950f2acc8eebef2c58aad826"
+      },
+      {
+        "path": "docs/designs/claude-0.5.0/launch-flags-fix.md",
+        "bytes": 3572,
+        "lines": 59,
+        "sha256": "33e9cf711ee4914e976a334450a55368e4e27f4cf5b461e88a45bcb1bac3594d"
       },
       {
         "path": "docs/designs/claude-0.5.0/node-reference/.claude-plugin/plugin.json",
@@ -975,9 +981,9 @@
       },
       {
         "path": "docs/products/claude.md",
-        "bytes": 21851,
+        "bytes": 22140,
         "lines": 165,
-        "sha256": "bb61dab7731742eff62e792293971c6bc88c7df35dd1e4d9c65a5bab6d9f35ce"
+        "sha256": "68f686ad66bc099e070c07a87b0afe7a424d5fde3e548e14526195dc23a186e4"
       },
       {
         "path": "docs/products/codex.md",
@@ -1233,21 +1239,21 @@
       },
       {
         "path": "wrappers/claude/interactive/install_test.go",
-        "bytes": 7032,
+        "bytes": 7168,
         "lines": 226,
-        "sha256": "18a9a00ce1209c9a94af05b0b12967bf5e64a6e072ad8d4288992f21b1aae9bc"
+        "sha256": "98f737cacd0dd5e807ea88c1b51e665d5bc92c097d75a7a0f2485c96b130bcfd"
       },
       {
         "path": "wrappers/claude/interactive/launch.go",
-        "bytes": 3231,
-        "lines": 117,
-        "sha256": "ed3ed3205801a256b203b1628232509f2161a1d11e2d5364664ca8df97a27c2b"
+        "bytes": 3764,
+        "lines": 137,
+        "sha256": "b165f496962eaf98fea64d34e5d5dd67f257326dabaed70079c2db413c29fa64"
       },
       {
         "path": "wrappers/claude/interactive/launch_test.go",
-        "bytes": 1898,
-        "lines": 54,
-        "sha256": "7f454dd039c5941129bcd1a078923c9f5b3bf456713ec23e0d478921de6a6fc6"
+        "bytes": 3549,
+        "lines": 70,
+        "sha256": "49cbc3c2160a3c7e7b9c6b2334bbd6af7020a9e2a9fb087760c87a7aee994b8a"
       },
       {
         "path": "wrappers/claude/interactive/mcp.go",
@@ -1588,11 +1594,11 @@
     "native_claude_rss_kib": 247584,
     "note": "One checkpoint on76b921b after first prompt+idle message, not peak/steady-state/full-host memory; no comparable Node baseline measured."
   },
-  "acceptance": "Combined Claude candidate; prior installed lane/interactive rows and actual parent-Claude public spawn/start/wait/close are sealed. Root marketplace removed; current live generic guidance and metadata counted. Hard-death descendant containment remains open. Source/archive counts include both modes, all tests and held/history files. Artifact is installed9fd7aa5; its binary is byte-equal to parent-lifecycle tested3ee62d6 and only generic skill wording differs. Final ledger changes are current source, not falsely attributed to the archive. Historical memory checkpoint is not current lane memory.",
+  "acceptance": "Both modes remain installed. This correction changes only interactive launch argument projection and documents the owner override of suffix-only grammar. Installed569ce9f mixed -g/--group/--group= values and --yolo native argv, actual public list and independent groups, native exit0 and exact three PID absence verified. Four informational argv cases pass. No owner session resumed. Original lane/hard-death limits remain. Counts measure current source; archive is signed569ce9f.",
   "scope": "whole combined Claude Go artifact; filename retained for existing links, no interactive-only exclusion",
   "whole_repository_including_this_report": {
-    "files": 176,
-    "bytes": 1287578,
-    "lines": 26652
+    "files": 177,
+    "bytes": 1295067,
+    "lines": 26769
   }
 }

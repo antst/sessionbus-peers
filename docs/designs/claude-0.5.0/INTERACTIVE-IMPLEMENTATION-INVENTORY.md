@@ -1,3 +1,9 @@
+> Historical contract notice (2026-09-09): the owner superseded the suffix-only
+> group grammar below. Current parsing consumes repeated `-g` / `--group` before
+> native `--` and translates `--yolo`; see [R12/R13](REQUIREMENTS.md) and the
+> [installed correction](launch-flags-fix.md). Original probe evidence and the
+> Node reference remain unchanged and predate this correction.
+
 # Claude interactive implementation inventory — B06 step 7
 
 2026-09-09. **Submitted for stamp; implementation is not released by this document.** This selects the interactive boundary only. Fable's request is delivery `delivery-21530efaed79d00dfc4605a6e4c29d7d`. Lane L02/OB03 and its inventory remain withheld. Dev1 is the single implementer after the stamp/release.
