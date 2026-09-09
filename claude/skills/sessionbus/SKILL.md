@@ -1,6 +1,6 @@
 ---
 name: sessionbus
-description: Discover and message Sessionbus peers, and create, run, collect, close and resume Claude lanes through the single sessionbus tool.
+description: Discover and message Sessionbus peers, and create, run, collect, close and resume Sessionbus lanes through the single tool.
 ---
 
 # Sessionbus
@@ -40,10 +40,12 @@ wait; collect the retained result later with status or wait. A completed
 collection consumes the handle once. An explicit wait bound is the caller's
 request, not permission to poll, reconnect or replay.
 
-## Delegate from Claude to a Claude lane
+## Delegate to a Sessionbus lane
 
 Use this same public tool, not Bash, a shell launcher, Claude's Agent tool or
-native teams. Each example below is one tool input. Substitute the actual
+native teams. Choose the product with `spawn.arguments.product`; use `describe`
+with that product to obtain its supported open fields. The examples below use
+`claude-peer` to delegate to a Claude lane. Each example is one tool input. Substitute the actual
 returned IDs; the capitalized placeholders are not literal IDs.
 
 Create a fresh Claude lane with a child name and an explicit open object.
