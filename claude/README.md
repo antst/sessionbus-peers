@@ -65,7 +65,8 @@ claude-peer -n NAME -g GROUP
 claude-peer --resume NAME -g GROUP
 ```
 
-The wrapper consumes each `-g VALUE` pair anywhere before native `--`. Repeated
+The wrapper consumes each `-g VALUE` / `--group VALUE` pair or `--group=VALUE` anywhere
+before native `--`. Repeated
 pairs and comma-separated values accumulate in order; no `-g` means this launch's
 empty groups. `--yolo` translates to Claude's `--dangerously-skip-permissions`.
 All other arguments stay ordered and unchanged after the fixed activation prefix:

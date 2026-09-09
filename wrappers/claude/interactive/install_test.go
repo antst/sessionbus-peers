@@ -130,7 +130,7 @@ func main(){if os.Getenv("GO_TEST_NATIVE_MODE")=="exit"{os.Exit(37)};if os.Geten
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("fixture build %v %s", err, out)
 	}
-	nativeArgs := []string{"--resume", "test1", "-g", "one", "-g", "two,three", "--yolo", "--", "--unknown", "-g", "literal", "--yolo"}
+	nativeArgs := []string{"--resume", "test1", "-g", "one", "--group", "two,three", "--yolo", "--", "--unknown", "-g", "literal", "--yolo"}
 	cmd = exec.Command(pub, nativeArgs...)
 	cmd.Dir = alias
 	env := Environment(os.Environ())

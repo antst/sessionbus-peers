@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -18,6 +19,8 @@ func TestLaunchPreservesNativeArgumentsAndGroupGrammar(t *testing.T) {
 		{[]string{"--resume", "test1", "-g", "test,test2", "--yolo"}, []string{"--resume", "test1", "--dangerously-skip-permissions"}, `["test","test2"]`},
 		{[]string{"--resume", "test1", "-g", "test,test2", "--dangerously-skip-permissions"}, []string{"--resume", "test1", "--dangerously-skip-permissions"}, `["test","test2"]`},
 		{[]string{"--resume", "test1", "-g", "test", "-g", "test2,test3", "--yolo"}, []string{"--resume", "test1", "--dangerously-skip-permissions"}, `["test","test2","test3"]`},
+		{[]string{"--group=first", "--resume", "test1", "-g", "test", "--group", "test2,test3", "--yolo", "--group="}, []string{"--resume", "test1", "--dangerously-skip-permissions"}, `["first","test","test2","test3"]`},
+		{[]string{"--", "--group", "literal", "--group=x", "--yolo"}, []string{"--", "--group", "literal", "--group=x", "--yolo"}, `[]`},
 		{[]string{"-g", "first", "--resume", "test1", "--yolo", "-g", "last"}, []string{"--resume", "test1", "--dangerously-skip-permissions"}, `["first","last"]`},
 		{[]string{"-n", "a", "--", "-g", "native", "--yolo"}, []string{"-n", "a", "--", "-g", "native", "--yolo"}, `[]`},
 		{[]string{"-n", "", "-g", "a,, a,a", "-n", "b", "--", "positional"}, []string{"-n", "", "-n", "b", "--", "positional"}, `["a",""," a","a"]`},
@@ -42,8 +45,8 @@ func TestLaunchPreservesNativeArgumentsAndGroupGrammar(t *testing.T) {
 }
 
 func TestLaunchRejectsMissingGroupValueBeforeNativeBoundary(t *testing.T) {
-	for _, args := range [][]string{{"-g"}, {"--resume", "test1", "-g"}, {"-g", "--", "literal"}} {
-		if _, _, err := LaunchPlan(args, nil, "/cwd", "/plugin", 1000); err == nil || err.Error() != "-g requires a group list" {
+	for _, args := range [][]string{{"-g"}, {"--group"}, {"--resume", "test1", "-g"}, {"-g", "--", "literal"}, {"--group", "--", "literal"}} {
+		if _, _, err := LaunchPlan(args, nil, "/cwd", "/plugin", 1000); err == nil || !strings.HasSuffix(err.Error(), " requires a group list") {
 			t.Fatalf("args=%q err=%v", args, err)
 		}
 	}

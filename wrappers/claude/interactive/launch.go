@@ -53,9 +53,9 @@ func LaunchPlan(args []string, env map[string]string, cwd, root string, uid int)
 		case "--":
 			native = append(native, args[i:]...)
 			i = len(args)
-		case "-g":
+		case "-g", "--group":
 			if i+1 == len(args) || args[i+1] == "--" {
-				return nil, nil, errors.New("-g requires a group list")
+				return nil, nil, fmt.Errorf("%s requires a group list", args[i])
 			}
 			i++
 			if args[i] != "" {
@@ -64,7 +64,13 @@ func LaunchPlan(args []string, env map[string]string, cwd, root string, uid int)
 		case "--yolo":
 			native = append(native, "--dangerously-skip-permissions")
 		default:
-			native = append(native, args[i])
+			if value, ok := strings.CutPrefix(args[i], "--group="); ok {
+				if value != "" {
+					groups = append(groups, strings.Split(value, ",")...)
+				}
+			} else {
+				native = append(native, args[i])
+			}
 		}
 	}
 	encoded, _ := json.Marshal(groups)
