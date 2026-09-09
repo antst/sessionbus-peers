@@ -72,6 +72,14 @@ a controller-only send or resident MCP event is insufficient.
   explicit validation failure, replacing the old kit's truncated success.
   These changes do not grant new native capabilities to another product.
 
+- `host/wake_test.go` checks Codex, Grok, Qwen and OpenCode through the actual
+  Worker: false capability in Hello and its wire frame; unsupported waking Open
+  refused before the controlled product Open; default stage reaches Open; a
+  deliberately misrouted Delivery seed receives rejection and an unavailable
+  record through actual ReportDelivery. Nil receivers for the production
+  Hello/Run methods ensure native state cannot be touched silently. Only
+  Open/Close are controlled, and no native executable is launched.
+
 Remaining acceptance: exact shared-wire review and final pin, paired permanent
 umka daemon/Claude replacement, independent policy combinations, actual parent
 notification/collection, collector replacement and normal-close/interactive
