@@ -65,3 +65,14 @@ func TestSessionbusNativeReportsAreExplicitAndHidden(t *testing.T) {
 		})
 	}
 }
+
+func TestSessionbusReportCannotShadowPublicTool(t *testing.T) {
+	for _, name := range []string{"", " ", "sessionbus"} {
+		called := false
+		var output bytes.Buffer
+		err := ServeSessionbus(&genericOwner{}, io.NopCloser(strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"sessionbus","arguments":{}}}`)), &output, ReportHandler{Name: name, Begin: func(json.RawMessage) (<-chan error, error) { called = true; return nil, nil }})
+		if err == nil || called || output.Len() != 0 {
+			t.Fatalf("name=%q err=%v called=%v output=%s", name, err, called, output.String())
+		}
+	}
+}

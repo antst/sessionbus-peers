@@ -11,7 +11,6 @@ import (
 	"testing"
 
 	"github.com/antst/sessionbus-peers/internal/testsocket"
-	"github.com/antst/sessionbus-peers/wrappers/codex"
 	"github.com/antst/sessionbus-peers/wrappers/grok"
 	"github.com/antst/sessionbus-peers/wrappers/opencode"
 	"github.com/antst/sessionbus-peers/wrappers/qwen"
@@ -38,7 +37,6 @@ func TestUnimplementedWakeRejectedBeforeProductWork(t *testing.T) {
 		name    string
 		product kit.WorkerCallbacks
 	}{
-		{"codex", (*codex.Wrapper)(nil)},
 		{"grok", (*grok.Wrapper)(nil)},
 		{"qwen", (*qwen.Wrapper)(nil)},
 		{"opencode", (*opencode.Wrapper)(nil)},

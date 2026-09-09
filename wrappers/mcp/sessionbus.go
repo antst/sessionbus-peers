@@ -9,6 +9,7 @@ import (
 	"errors"
 	"io"
 	"math"
+	"strings"
 	"sync"
 
 	kit "github.com/antst/sessionbus/bus/sdk/go"
@@ -66,6 +67,9 @@ func toolResult(value json.RawMessage, err error) any {
 // Serve keeps native reports, cancellation and EOF independent of pending public
 // calls. Only in-flight public request IDs are retained; results live in Caller.
 func ServeSessionbus(owner SessionbusOwner, input io.ReadCloser, output io.Writer, report ReportHandler) error {
+	if report.Begin != nil && (strings.TrimSpace(report.Name) == "" || report.Name == "sessionbus") {
+		return errors.New("hidden report name must be nonempty and distinct from sessionbus")
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	var state, writes sync.Mutex
@@ -161,6 +165,9 @@ func ServeSessionbus(owner SessionbusOwner, input io.ReadCloser, output io.Write
 				continue
 			}
 			respond(id, map[string]any{"protocolVersion": version, "capabilities": map[string]any{"tools": map[string]any{}}, "serverInfo": map[string]string{"name": "sessionbus", "version": "0.5.0"}})
+			if ready, ok := owner.(interface{ Initialized() }); ok && ctx.Err() == nil {
+				ready.Initialized()
+			}
 		case "ping":
 			respond(id, map[string]any{})
 		case "tools/list":
@@ -195,7 +202,10 @@ func ServeSessionbus(owner SessionbusOwner, input io.ReadCloser, output io.Write
 				go func() {
 					defer workers.Done()
 					defer abort()
-					value, err := CallTool(callCtx, owner, params["arguments"])
+					var value json.RawMessage
+					var err error
+					actionOwner := sessionbusCallOwner{SessionbusOwner: owner, meta: params["_meta"]}
+					value, err = CallTool(callCtx, actionOwner, params["arguments"])
 					state.Lock()
 					delete(pending, key)
 					state.Unlock()
@@ -216,4 +226,20 @@ func ServeSessionbus(owner SessionbusOwner, input io.ReadCloser, output io.Write
 	stop()
 	workers.Wait()
 	return nil
+}
+
+// Native metadata is dispatched per request, never stored as connection-global
+// identity: concurrent tool calls can belong to different native threads.
+type sessionbusCallOwner struct {
+	SessionbusOwner
+	meta json.RawMessage
+}
+
+func (o sessionbusCallOwner) Action(ctx context.Context, action string, args json.RawMessage) (json.RawMessage, error) {
+	if native, ok := o.SessionbusOwner.(interface {
+		ActionWithMeta(context.Context, string, json.RawMessage, json.RawMessage) (json.RawMessage, error)
+	}); ok {
+		return native.ActionWithMeta(ctx, action, args, o.meta)
+	}
+	return o.SessionbusOwner.Action(ctx, action, args)
 }

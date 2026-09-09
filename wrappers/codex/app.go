@@ -32,9 +32,20 @@ type streamTransport struct {
 	decoder *json.Decoder
 }
 
-func (s *streamTransport) Read(value any) error  { return s.decoder.Decode(value) }
-func (s *streamTransport) Write(value any) error { return json.NewEncoder(s.input).Encode(value) }
-func (s *streamTransport) Close() error          { return s.input.Close() }
+func (s *streamTransport) Read(value any) error { return s.decoder.Decode(value) }
+func (s *streamTransport) Write(value any) error {
+	body, err := json.Marshal(value)
+	if err != nil {
+		return err
+	}
+	body = append(body, '\n')
+	n, err := s.input.Write(body)
+	if err == nil && n != len(body) {
+		err = io.ErrShortWrite
+	}
+	return err
+}
+func (s *streamTransport) Close() error { return s.input.Close() }
 
 type appFrame struct {
 	ID     json.RawMessage `json:"id"`
@@ -44,23 +55,38 @@ type appFrame struct {
 	Error  *appError       `json:"error"`
 }
 
+type appPending struct {
+	reply   chan appReply
+	observe func(json.RawMessage) error
+}
+type appRequestHandler func(context.Context, string, json.RawMessage) (any, error)
+
 type appClient struct {
-	transport   appTransport
-	mu, writeMu sync.Mutex
-	next        int64
-	pending     map[int64]chan appReply
-	failed      error
-	done        chan struct{}
-	notify      func(string, json.RawMessage)
-	onFailure   func(error)
+	transport appTransport
+	mu        sync.Mutex
+	writeGate chan struct{}
+	next      int64
+	pending   map[int64]appPending
+	failed    error
+	done      chan struct{}
+	notify    func(string, json.RawMessage)
+	onFailure func(error)
+	context   context.Context
+	cancel    context.CancelFunc
+	request   appRequestHandler
 }
 
-func newAppClient(input io.WriteCloser, output io.ReadCloser, notify func(string, json.RawMessage), failure func(error)) *appClient {
-	return newTransportClient(&streamTransport{input: input, output: output, decoder: json.NewDecoder(output)}, notify, failure)
+func newAppClient(input io.WriteCloser, output io.ReadCloser, notify func(string, json.RawMessage), failure func(error), handler ...appRequestHandler) *appClient {
+	return newTransportClient(&streamTransport{input: input, output: output, decoder: json.NewDecoder(output)}, notify, failure, handler...)
 }
 
-func newTransportClient(transport appTransport, notify func(string, json.RawMessage), failure func(error)) *appClient {
-	c := &appClient{transport: transport, pending: map[int64]chan appReply{}, done: make(chan struct{}), notify: notify, onFailure: failure}
+func newTransportClient(transport appTransport, notify func(string, json.RawMessage), failure func(error), handler ...appRequestHandler) *appClient {
+	ctx, cancel := context.WithCancel(context.Background())
+	c := &appClient{transport: transport, pending: map[int64]appPending{}, done: make(chan struct{}), notify: notify, onFailure: failure, context: ctx, cancel: cancel, writeGate: make(chan struct{}, 1)}
+	c.writeGate <- struct{}{}
+	if len(handler) > 0 {
+		c.request = handler[0]
+	}
 	go c.read()
 	return c
 }
@@ -77,6 +103,12 @@ func (c *appClient) initialize(ctx context.Context, title string) error {
 }
 
 func (c *appClient) call(ctx context.Context, method string, params, result any) error {
+	return c.callObserved(ctx, method, params, result, nil)
+}
+
+// observe executes in native read order, before a later notification can change
+// admission classification. It must not perform I/O or wait for a public receipt.
+func (c *appClient) callObserved(ctx context.Context, method string, params, result any, observe func(json.RawMessage) error) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -88,27 +120,32 @@ func (c *appClient) call(ctx context.Context, method string, params, result any)
 	}
 	c.next++
 	id, reply := c.next, make(chan appReply, 1)
-	c.pending[id] = reply
+	c.pending[id] = appPending{reply: reply, observe: observe}
 	c.mu.Unlock()
-	if err := c.write(map[string]any{"jsonrpc": "2.0", "id": id, "method": method, "params": params}); err != nil {
+	if _, err := c.writeContext(ctx, map[string]any{"jsonrpc": "2.0", "id": id, "method": method, "params": params}); err != nil {
 		c.remove(id)
 		return err
 	}
+	var response appReply
 	select {
+	case response = <-reply:
 	case <-ctx.Done():
-		return ctx.Err()
-	case response := <-reply:
-		if response.err != nil {
-			return response.err
+		select {
+		case response = <-reply:
+		default:
+			return ctx.Err()
 		}
-		if result == nil || len(response.result) == 0 {
-			return nil
-		}
-		if err := json.Unmarshal(response.result, result); err != nil {
-			return fmt.Errorf("decode App Server %s result: %w", method, err)
-		}
+	}
+	if response.err != nil {
+		return response.err
+	}
+	if result == nil || len(response.result) == 0 {
 		return nil
 	}
+	if err := json.Unmarshal(response.result, result); err != nil {
+		return fmt.Errorf("decode App Server %s result: %w", method, err)
+	}
+	return nil
 }
 
 func (c *appClient) notifyMethod(method string, params any) error {
@@ -116,13 +153,70 @@ func (c *appClient) notifyMethod(method string, params any) error {
 }
 
 func (c *appClient) write(value any) error {
-	c.writeMu.Lock()
-	err := c.transport.Write(value)
-	c.writeMu.Unlock()
-	if err != nil {
-		c.fail(err)
-	}
+	_, err := c.writeContext(c.context, value)
 	return err
+}
+func (c *appClient) writeContext(ctx context.Context, value any) (bool, error) {
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	type written struct {
+		attempted bool
+		err       error
+	}
+	select {
+	case <-ctx.Done():
+		return false, ctx.Err()
+	case <-c.writeGate:
+	}
+	defer func() { c.writeGate <- struct{}{} }()
+	c.mu.Lock()
+	failed := c.failed
+	c.mu.Unlock()
+	if failed != nil {
+		return false, failed
+	}
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	done := make(chan written, 1)
+	go func() { done <- written{attempted: true, err: c.transport.Write(value)} }()
+	var result written
+	select {
+	case result = <-done:
+	case <-ctx.Done():
+		select {
+		case result = <-done:
+		default:
+			c.fail(ctx.Err())
+			result = <-done
+			result.err = ctx.Err()
+		}
+	}
+	if result.attempted && result.err != nil {
+		c.fail(result.err)
+	}
+	return result.attempted, result.err
+}
+func (c *appClient) serveRequest(frame appFrame) {
+	var value any
+	var err error
+	if c.request != nil {
+		value, err = c.request(c.context, frame.Method, frame.Params)
+	} else {
+		err = &appError{Code: -32601, Message: "unsupported client exchange: " + frame.Method}
+	}
+	response := map[string]any{"jsonrpc": "2.0", "id": frame.ID}
+	if err != nil {
+		var native *appError
+		if !errors.As(err, &native) {
+			native = &appError{Code: -32603, Message: err.Error()}
+		}
+		response["error"] = native
+	} else {
+		response["result"] = value
+	}
+	_ = c.write(response)
 }
 
 func (c *appClient) read() {
@@ -130,11 +224,11 @@ func (c *appClient) read() {
 	if stream, ok := c.transport.(*streamTransport); ok {
 		defer stream.output.Close()
 	}
-	for {
+	for !c.isFailed() {
 		var frame appFrame
 		if err := c.transport.Read(&frame); err != nil {
 			if errors.Is(err, io.EOF) {
-				err = errors.New("Codex App Server exited")
+				err = fmt.Errorf("Codex App Server exited: %w", io.EOF)
 			} else {
 				err = fmt.Errorf("malformed Codex App Server frame: %w", err)
 			}
@@ -143,7 +237,7 @@ func (c *appClient) read() {
 		}
 		if frame.Method != "" {
 			if len(frame.ID) != 0 {
-				go c.write(map[string]any{"jsonrpc": "2.0", "id": frame.ID, "error": appError{Code: -32601, Message: "headless Codex request is unsupported"}})
+				go c.serveRequest(frame)
 			} else if c.notify != nil {
 				c.notify(frame.Method, frame.Params)
 			}
@@ -162,14 +256,18 @@ func (c *appClient) read() {
 		reply := c.pending[id]
 		delete(c.pending, id)
 		c.mu.Unlock()
-		if reply == nil {
+		if reply.reply == nil {
 			c.fail(errors.New("Codex App Server returned an unknown response id"))
 			return
 		}
 		if frame.Error != nil {
-			reply <- appReply{err: frame.Error}
+			reply.reply <- appReply{err: frame.Error}
 		} else {
-			reply <- appReply{result: frame.Result}
+			var err error
+			if reply.observe != nil {
+				err = reply.observe(frame.Result)
+			}
+			reply.reply <- appReply{result: frame.Result, err: err}
 		}
 	}
 }
@@ -194,12 +292,16 @@ func (c *appClient) fail(err error) {
 	}
 	c.failed = err
 	pending := c.pending
-	c.pending = map[int64]chan appReply{}
+	c.pending = map[int64]appPending{}
 	c.mu.Unlock()
 	for _, reply := range pending {
-		reply <- appReply{err: err}
+		reply.reply <- appReply{err: err}
 	}
+	c.cancel()
 	_ = c.transport.Close()
+	if stream, ok := c.transport.(*streamTransport); ok {
+		_ = stream.output.Close()
+	}
 	if c.onFailure != nil {
 		c.onFailure(err)
 	}

@@ -4,12 +4,12 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 
 	"github.com/antst/sessionbus-peers/wrappers/codex"
@@ -28,6 +28,9 @@ func main() {
 }
 
 func run(ctx context.Context, arguments []string) error {
+	if filepath.Base(os.Args[0]) == "codex-peer-mcp" && os.Getenv(codex.EndpointEnv) != "" {
+		return codex.Forward(ctx, os.Getenv(codex.EndpointEnv), os.Stdin, os.Stdout)
+	}
 	if !host.LaneMode() {
 		if len(arguments) == 1 && arguments[0] == "mcp" {
 			return runMCP(ctx)
@@ -50,19 +53,15 @@ func run(ctx context.Context, arguments []string) error {
 	if len(arguments) != 0 {
 		return errors.New("lane mode accepts no arguments")
 	}
-	product := codex.New(os.Getenv(host.SocketEnv), host.LaunchTokenDigest(os.Getenv(host.TokenEnv)))
+	product := codex.New()
 	worker := sessionkit.NewWorker(product)
 	product.SetShutdown(worker.Shutdown)
-	product.SetCall(func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-		var result json.RawMessage
-		err := worker.Call(ctx, method, params, &result)
-		return result, err
-	})
+	product.SetCaller(worker.Caller())
 	return worker.Serve(ctx)
 }
 
 func runMCP(ctx context.Context) error {
-	if os.Getenv(mcp.LaneSocketEnv) != "" {
+	if os.Getenv(codex.EndpointEnv) != "" {
 		backend, err := mcp.NewLaneBackend()
 		if err != nil {
 			return err
