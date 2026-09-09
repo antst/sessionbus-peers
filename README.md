@@ -5,6 +5,51 @@ skills, installers, and product facts. The daemon and public SDKs live in
 [`antst/sessionbus`](https://github.com/antst/sessionbus); this repository uses
 the public Go SDK and the pinned public JavaScript kit.
 
+## Install a product from a binary release
+
+Install the [Sessionbus host](https://github.com/antst/sessionbus/tree/develop#install-binaries)
+and the native product first. Then run the command for each product you want:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/antst/sessionbus-peers/develop/scripts/install-claude.sh | sh
+curl -fsSL https://raw.githubusercontent.com/antst/sessionbus-peers/develop/scripts/install-codex.sh | sh
+curl -fsSL https://raw.githubusercontent.com/antst/sessionbus-peers/develop/scripts/install-grok.sh | sh
+curl -fsSL https://raw.githubusercontent.com/antst/sessionbus-peers/develop/scripts/install-qwen.sh | sh
+curl -fsSL https://raw.githubusercontent.com/antst/sessionbus-peers/develop/scripts/install-opencode.sh | sh
+```
+
+Each command installs only that peer and its plugin into your normal user
+installation under `~/.local`; it does not install the native vendor product,
+daemon or hub. Use your normal login shell with `~/.local/bin` on PATH. Linux
+and macOS, amd64 and arm64 archives are provided. No Go or npm is needed on the
+target. OpenCode's native JavaScript plugin additionally requires Node.js
+(recommended: Node 24 LTS, at least 24.15, or Node 26+); its
+locked production dependencies are bundled. The other installers use Go binaries
+and native plugin management commands. Grok/Qwen install their native plugin
+globally; Claude/Codex retain their documented managed-launch activation.
+
+Downloads are verified against `SHA256SUMS`. The default is the **development
+prerelease** published from tested builds of merged `develop` pushes. Pin an actual release tag by
+setting the variable on **sh**:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/antst/sessionbus-peers/develop/scripts/install-codex.sh | SESSIONBUS_VERSION=vX.Y.Z sh
+```
+
+Replace `vX.Y.Z` with a published [release](https://github.com/antst/sessionbus-peers/releases).
+`SESSIONBUS_DOWNLOAD_ROOT` optionally selects a mirror with the same files.
+Missing releases/checksum failures stop before installation. Inspect the
+downloaded shell script first if preferred. Rerun to update that product.
+Native login, permissions and history stay native. These installers package
+the current adapters; the per-product facts still define their accepted scope
+(including the retained Grok/Qwen/OpenCode limitations).
+
+Maintainers build Claude/Codex using `scripts/package-claude` and
+`scripts/package-codex`. For other products use
+`scripts/package-product PRODUCT OUTPUT_DIRECTORY`. The `Binary releases`
+workflow builds all five for four platforms, publishes development after its tests and builds pass, and publishes a stable release when a new `vX.Y.Z` tag is pushed. Release
+archives record their exact source in the accompanying `SOURCE.txt`.
+
 ## Install 0.5.0 from source
 
 Upgrading from Agent Sessions v0.3/v0.4 or development installations? Use the

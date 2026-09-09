@@ -7,6 +7,16 @@ acceptance ledger distinguishes those observations from controlled race tests.
 
 ## Install from an archive
 
+Install the binary and native plugin in one step:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/antst/sessionbus-peers/develop/scripts/install-codex.sh | sh
+```
+
+The default is the development prerelease. Set `SESSIONBUS_VERSION` on `sh`
+to select a published release tag. The installer verifies its archive checksum
+and uses the permanent native installation below.
+
 Codex and the Sessionbus service must already be available in the real login
 environment. Build an archive on a development host:
 

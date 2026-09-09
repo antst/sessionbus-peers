@@ -1,6 +1,7 @@
 #!/bin/sh
 # SPDX-License-Identifier: MIT
 set -eu
+command -v codex >/dev/null || { echo 'Install and sign in to native Codex first.' >&2; exit 1; }
 source_dir=$(CDPATH='' cd "$(dirname "$0")" && pwd -P)
 package="$HOME/.local/libexec/sessionbus/codex"
 marketplace="$HOME/.local/share/sessionbus/codex/marketplace"
@@ -20,3 +21,4 @@ mv "$marketplace_stage" "$marketplace"
 cp "$source_dir/README.md" "$source_dir/LICENSE" "$source_dir/THIRD-PARTY-NOTICES.txt" "$source_dir/uninstall" "$package/"
 "$package/bin/codex-peer-install" "$marketplace"
 printf 'Installed %s\n' "$HOME/.local/bin/codex-peer"
+case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) printf 'Add to your login profile: export PATH="$HOME/.local/bin:$PATH"\n';; esac
