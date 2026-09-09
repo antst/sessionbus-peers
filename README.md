@@ -7,7 +7,7 @@ the public Go SDK and the pinned public JavaScript kit.
 
 ## Install a product from a binary release
 
-Install the [Sessionbus host](https://github.com/antst/sessionbus#install-binaries)
+Install the [Sessionbus host](https://github.com/antst/sessionbus/tree/develop#install-binaries)
 and the native product first. Then run the command for each product you want:
 
 ```sh
@@ -29,7 +29,7 @@ and native plugin management commands. Grok/Qwen install their native plugin
 globally; Claude/Codex retain their documented managed-launch activation.
 
 Downloads are verified against `SHA256SUMS`. The default is the **development
-prerelease** published after green develop CI. Pin an actual release tag by
+prerelease** published from tested builds of merged `develop` pushes. Pin an actual release tag by
 setting the variable on **sh**:
 
 ```sh
@@ -47,8 +47,7 @@ the current adapters; the per-product facts still define their accepted scope
 Maintainers build Claude/Codex using `scripts/package-claude` and
 `scripts/package-codex`. For other products use
 `scripts/package-product PRODUCT OUTPUT_DIRECTORY`. The `Binary releases`
-workflow builds all five for four platforms, publishes development after green
-CI, and accepts an explicit new version tag for a stable release. Release
+workflow builds all five for four platforms, publishes development after its tests and builds pass, and accepts an explicit new version tag for a stable release. Release
 archives record their exact source in the accompanying `SOURCE.txt`.
 
 ## Install 0.5.0 from source
