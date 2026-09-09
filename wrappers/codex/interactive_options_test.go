@@ -37,3 +37,21 @@ func TestInteractiveRejectsCallerRemote(t *testing.T) {
 		}
 	}
 }
+
+func TestInteractiveInitialNameAndNativeDelimiter(t *testing.T) {
+	for _, args := range [][]string{{"resume", "-n", "title"}, {"--name=title", "fork"}, {"-ntitle"}, {"-n=title"}} {
+		options, err := parseInteractiveOptions(args)
+		if err != nil || options.name != "title" {
+			t.Fatalf("%v: %#v %v", args, options, err)
+		}
+	}
+	options, err := parseInteractiveOptions([]string{"--", "-n", "literal"})
+	if err != nil || options.name != "" || !reflect.DeepEqual(options.native, []string{"--", "-n", "literal"}) {
+		t.Fatal(options, err)
+	}
+	for _, args := range [][]string{{"-n"}, {"--name="}, {"-n", "--resume"}} {
+		if _, err := parseInteractiveOptions(args); err == nil {
+			t.Fatal(args)
+		}
+	}
+}

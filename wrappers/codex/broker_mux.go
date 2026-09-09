@@ -52,12 +52,16 @@ type brokerMux struct {
 	readyOnce                                 sync.Once
 	err                                       error
 	observe                                   func(string, json.RawMessage, json.RawMessage) error
+	selectThread                              func(string, json.RawMessage) error
 	done                                      chan struct{}
 }
 
-func newBrokerMux(ctx context.Context, native appTransport, observe func(string, json.RawMessage, json.RawMessage) error) *brokerMux {
+func newBrokerMux(ctx context.Context, native appTransport, observe func(string, json.RawMessage, json.RawMessage) error, selectThread ...func(string, json.RawMessage) error) *brokerMux {
 	ctx, cancel := context.WithCancel(ctx)
 	m := &brokerMux{ctx: ctx, cancel: cancel, native: native, byteLimit: 2 * brokerMessageLimit, calls: map[string]*brokerCall{}, tuiIDs: map[string]bool{}, servers: map[string]*brokerServerCall{}, nativeOut: make(chan brokerPacket, brokerRouteLimit), tuiOut: make(chan brokerPacket, brokerRouteLimit), ready: make(chan struct{}), observe: observe, done: make(chan struct{})}
+	if len(selectThread) > 0 {
+		m.selectThread = selectThread[0]
+	}
 	go func() { <-ctx.Done(); m.fail(ctx.Err()) }()
 	go m.writeNative()
 	go m.readNative()
@@ -344,22 +348,31 @@ func (m *brokerMux) fromNative(f brokerFrame) error {
 		m.initializeOK = !failed
 	}
 	m.mu.Unlock()
-	if _, failed := f["error"]; !failed && m.observe != nil {
-		if err := m.observe(c.method, nil, f["result"]); err != nil {
-			return err
-		}
-	}
-	if c.reply != nil {
-		r := appReply{result: f["result"]}
-		if raw, failed := f["error"]; failed {
-			var e appError
-			if json.Unmarshal(raw, &e) != nil {
-				return errors.New("invalid native error")
-			}
+	r := appReply{result: f["result"]}
+	if raw, failed := f["error"]; failed {
+		var e appError
+		if json.Unmarshal(raw, &e) != nil {
+			r.err = errors.New("invalid native error")
+		} else {
 			r.err = &e
 		}
-		c.reply <- r
+	}
+	if r.err == nil && m.observe != nil && (c.original != nil || c.reply != nil) {
+		r.err = m.observe(c.method, nil, f["result"])
+	}
+	if r.err == nil && c.original != nil && m.selectThread != nil {
+		r.err = m.selectThread(c.method, f["result"])
+	}
+	if c.original == nil {
+		if c.reply != nil {
+			c.reply <- r
+		}
 		return nil
+	}
+	if r.err != nil {
+		if _, nativeError := f["error"]; !nativeError {
+			return r.err
+		}
 	}
 	f["id"] = c.original
 	return m.enqueue(m.tuiOut, f)
@@ -403,18 +416,28 @@ func (m *brokerMux) call(ctx context.Context, method string, params, result any)
 		m.fail(err)
 		return err
 	}
+	var response appReply
 	select {
-	case <-m.ctx.Done():
-		return m.ctx.Err()
+	case response = <-reply:
 	case <-ctx.Done():
-		return ctx.Err() // Retain correlation for a late response; never replay.
-	case r := <-reply:
-		if r.err != nil {
-			return r.err
+		m.mu.Lock()
+		pending := m.calls["s:"+id]
+		if pending != nil {
+			pending.reply = nil
 		}
-		if result == nil {
-			return nil
+		m.mu.Unlock()
+		if pending != nil {
+			return ctx.Err()
 		}
-		return json.Unmarshal(r.result, result)
+		// The native reader or failure path already owns completion. Its result
+		// wins cancellation after admission; never submit a second native turn.
+		response = <-reply
 	}
+	if response.err != nil {
+		return response.err
+	}
+	if result == nil {
+		return nil
+	}
+	return json.Unmarshal(response.result, result)
 }

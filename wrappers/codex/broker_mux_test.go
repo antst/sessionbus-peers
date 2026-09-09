@@ -184,8 +184,12 @@ func TestBrokerMuxCancelledCallDrainsAndReaderProgresses(t *testing.T) {
 	if err := p.Write(brokerFrame{"id": call["id"], "result": brokerRaw(map[string]any{"turn": map[string]string{"id": "x"}})}); err != nil {
 		t.Fatal(err)
 	}
-	if <-observed != "turn/start" {
-		t.Fatal("late reply did not drain")
+	if err := p.Write(frame("thread/closed", nil, map[string]string{"threadId": "t"})); err != nil {
+		t.Fatal(err)
+	}
+	receiveTUI(t, m)
+	if <-observed != "thread/closed" {
+		t.Fatal("cancelled response observer ran or reader stalled")
 	}
 	m.mu.Lock()
 	remaining := len(m.calls)
@@ -274,5 +278,38 @@ func TestBrokerAggregateByteBudgetAndRelease(t *testing.T) {
 	m.release(len(next.body))
 	if m.buffered != 0 {
 		t.Fatal(m.buffered)
+	}
+}
+
+func TestBrokerMuxClaimedNativeAdmissionWinsCancellation(t *testing.T) {
+	entered, release := make(chan struct{}), make(chan struct{})
+	m, p := muxFixture(t, func(method string, _, _ json.RawMessage) error {
+		if method == "turn/start" {
+			close(entered)
+			<-release
+		}
+		return nil
+	})
+	initializeMux(t, m, p)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	called := make(chan error, 1)
+	go func() {
+		var result turnReply
+		err := m.call(ctx, "turn/start", map[string]string{"threadId": "t"}, &result)
+		if err == nil && result.Turn.ID != "admitted" {
+			err = errors.New("lost acknowledged turn")
+		}
+		called <- err
+	}()
+	request := receiveNative(t, p)
+	if err := p.Write(brokerFrame{"id": request["id"], "result": brokerRaw(map[string]any{"turn": map[string]string{"id": "admitted"}})}); err != nil {
+		t.Fatal(err)
+	}
+	<-entered
+	cancel()
+	close(release)
+	if err := <-called; err != nil {
+		t.Fatal(err)
 	}
 }

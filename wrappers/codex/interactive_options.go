@@ -9,6 +9,7 @@ import (
 
 type interactiveOptions struct {
 	native, config, groups []string
+	name                   string
 }
 
 // parseInteractiveOptions knows only wrapper flags and the explicitly selected
@@ -49,6 +50,22 @@ func parseInteractiveOptions(args []string) (interactiveOptions, error) {
 			addGroups(strings.TrimPrefix(arg, "--group="))
 		case strings.HasPrefix(arg, "-g") && len(arg) > 2:
 			addGroups(strings.TrimPrefix(strings.TrimPrefix(arg, "-g"), "="))
+		case arg == "-n" || arg == "--name":
+			if i+1 == len(args) || args[i+1] == "" || strings.HasPrefix(args[i+1], "-") {
+				return out, fmt.Errorf("%s requires a nonempty name", arg)
+			}
+			i++
+			out.name = args[i]
+		case strings.HasPrefix(arg, "--name="):
+			out.name = strings.TrimPrefix(arg, "--name=")
+			if out.name == "" {
+				return out, fmt.Errorf("--name requires a nonempty name")
+			}
+		case strings.HasPrefix(arg, "-n") && len(arg) > 2:
+			out.name = strings.TrimPrefix(strings.TrimPrefix(arg, "-n"), "=")
+			if out.name == "" {
+				return out, fmt.Errorf("-n requires a nonempty name")
+			}
 		case arg == "--resume":
 			out.native = append(out.native, "resume")
 		case strings.HasPrefix(arg, "--resume="):
@@ -60,8 +77,4 @@ func parseInteractiveOptions(args []string) (interactiveOptions, error) {
 		}
 	}
 	return out, nil
-}
-
-func managedCodexActivation() []string {
-	return []string{"-c", "features.plugins=true", "-c", `plugins."codex@sessionbus-peers".enabled=true`}
 }

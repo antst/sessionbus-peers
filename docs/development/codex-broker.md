@@ -16,8 +16,10 @@ is wired, before installed acceptance.
 Both request domains have 256 pending correlations. Internal cancellation leaves
 the correlation until response or transport close; no retries or replay. Native
 server request IDs are encoded into a separate TUI ID domain, including resolved
-notification references. A resolved request awaiting a late TUI response remains
-bounded by that same pending limit until its response or connection closure.
+notification references. Native resolution releases its live slot immediately; a late response in the
+valid mapped namespace is discarded without a tombstone. Native request IDs
+use the server-lifetime monotonic counter. This drain does not prove an ID
+was previously issued.
 Outbound queues also have a 256-frame bound. Queued and in-write serialized
 payloads plus retained original ID/key bytes share one 256 MiB byte budget
 across both directions; exhaustion closes the transport. Response correlations
@@ -38,9 +40,15 @@ transport equivalence. Explicit caller remote selection conflicts with managed
 broker ownership. Repeated group forms and --resume/--yolo aliases are wrapper
 syntax; native `--` stops wrapper interpretation.
 
-First checkpoint scope: mux, bounded stdio/WebSocket transport, OS parent watches,
-config parsing and controlled tests. Linux parent watch is exercised across an
+The launcher consumes initial `-n`/`--name` and names only the first correlated
+TUI selection through native name/set. The broker owns one Connection/Caller
+per native loaded thread; public MCP calls use native per-request metadata.
+Startup-ready plus the exact installed plugin tool catalog gates publication.
+A later native MCP failure withdraws tool/delivery admission; native thread/closed
+or server loss closes the row. Forwarder catalog EOF has no identity to withdraw.
+
+Current source checkpoint: mux, stdio/WebSocket transport, OS parent watches,
+launcher, resident owners, common metadata endpoint and controlled tests. Linux parent watch is exercised across an
 actual Go test helper exec and exit. Darwin is compile-checked here; its same
-controlled process test must execute on Darwin CI. This checkpoint does not yet
-wire the launcher/native process or resident bus owners and is not an installed
-compatibility claim.
+controlled process test must execute on Darwin CI. The common main still needs these entry functions wired by the package owner.
+This source checkpoint is not an installed compatibility claim.
