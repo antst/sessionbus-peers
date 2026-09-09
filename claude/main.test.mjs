@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, rmSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -33,7 +33,8 @@ test('socket resolution matches Go stateroot precedence and absolute cleaning', 
   }
 });
 test('real exec preserves PID, argv, cwd, stdin/stdout/stderr, exit and signal', async t => {
-  const dir = mkdtempSync(join(tmpdir(), 'claude-exec-')); t.after(() => rmSync(dir,{recursive:true,force:true}));
+  // Compare the physical test directory with native process.cwd(), even under an aliased tmpdir.
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'claude-exec-'))); t.after(() => rmSync(dir,{recursive:true,force:true}));
   const fixture = join(dir,'claude');
   writeFileSync(fixture, `#!${process.execPath}\nprocess.stdin.once('data', b => {
     process.stdout.write(JSON.stringify({pid:process.pid,cwd:process.cwd(),args:process.argv.slice(2),input:b.toString(),groups:process.env.SESSIONBUS_GROUPS}));

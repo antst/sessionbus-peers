@@ -13,7 +13,8 @@ const json = path => JSON.parse(readFileSync(path, 'utf8'));
 const qualified = 'mcp__plugin_sessionbus_sessionbus__sessionbus';
 
 for (const route of ['packed','folder']) test(`${route} npm install resolves only the active plugin from a root with spaces`, async t => {
-  const dir=mkdtempSync(join(tmpdir(),'claude package ')); t.after(()=>rmSync(dir,{recursive:true,force:true}));
+  // macOS tmpdir may be /var -> /private/var; npm --prefix needs the physical fixture path.
+  const dir=realpathSync(mkdtempSync(join(tmpdir(),'claude package '))); t.after(()=>rmSync(dir,{recursive:true,force:true}));
   const npm=(args,cwd=root)=>execFileSync('npm',args,{cwd,encoding:'utf8',stdio:['ignore','pipe','pipe']});
   assert.deepEqual(readdirSync(join(root,'skills')),['sessionbus']);
   const [pack]=JSON.parse(npm(['pack','--json','--pack-destination',dir]));

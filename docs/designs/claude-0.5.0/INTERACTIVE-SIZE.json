@@ -5,10 +5,10 @@
   "method": "Physical lines use bytes.splitlines; whole tracked repository and whole files, including unchanged guidance. Self-accounting file included in final totals, omitted from content digest. npm pack lists real tarball files; dependencies count installed production bytes separately. No native runtime acceptance.",
   "scope": "Interactive only; held Go lane and other products/dependencies remain. Runtime/test targets are review triggers, not total implementation size.",
   "generator": {
-    "path": "/home/antst/sessionbus-evidence/claude-interactive-offline-20260909/review-c01/size.py",
-    "sha256": "4697e749c6d10617ee9c4dbf730bb2daac211e707582fe37bd7cd29aeb3159e2",
-    "bytes": 6059,
-    "physical_lines": 28,
+    "path": "/home/antst/sessionbus-evidence/claude-macos-ci-20260909/size.py",
+    "sha256": "f0b624eabc58619c07a50e2d1dc56d82bf6f547bec4e9fdb661e85bdc22cb5d0",
+    "bytes": 6341,
+    "physical_lines": 30,
     "scope": "Offline accounting helper outside runtime/package; bytes and lines reported, no installation/helper process added"
   },
   "tools": {
@@ -46,13 +46,13 @@
   "after": {
     "repository": {
       "files": 146,
-      "bytes": 1057135,
-      "physical_lines": 20762
+      "bytes": 1057625,
+      "physical_lines": 20766
     },
     "claude_package": {
       "files": 19,
-      "bytes": 65815,
-      "physical_lines": 1095
+      "bytes": 66048,
+      "physical_lines": 1097
     },
     "package_categories": {
       "runtime": {
@@ -62,8 +62,8 @@
       },
       "tests": {
         "files": 6,
-        "bytes": 36281,
-        "physical_lines": 491
+        "bytes": 36514,
+        "physical_lines": 493
       },
       "manifests_and_lock": {
         "files": 5,
@@ -130,8 +130,8 @@
     },
     {
       "path": "claude/install.test.mjs",
-      "bytes": 5379,
-      "physical_lines": 68
+      "bytes": 5486,
+      "physical_lines": 69
     },
     {
       "path": "claude/main.mjs",
@@ -140,8 +140,8 @@
     },
     {
       "path": "claude/main.test.mjs",
-      "bytes": 3436,
-      "physical_lines": 51
+      "bytes": 3562,
+      "physical_lines": 52
     },
     {
       "path": "claude/mcp.mjs",
@@ -451,8 +451,8 @@
       "path": "claude/install.test.mjs",
       "before": null,
       "after": {
-        "bytes": 5379,
-        "physical_lines": 68
+        "bytes": 5486,
+        "physical_lines": 69
       }
     },
     {
@@ -467,8 +467,8 @@
       "path": "claude/main.test.mjs",
       "before": null,
       "after": {
-        "bytes": 3436,
-        "physical_lines": 51
+        "bytes": 3562,
+        "physical_lines": 52
       }
     },
     {
@@ -1020,7 +1020,7 @@
     "kit_binding": "KIT-BINDING.json",
     "scope": "Includes installed kit and npm metadata; no dependency removal credited. Shared Go SDK retained and excluded from Node dependency subtotal."
   },
-  "final_content_digest_excluding_this_file": "6655fb93b7e05dba38f6f1891ab20f1c02ff570117b40e2d5523c348dc906ceb",
+  "final_content_digest_excluding_this_file": "97d089335de039f14244f87de574fe0c2c80efec42cb51ff0bb57f526a42031b",
   "validation": {
     "claude_tests": 33,
     "opencode_tests": 31,
@@ -1030,7 +1030,8 @@
     "golangci_lint": "0 issues",
     "actionlint": "pass",
     "codex_installer_transaction": "pass",
-    "pack_install_remove": "Both packed and literal npm folder routes in temporary prefixes; exact active skill inventory, real bin/stdin entry, source retained on linked uninstall; no native Claude/daemon execution"
+    "pack_install_remove": "Both packed and literal npm folder routes in temporary prefixes; exact active skill inventory, real bin/stdin entry, source retained on linked uninstall; no native Claude/daemon execution",
+    "fixture_alias_regression": "Three failures reproduced under aliased TMPDIR before fix; all five affected tests and all33 full tests pass on Linux after test-only physical-root correction. macOS CI pending."
   },
   "moved_held_assets": {
     "scope": "Twelve assets moved byte-exact from claude/skills at356a134, not deletion savings; included in repository totals",
@@ -1096,5 +1097,6 @@
         "physical_lines": 55
       }
     ]
-  }
+  },
+  "fix_forward_base": "833885a427b5218831ea793de1b4415aa42c4735"
 }
