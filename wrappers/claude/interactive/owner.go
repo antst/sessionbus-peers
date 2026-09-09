@@ -66,25 +66,8 @@ func NewOwner(env map[string]string) (*Owner, error) {
 // runs separately; obsolete, unsubmitted generations return unavailable.
 // The submission mutex orders only actual transport initiation, never stdin.
 func (o *Owner) BeginReport(raw json.RawMessage) (<-chan error, error) {
-	var fields map[string]json.RawMessage
-	if json.Unmarshal(raw, &fields) != nil || fields == nil {
-		return nil, errors.New("unusable native identity report")
-	}
-	for _, key := range []string{"hook_event_name", "session_id", "session_title", "agent_id"} {
-		if value, present := fields[key]; present {
-			var text string
-			if string(value) == "null" || json.Unmarshal(value, &text) != nil {
-				return nil, errors.New("unusable native identity report")
-			}
-		}
-	}
-	var event struct {
-		Event string `json:"hook_event_name"`
-		ID    string `json:"session_id"`
-		Title string `json:"session_title"`
-		Agent string `json:"agent_id"`
-	}
-	if err := json.Unmarshal(raw, &event); err != nil || (event.Event != "UserPromptSubmit" && event.Event != "Stop" && event.Event != "SessionEnd") || missing(event.ID) || !missing(event.Agent) {
+	event, err := ParseNativeReport(raw)
+	if err != nil || (event.Event != "UserPromptSubmit" && event.Event != "Stop" && event.Event != "SessionEnd") {
 		return nil, errors.New("unusable native identity report")
 	}
 	o.mu.Lock()
@@ -319,3 +302,33 @@ func (o *Owner) handle(c *kit.Connection, r *kit.Request) {
 		}
 	}()
 }
+
+type NativeReport struct {
+	Event string `json:"hook_event_name"`
+	ID    string `json:"session_id"`
+	Title string `json:"session_title"`
+	Agent string `json:"agent_id"`
+}
+
+// ParseNativeReport preserves the native hook placeholder and field-type rules.
+func ParseNativeReport(raw json.RawMessage) (NativeReport, error) {
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(raw, &fields) != nil || fields == nil {
+		return NativeReport{}, errors.New("unusable native identity report")
+	}
+	for _, key := range []string{"hook_event_name", "session_id", "session_title", "agent_id"} {
+		if value, present := fields[key]; present {
+			var text string
+			if string(value) == "null" || json.Unmarshal(value, &text) != nil {
+				return NativeReport{}, errors.New("unusable native identity report")
+			}
+		}
+	}
+	var event NativeReport
+	if err := json.Unmarshal(raw, &event); err != nil || missing(event.ID) || !missing(event.Agent) {
+		return NativeReport{}, errors.New("unusable native identity report")
+	}
+	return event, nil
+}
+
+func MissingNativeField(value string) bool { return missing(value) }

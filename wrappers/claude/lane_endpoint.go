@@ -87,23 +87,35 @@ type laneBackend struct {
 type nativeReport struct {
 	Event   string          `json:"hook_event_name"`
 	ID      string          `json:"session_id"`
-	Title   *string         `json:"session_title"`
+	Title   *string         `json:"session_title,omitempty"`
 	Agent   json.RawMessage `json:"agent_id,omitempty"`
 	Emitter int             `json:"emitter_pid"`
 }
 
 func (b *laneBackend) BeginReport(raw json.RawMessage) (<-chan error, error) {
-	var report nativeReport
-	if err := json.Unmarshal(raw, &report); err != nil {
+	var kind struct {
+		Event string `json:"hook_event_name"`
+	}
+	_ = json.Unmarshal(raw, &kind)
+	if kind.Event == "SessionStart" {
+		b.mu.Lock()
+		b.initial = true
+		b.mu.Unlock()
+	}
+	report, err := interactive.ParseNativeReport(raw)
+	if err != nil {
+		return nil, err
+	}
+	var emitter struct {
+		PID int `json:"emitter_pid"`
+	}
+	if err := json.Unmarshal(raw, &emitter); err != nil {
 		return nil, err
 	}
 	if report.Event == "SessionStart" {
 		b.mu.Lock()
 		b.initial = true
 		b.mu.Unlock()
-	}
-	if report.ID == "" || len(report.Agent) > 0 {
-		return nil, errors.New("native root report required")
 	}
 	p := b.owner
 	if report.Event == "SessionStart" {
@@ -121,7 +133,7 @@ func (b *laneBackend) BeginReport(raw json.RawMessage) (<-chan error, error) {
 				result <- errors.New("lane closing")
 				return
 			}
-			if p.native == nil || report.Emitter != p.native.Process.Pid {
+			if p.native == nil || emitter.PID != p.native.Process.Pid {
 				result <- errors.New("foreign native report emitter")
 				return
 			}
@@ -131,8 +143,8 @@ func (b *laneBackend) BeginReport(raw json.RawMessage) (<-chan error, error) {
 				return
 			}
 			p.identity = report.ID
-			if report.Title != nil {
-				p.title = *report.Title
+			if !interactive.MissingNativeField(report.Title) {
+				p.title = report.Title
 			}
 			p.reportOnce.Do(func() { close(p.reportReady) })
 			result <- nil
@@ -147,8 +159,8 @@ func (b *laneBackend) BeginReport(raw json.RawMessage) (<-chan error, error) {
 		p.mu.Unlock()
 		return nil, errors.New("native report does not match this lane")
 	}
-	if report.Title != nil && *report.Title != "" {
-		p.title = *report.Title
+	if !interactive.MissingNativeField(report.Title) {
+		p.title = report.Title
 	}
 	ended := report.Event == "SessionEnd"
 	p.mu.Unlock()

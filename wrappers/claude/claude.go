@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -38,6 +37,7 @@ type Wrapper struct {
 	opened, closing bool
 	failure         error
 	shutdown        func()
+	activeDone      <-chan struct{}
 }
 
 func New(root string) *Wrapper {
@@ -46,7 +46,7 @@ func New(root string) *Wrapper {
 func (p *Wrapper) SetCaller(c *kit.Caller) { p.caller = c }
 func (p *Wrapper) SetShutdown(f func())    { p.shutdown = f }
 func (*Wrapper) Hello(context.Context) (kit.HelloDescription, error) {
-	return kit.HelloDescription{Product: Product, SupportedOpenFields: []string{"cwd", "permission_mode", "model", "reasoning_effort", "arguments"}}, nil
+	return kit.HelloDescription{Product: Product, ExtraArguments: []kit.ExtraArgument{}, SupportedOpenFields: []string{"cwd", "permission_mode", "model", "reasoning_effort", "arguments"}}, nil
 }
 func (p *Wrapper) Open(ctx context.Context, r kit.OpenRequest) (result kit.OpenResult, err error) {
 	p.mu.Lock()
@@ -132,12 +132,9 @@ func (p *Wrapper) Open(ctx context.Context, r kit.OpenRequest) (result kit.OpenR
 	processDone := p.processDone
 	p.mu.Unlock()
 	go func() {
-		e := child.Wait()
+		_ = child.Wait()
 		close(processDone)
-		if e == nil {
-			e = io.EOF
-		}
-		s.stop(e)
+		// The stream reader owns EOF. Wait must not discard buffered native output.
 	}()
 	init, err := s.control(nativeCtx, map[string]string{"subtype": "initialize"})
 	if err != nil {
@@ -172,17 +169,16 @@ func (p *Wrapper) Open(ctx context.Context, r kit.OpenRequest) (result kit.OpenR
 	if r.ResumeSessionID != "" && r.ResumeSessionID != p.identity {
 		return result, errors.New("native report did not confirm the requested resume identity")
 	}
+	if err := confirmTitle(r.Name, p.title); err != nil {
+		return result, err
+	}
 	p.opened = true
 	return kit.OpenResult{SessionID: p.identity}, nil
 }
 func launchArguments(r kit.OpenRequest, root, settings string) []string {
 	args := []string{"--allowedTools", interactive.PublicTool, "--plugin-dir", root, "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--replay-user-messages", "--settings", settings}
 	if r.Name != "" {
-		name := r.Name
-		if at := strings.LastIndexByte(name, '@'); at >= 0 {
-			name = name[:at]
-		}
-		args = append(args, "--name", name)
+		args = append(args, "--name", nativeName(r.Name))
 	}
 	if r.ResumeSessionID != "" {
 		args = append(args, "--resume", r.ResumeSessionID)
@@ -198,6 +194,18 @@ func launchArguments(r kit.OpenRequest, root, settings string) []string {
 	}
 	return append(args, r.Open.Arguments...)
 }
+func nativeName(name string) string {
+	if at := strings.LastIndexByte(name, '@'); at >= 0 {
+		return name[:at]
+	}
+	return name
+}
+func confirmTitle(requested, reported string) error {
+	if interactive.MissingNativeField(reported) || reported != nativeName(requested) {
+		return errors.New("integration open unavailable: native title did not confirm requested name")
+	}
+	return nil
+}
 func requiredTools(raw json.RawMessage) error {
 	var status struct {
 		Servers []struct {
@@ -212,7 +220,7 @@ func requiredTools(raw json.RawMessage) error {
 		return err
 	}
 	for _, server := range status.Servers {
-		if server.Name != "plugin_sessionbus_sessionbus" {
+		if server.Name != "plugin:sessionbus:sessionbus" {
 			continue
 		}
 		if server.Status != "connected" {
@@ -236,6 +244,9 @@ func (p *Wrapper) current() (*stream, string, error) {
 	return p.stream, p.identity, nil
 }
 func (p *Wrapper) Run(ctx context.Context, r *kit.Run, input string) (kit.TurnResult, error) {
+	p.mu.Lock()
+	p.activeDone = r.Done()
+	p.mu.Unlock()
 	s, id, err := p.current()
 	if err != nil {
 		return kit.TurnResult{}, err
@@ -266,16 +277,24 @@ func (p *Wrapper) Deliver(ctx context.Context, r kit.DeliveryRequest, _ *kit.Run
 }
 func (p *Wrapper) fail(err error) {
 	p.mu.Lock()
-	if p.failure == nil {
+	first := p.failure == nil
+	if first {
 		p.failure = err
 	}
-	cancel, shutdown, closing := p.cancel, p.shutdown, p.closing
+	cancel, shutdown, closing, opened, done := p.cancel, p.shutdown, p.closing, p.opened, p.activeDone
 	p.mu.Unlock()
 	if cancel != nil {
 		cancel()
 	}
-	if shutdown != nil && !closing {
-		shutdown()
+	if first && shutdown != nil && !closing && opened {
+		// Run.Done is the public kit's serialized-result boundary. Native EOF can
+		// settle the run but must not overtake its response on the bus.
+		go func() {
+			if done != nil {
+				<-done
+			}
+			shutdown()
+		}()
 	}
 }
 func (p *Wrapper) Close(context.Context, kit.SessionCloseRequest) error {

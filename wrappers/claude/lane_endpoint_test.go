@@ -55,6 +55,7 @@ func TestInitialReportBindsEmitterAndTransientClose(t *testing.T) {
 func TestEstablishedForwarderEOFEndsWorker(t *testing.T) {
 	p, e := endpointFixture(t)
 	ended := make(chan struct{}, 1)
+	p.opened = true
 	p.SetShutdown(func() { ended <- struct{}{} })
 	c, err := net.Dial("unix", e.path)
 	if err != nil {
@@ -80,6 +81,7 @@ func TestEstablishedForwarderEOFEndsWorker(t *testing.T) {
 func TestForwardUsesExistingMCPAndClosesOnStdioEOF(t *testing.T) {
 	p, e := endpointFixture(t)
 	ended := make(chan struct{}, 1)
+	p.opened = true
 	p.SetShutdown(func() { ended <- struct{}{} })
 	input, inputWriter := io.Pipe()
 	outputReader, output := io.Pipe()
@@ -122,6 +124,52 @@ func TestExplicitInteractiveLaunchDropsInheritedLaneEndpoint(t *testing.T) {
 	for _, value := range env {
 		if strings.HasPrefix(value, LaneEndpointEnv+"=") {
 			t.Fatal("child inherited parent forwarder")
+		}
+	}
+}
+
+func TestCommonHookPayloadUsesAcceptedPlaceholderRules(t *testing.T) {
+	p, e := endpointFixture(t)
+	if err := InitialReport(context.Background(), e.path, "12345", strings.NewReader(`{"hook_event_name":"SessionStart","session_id":"root-id","session_title":"settled title"}`)); err != nil {
+		t.Fatal(err)
+	}
+	hooks, err := os.ReadFile("../../claude/hooks/hooks.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var manifest struct {
+		Hooks map[string][]struct {
+			Hooks []struct {
+				Arguments json.RawMessage `json:"input"`
+			}
+		}
+	}
+	if err := json.Unmarshal(hooks, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(p.ctx)
+	defer cancel()
+	backend := &laneBackend{owner: p, ctx: ctx, cancel: cancel}
+	for _, event := range []string{"UserPromptSubmit", "Stop"} {
+		payload := string(manifest.Hooks[event][0].Hooks[0].Arguments)
+		payload = strings.ReplaceAll(payload, "${session_id}", "root-id")
+		payload = strings.ReplaceAll(payload, "${hook_event_name}", event)
+		for _, agent := range []string{"${agent_id}", ""} {
+			raw := strings.ReplaceAll(payload, "${agent_id}", agent)
+			if _, err := backend.BeginReport(json.RawMessage(raw)); err != nil {
+				t.Fatalf("%s: %v", raw, err)
+			}
+			p.mu.Lock()
+			title := p.title
+			p.mu.Unlock()
+			if title != "settled title" {
+				t.Fatalf("placeholder replaced title: %s", title)
+			}
+		}
+	}
+	for _, raw := range []string{`{"hook_event_name":"Stop","session_id":"root-id","agent_id":null}`, `{"hook_event_name":"Stop","session_id":"root-id","agent_id":"nested"}`} {
+		if _, err := backend.BeginReport(json.RawMessage(raw)); err == nil {
+			t.Fatal("invalid/nested report admitted")
 		}
 	}
 }
