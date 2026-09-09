@@ -2,6 +2,8 @@ github.com/antst/sessionbus/bus/sdk/go v0.1.0-pre.2.0.20260909151934-d11fa743369
 github.com/antst/sessionbus/bus/sdk/go v0.1.0-pre.2.0.20260909151934-d11fa7433694/go.mod h1:SujgzvvPHjgVO/vHIixeL9EbOS8NPs/zXJA5ISSFnqM=
 github.com/antst/sessionbus/bus/sdk/go v0.1.0-pre.2.0.20260909165236-f415cf720584 h1:cyld36ZUboWE47SZkOKpQpRGHleAsLszNPNillmRlI8=
 github.com/antst/sessionbus/bus/sdk/go v0.1.0-pre.2.0.20260909165236-f415cf720584/go.mod h1:SujgzvvPHjgVO/vHIixeL9EbOS8NPs/zXJA5ISSFnqM=
+github.com/coder/websocket v1.8.15 h1:6B2JPeOGlpff2Uz6vOEH1Vzpi0iUz20A+lPVhPHtNUA=
+github.com/coder/websocket v1.8.15/go.mod h1:NX3SzP+inril6yawo5CQXx8+fk145lPDC6pumgx0mVg=
 github.com/santhosh-tekuri/jsonschema/v5 v5.3.1 h1:lZUw3E0/J3roVtGQ+SCrUrg3ON6NgVqpn3+iol9aGu4=
 github.com/santhosh-tekuri/jsonschema/v5 v5.3.1/go.mod h1:uToXkOrWAZ6/Oc07xWQrPOhJotwFIyu2bBVN41fcDUY=
 golang.org/x/sys v0.30.0 h1:QjkSwP/36a20jFYWkSue1YwXzLmsV5Gfq7Eiy72C1uc=
