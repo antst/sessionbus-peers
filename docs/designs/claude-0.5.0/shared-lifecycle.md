@@ -39,13 +39,17 @@ only adopt the callback signature and retain explicit-text behavior.
 
 Public start/status/wait/ack references now contain `session_id` and `run_id`.
 Reads are non-consuming and independent of the originating Caller. Ack commits
-oldest-first consumption; a submitted successful ack retains its response even
+oldest-first consumption of `done` (after using its result) or `unavailable`
+(after recording/reporting its reason). Running records are not acknowledged;
+an RPC error is not a retained unavailable record. A submitted successful ack
+retains its response even
 after request cancellation. Cancellation drains the original wire correlation
 without invoking its abandoned observer/target. Worker loss/retirement invalidates
 unacknowledged output; no recovery journal is introduced.
 
 The generic installed skill/tool explains independent policy defaults and costs,
-completion pointers versus answers, explicit collection and acknowledgment. A
+completion pointers as ordinary lane-originated peer messages subject to the
+recipient's active/stage/run policy, explicit collection and acknowledgment. A
 real Claude parent receiving a completion pointer is a required installed row;
 a controller-only send or resident MCP event is insufficient.
 

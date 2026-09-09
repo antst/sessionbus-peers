@@ -102,7 +102,9 @@ The daemon launches this same binary as a token-selected lane worker. Use the
 public Sessionbus tool: `spawn` with `product: "claude-peer"`, `name` and `open`,
 then `run` or `start` with the returned `session_id` and `input`. `status`/`wait`
 read a started turn without consuming it; `ack` consumes the oldest terminal
-after the caller receives and uses it. References contain `session_id` and
+after the caller handles its state: use the result for `done`, or record/report
+the reason for `unavailable` (which has no result). Never acknowledge `running`
+or treat an RPC error as a retained record. References contain `session_id` and
 `run_id` and remain usable by another authorized collector while that worker
 lives. `interrupt` requests native interruption; `close`
 ends native stdin and waits for native exit after any active interruption.
@@ -132,8 +134,13 @@ Persistence may be promoted, not silently demoted.
 Parent-owned lanes notify their owner by default unless `notify:false` is set.
 Persistent lanes need an explicit `notify_target` (or a retained target on resume
 or promotion). The completion message contains a lane/run pointer and state,
-never the answer. Read with `status`/`wait`, then explicitly `ack` after receiving
-and using the result. Reads do not consume; acknowledgment is oldest-first.
+never the answer. It is an ordinary peer message under the lane's identity and
+follows the recipient's normal admission policy: active admission, idle staging
+under `stage`, or idle wake under `run`; interactive wake follows the native
+carrier. Delivery does not prove collection. Read with `status`/`wait`, then
+explicitly `ack` after using a `done` result or recording/reporting an
+`unavailable` reason. Both terminal states advance the cursor only on ack.
+Reads do not consume; acknowledgment is oldest-first.
 Closing, automatic close or worker/daemon loss invalidates unacknowledged output.
 There is no promise of answer recovery after retirement. Native saved history
 and the lane's resume recipe remain separate from that transient result cursor.

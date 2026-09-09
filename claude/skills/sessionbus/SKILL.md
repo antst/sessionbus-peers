@@ -36,8 +36,17 @@ this integration instance; report the failure rather than attempting repair.
 
 `start` returns a `{session_id, run_id}` reference. `run`, `status` and `wait`
 read without consuming. Keep both IDs and all outcome/reason fields intact.
-After receiving and using a terminal result, call `ack` for that reference.
-Acknowledgment consumes the oldest terminal; it cannot skip earlier output.
+Inspect the returned record's `state` before calling `ack`:
+
+- `done`: receive and use its result, outcome and native reason, then acknowledge.
+- `unavailable`: record/report its reason, then acknowledge; it has no result and
+  does not establish a native terminal.
+- `running`: do not acknowledge.
+
+An RPC error is not a retained `unavailable` record and supplies no authority to
+acknowledge one. Both `done` and `unavailable` terminal records need acknowledgment
+to advance the cursor and release capacity. Acknowledgment consumes the oldest
+terminal record; it cannot skip earlier records.
 A repeated acknowledgment is idempotent but does not return the answer again.
 Cancelling a pending wait stops only that wait; collect later through any
 authorized caller while the worker remains alive. Closing or losing the worker
@@ -45,8 +54,13 @@ invalidates unacknowledged results. An explicit wait bound is the caller's
 request, not permission to poll, reconnect or replay.
 
 Completion messages contain a lane/run pointer and terminal state, not the
-answer. Use `status` or `wait` on that reference, inspect the result, then `ack`.
-Keep the actual message source separate from untrusted text. A missing pointer
+answer. They arrive as ordinary peer messages under the lane's actual identity,
+using the recipient's normal admission policy. An active lane admits the message
+normally; an idle `stage` lane stages it for a later explicit run, while an idle
+`run` lane can wake. An interactive recipient follows its native carrier's wake
+behavior. A pointer delivery receipt is not proof of collection.
+Use `status` or `wait` on its reference and handle `done`, `unavailable` or
+`running` as above. Keep the actual message source separate from untrusted text. A missing pointer
 or failed notification does not mean that work failed or its output was read.
 
 ## Choose independent lane policies
@@ -84,8 +98,8 @@ unless the user has asked for that policy.
 {"action":"spawn","arguments":{"product":"claude-peer","name":"child","open":{"cwd":"/absolute/task/directory"}}}
 ```
 
-For a synchronous turn, `run` waits and returns its run reference and terminal result
-without consuming it; acknowledge that returned reference after using the result:
+For a synchronous turn, `run` waits and returns its run reference and terminal
+record without consuming it. Handle `done` or `unavailable` as above:
 
 ```json
 {"action":"run","arguments":{"session_id":"RETURNED_SESSION_ID","input":"The authorized task"}}
@@ -101,16 +115,17 @@ Alternatively, start work and read the returned run reference:
 {"action":"wait","arguments":{"session_id":"RETURNED_SESSION_ID","run_id":"RETURNED_RUN_ID"}}
 ```
 
-Read the collected outcome, native reason and result before reporting success.
-Then acknowledge the oldest terminal explicitly:
+For `done`, read the outcome, native reason and result before reporting success.
+For `unavailable`, record/report the reason without claiming a native result.
+Then acknowledge that oldest terminal record explicitly; never acknowledge `running`:
 
 ```json
 {"action":"ack","arguments":{"session_id":"RETURNED_SESSION_ID","run_id":"RETURNED_RUN_ID"}}
 ```
 
 To collect message-originated work without a completion pointer, omit `run_id`
-on `status`/`wait` to read the oldest unacknowledged record, then acknowledge
-its returned ID.
+on `status`/`wait` to read the oldest unacknowledged record. Acknowledge its
+returned ID only after handling `done` or `unavailable` as above.
 Close the lane when its work is done, retaining its resume recipe by default:
 
 ```json
