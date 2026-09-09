@@ -59,12 +59,8 @@ jobs:
         run: |
           go install "github.com/golangci/golangci-lint/v2/cmd/golangci-lint@${GOLANGCI_LINT_VERSION}"
           golangci-lint run ./...
-      - name: Claude interactive offline package
-        working-directory: claude
-        run: |
-          npm ci --ignore-scripts
-          npm test
-          npm pack --dry-run --json
+      - name: Claude Go archive
+        run: ./scripts/package-claude "${RUNNER_TEMP}/claude archive"
       - name: Codex installer transaction
         run: ./scripts/test-codex-mcp
       - name: OpenCode installer and plugin

@@ -8,11 +8,21 @@
 
 ## Current interactive candidate — 2026-09-09
 
-Implementation steps 1–6 are released by delivery-6edd9c4b9118c9fbef0bdb212d8012c4. The candidate is `@sessionbus/claude` 0.5.0-interactive.0, with the exact kit preview at signed 5f93fbb2532b0119edbd427aba21507989dddbfb (compatible daemon b1d7adbc922c24734abc729a49503eff4bcd3484). [Inventory](../designs/claude-0.5.0/INTERACTIVE-IMPLEMENTATION-INVENTORY.md) and [dependency binding](../designs/claude-0.5.0/KIT-BINDING.json) specify the changed implementation. Candidate native installation/FC01–FC08 have **not run**; lane L02/OB03 and lane implementation remain held. Offline tests are implementation checks, not native acceptance.
+The interactive candidate is now one Go binary plus native plugin assets; it
+preserves reviewed Node behavior at `9644348` and pins the public Go kit to
+merged `f8d409e98218`. The current installed artifact on umka is `a056303`,
+SHA256 `dc5d8b745a393e32721a5f2c14d59dc2c455f59419f34a88881657bb2083d805`.
+It requires no Node/npm integration runtime. The
+[Go migration](../designs/claude-0.5.0/GO-MIGRATION.md),
+[Go dependency binding](../designs/claude-0.5.0/GO-KIT-BINDING.json) and
+[installed ledger](../designs/claude-0.5.0/interactive-candidate.md) supersede the
+archived Node installation instructions. Actual installed interactive checks
+ran in the real umka environment; lane L02/OB03 and lane implementation remain
+unfinished. Offline fixtures establish implementation behavior separately.
 
 Current interactive publication follows the first usable native report, with no launch/prompt/turn deadline and no generated identity or name. A usable Stop can establish unnamed presence; a later title report supplies the name. Native rename refreshes at a subsequent report. `written` acknowledges only the local native-carrier write. Missing native EOF evidence stays a limitation; implementation stdio cleanup is tested separately. The older inherited lock, injected-on-write, option-parser and PID-lookup prescriptions below are historical; they are removed from this interactive implementation.
 
-All following raw paths resolve on umka-dev1 under `/home/antst/sessionbus-evidence/claude-phase-a-20260908`. The exact ledgers and source are retained at the stated full commits in the separate evidence branch and sealed bundles. Review reports reside under `/home/antst/claude-architecture-20260908/evidence/`. Product probes used the real login/home/config/service; this implementation has made no product or service change.
+The historical table below uses raw paths on umka-dev1 under `/home/antst/sessionbus-evidence/claude-phase-a-20260908`. The exact ledgers and source are retained at the stated full commits in the separate evidence branch and sealed bundles. Review reports reside under `/home/antst/claude-architecture-20260908/evidence/`. Historical product probes used the real login/home/config/service. The Go candidate was subsequently installed, removed and reinstalled as recorded below; the executor did not alter Claude credentials or restart the daemon.
 
 | Fact | Native version | Exact ledger commit / raw evidence and limit |
 |---|---|---|
@@ -24,6 +34,26 @@ All following raw paths resolve on umka-dev1 under `/home/antst/sessionbus-evide
 | Native updates can occur during a parent session | 2.1.265 root / 2.1.266 child | 4bf03abfa74620c0f8fd009287b5f134d0e2eb38, `FP05-PARTIAL-EVIDENCE.json`; evidence hash guard stopped before child initialize/user writes. Integration has no version guard, selection, pin or downgrade. |
 | Distinct nested peers share inherited explicit groups; same-ID resume supersedes old bus owner | 2.1.266 | d65ffaa21a05490ababc13da19c2b4d97c7d8ce5, `FP05-266-EVIDENCE.json`, `raw/fp05r266-roster-both-live`, `raw/fp05r266-observed-superseded`; three exact replies, three native exits0/reaped, nine identified PIDs absent. Old-owner exit cause unknown; cleanup-helper EOF was unpublished. No writer lock, merge, general lifecycle or lane claim. |
 | Zero-turn native named session not resumable in tested options | 2.1.263 | e5350e7af5b4e8181632ac1eb481c2d626c66135 and later B06/NP ledgers in evidence root; actual native missing-conversation diagnostics, not a universal storage claim. Complete a real turn before quitting a session intended for resume. |
+
+## Go installed observations — Claude 2.1.266
+
+Raw root on umka: `/home/antst/sessionbus-evidence/claude-go-fc-20260909/raw/`.
+Immutable row manifest hashes and counts are in
+[first-contact.json](../designs/claude-0.5.0/first-contact.json); detailed comparisons
+and limitations are in the [installed ledger](../designs/claude-0.5.0/interactive-candidate.md).
+
+| Observation | Raw row | Limit |
+|---|---|---|
+| Installed skill/public list reports actual name, native ID and explicit group | fresh | No sole permission-grant attribution or publication deadline. |
+| Native name resume selects original ID; rename becomes visible next prompt | resume | Older inherited transcript work distinguished by UUID. |
+| Idle and held-tool active messages return written and exact assistant markers | fresh, resume | Active consumption follows release; written is not native acknowledgment. |
+| Unnamed publication becomes named at next prompt on the same ID | unnamed | Projected name cannot distinguish omitted and empty wire fields; no Stop-bootstrap trace. |
+| Native fork produces new ID; same-ID resumer survives old quit; clear publishes another new ID at next prompt | fork, supersede | No explicit superseded wire trace, writer lock or history-merge claim. |
+| Killing the bound Go MCP removes roster while native remains alive | supersede | No End/EOF cause attribution; later native quit is separate cleanup. |
+| Plain Claude has no observed direct Go MCP or candidate row; native disallow omits public tool and no public call occurs | ordinary, denied | Not exhaustive skill inventory or explicit denial-frame proof. Ordinary observer remains zombie at its final checkpoint. |
+| Exact invalid option has identical native/wrapper stderr hash and exit1 | invalid | Exact tested option only; wider argv semantics covered by controlled exec tests. |
+| Real removal and reinstall restore exact payload; candidate remains installed | remove-reinstall | Only listed configuration/native/service hashes compared; no universal cache/history claim. |
+
 
 ## Historical split archive (unchanged citations)
 
@@ -59,6 +89,6 @@ All following raw paths resolve on umka-dev1 under `/home/antst/sessionbus-evide
 
 AP01 on Claude2.1.266/bus b1d7adb, signed evidence293ebf3 at `/home/antst/sessionbus-evidence/claude-phase-a-20260908/AP01-ledger.md`, observes native per-launch skill expansion, hidden identity reports, named/grouped hello and one public diagnostic list call. Exact native disallow omits the public tool from observed ToolSearch results; the handler is never called. Ordinary control supplies no fixture MCP/report/row, with incomplete skill-inventory coverage. The granting rule was not isolated; the diagnostic was read-only. No production-action approval follows.
 
-The stamped [activation amendment](../designs/claude-0.5.0/ACTIVATION-AMENDMENT.md) replaces global publication with npm-only per-launch whole-plugin loading. The launcher prefixes exact allow then plugin-dir before verbatim native argv; only its final group suffix is consumed. One public bin, native-root MCP path, three hidden hooks and the bundled skill are included. Production multi-action tool has no read-only annotation. Plain unconfigured nested Claude remains ordinary; earlier globally installed FP05 evidence does not prove inherited flags.
+The stamped [activation amendment](../designs/claude-0.5.0/ACTIVATION-AMENDMENT.md) historically selected npm-only per-launch whole-plugin loading. The Go migration preserves that native activation behavior and replaces npm with the bundled archive. The launcher prefixes exact allow then plugin-dir before verbatim native argv; only its final group suffix is consumed. One public bin, native-root MCP path, three hidden hooks and the bundled skill are included. Production multi-action tool has no read-only annotation. Plain unconfigured nested Claude remains ordinary; earlier globally installed FP05 evidence does not prove inherited flags.
 
-Offline package/transport tests establish implementation behavior only. Actual installed payload, exact production prefix, native permissions, FC01–FC08 and lane acceptance remain separately gated; no current production native run is claimed.
+Offline package/transport tests establish implementation behavior separately from the installed Go observations above. Native EOF remains a facts limit, and lane acceptance remains unfinished.

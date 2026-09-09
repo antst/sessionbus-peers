@@ -27,15 +27,15 @@ That command installs `codex-peer`, `grok-peer`, `qwen-peer` and
 `opencode-peer` in `~/.local/bin`. The retained Go Claude lane source is held
 and is not installed under the competing `claude-peer` name.
 
-Claude's interactive candidate is the separate `@sessionbus/claude` Node
-package in [`claude/`](claude/README.md), version 0.5.0-interactive.0. It owns
-`claude-peer`. Install from this checkout with `npm ci --prefix claude` then
-`npm install --global ./claude`; no native marketplace or plugin registration
-is required. Run `claude-peer` to load its bundled skill, hooks and tools for
-that session. Ordinary `claude` remains ordinary unless explicitly configured
-otherwise. Follow its README for use and `npm uninstall --global @sessionbus/claude`. This is an interactive-only
-implementation branch; installed first contact has not run and token mode is
-explicitly unavailable. Do not register it as the daemon's Claude lane command.
+Claude's interactive candidate is one Go binary with its bundled native plugin
+in [`claude/`](claude/README.md). Build its archive with `scripts/package-claude`
+and follow the literal permanent user installation in that README. No Node/npm
+runtime or global native plugin registration is required. `claude-peer` loads
+its skill, hooks and tools only for that launch; ordinary `claude` stays ordinary.
+This candidate remains interactive-only: token-selected Claude lane mode is
+explicitly unavailable until the held lane work is completed. The reviewed
+Node implementation and regressions remain a behavioral reference under
+`docs/designs/claude-0.5.0/node-reference`, outside the installed plugin.
 
 Codex's `scripts/codex-mcp` receives `$HOME/.local/bin/codex-peer` as its
 exact path; Grok's native entry defaults to `$HOME/.local/bin/grok-peer`;
@@ -87,7 +87,7 @@ Development checks also require Node.js 24 for the Node packages and
 ## Repository boundaries
 
 - `wrappers/host` and `wrappers/mcp` remain shared by the retained Go sources.
-- Claude interactive uses five Node modules and public Connection/Caller; it has no Go interactive backend.
+- Claude interactive uses one Go artifact, public Connection/Caller, native exec and a private MCP alias; no Node runtime.
 - `wrappers/<product>` and `cmd/<product>-peer` contain the Go adapters and
   commands.
 - `claude/`, `grok/`, `qwen/`, `opencode/`, and the retained plugin manifests

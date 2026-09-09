@@ -6,10 +6,11 @@ Check the actual candidate installation using the README and native diagnostics.
 Do not run an automatic repair, probe loop, login change, installer or service
 restart. No diagnostic command is embedded in this document.
 
-Confirm `claude-peer` resolves to the installed Go binary under
-`~/.local/libexec/sessionbus/claude`. Its adjacent plugin invokes
-`${CLAUDE_PLUGIN_ROOT}/bin/sessionbus-mcp`, a private alias to the same binary.
-No Node/npm runtime or global marketplace installation is needed. Inspect the current session's plugin/MCP
+Confirm the Node/npm executable paths and that Node supplies `process.execve`.
+Confirm `claude-peer` resolves to the intended `@sessionbus/claude` npm
+installation. The native per-launch plugin uses `node` and its own
+`${CLAUDE_PLUGIN_ROOT}/mcp.mjs`; there is no second public bin or required
+global marketplace installation. Inspect the current session's plugin/MCP
 status with Claude's native commands. Ordinary `claude` does not activate this
 package by installation alone; existing global plugins remain separate. Do not print configuration dumps,
 credentials or environment values.

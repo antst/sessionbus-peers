@@ -1,102 +1,110 @@
-# Claude interactive peer candidate
+# Claude peer — Go interactive candidate
 
-`@sessionbus/claude` 0.5.0-interactive.0 adds Sessionbus communication to an
-explicit `claude-peer` session. This is an interactive candidate; installed
-first-contact acceptance is pending. Token-selected Claude lane mode is
-unavailable. Do not register this package as the daemon's Claude lane command.
+`claude-peer` runs your installed Claude with Sessionbus communication. The
+integration is one Go binary and a small native plugin; it requires no Node or
+npm. Claude, its login, permissions, configuration and history remain native.
+Claude lane mode is still unavailable in this interactive candidate.
 
 ## Install
 
-Use Node.js >=24.0.0 with `process.execve`, npm, Claude installed on the login
-PATH with working native authentication, and a separately installed compatible
-Sessionbus user service. The service must support optional names and `written`
-receipts (bus b1d7adb or a compatible release). This package pins the reviewed
-public kit preview at `https://pkg.pr.new/@sessionbus/kit@fdff89c` in its lockfile.
-Go is not needed to install this Node package; the daemon is a separate install.
-
-From this candidate repository checkout:
+Use the archive for your operating system and architecture. Development builds
+are produced from the pinned repository with Go 1.24 or newer:
 
 ```sh
-npm ci --prefix claude
-npm install --global ./claude
+./scripts/package-claude "$PWD/dist"
 ```
 
-Put npm's global bin directory on the real login PATH. Keep the source checkout
-if npm links the local package to it; `npm ls --global @sessionbus/claude` shows
-the installed package. The only public bin is `claude-peer`. The launcher
-resolves its own package root and uses native `--plugin-dir` to load the
-manifests, hooks, skill and `node ${CLAUDE_PLUGIN_ROOT}/mcp.mjs` together.
-No native marketplace add or plugin install is part of this recipe.
+Cross-build on a development host with `GOOS=linux GOARCH=amd64`; the target host
+does not need Go. Transfer the resulting archive to the target host. From the
+directory containing `claude-peer-linux-amd64.tar.gz`, install in your normal
+login shell:
 
-Installing this package does not enable it globally in Claude. Run claude-peer to load its skill, hooks and communication tools for that session. Ordinary claude remains ordinary unless you explicitly configure a plugin yourself. Claude's own policy can deny a Sessionbus tool; the integration does not bypass it.
+```sh
+mkdir -p "$HOME/.local/libexec/sessionbus/claude" "$HOME/.local/bin"
+tar -xzf claude-peer-linux-amd64.tar.gz -C "$HOME/.local/libexec/sessionbus/claude"
+ln -sfn "$HOME/.local/libexec/sessionbus/claude/claude-peer" "$HOME/.local/bin/claude-peer"
+command -v claude-peer
+claude-peer --version
+```
 
-Preexisting globally enabled integrations are separate installations. This
-recipe does not disable them or claim to make their hooks inactive. Establish
-their exact ownership before any native migration/removal.
+Use the matching archive filename on macOS. `$HOME/.local/bin` must be on your
+normal login PATH; add it through your shell's normal startup configuration if
+needed, then open a new login shell. No names or groups are installed. The
+Sessionbus user service must already be installed and running through its own
+installation procedure.
 
-## Use and native permissions
+If replacing the earlier npm candidate, first run
+`npm uninstall --global @sessionbus/claude` using that installation's actual
+prefix, then install the archive above. npm is required only to remove that
+old npm installation, never by the Go candidate. If the old `claude-peer` is a
+regular Go binary rather than a symlink, move that exact file aside before the
+link command; do not remove unrelated binaries or packages. Reinstall by
+extracting the new archive into the same permanent directory and refreshing
+the same public symlink. Quit integrated sessions before replacing an executing
+binary. The package adds no service or global Claude plugin registration.
+
+The installed layout is:
+
+```text
+~/.local/bin/claude-peer -> ~/.local/libexec/sessionbus/claude/claude-peer
+~/.local/libexec/sessionbus/claude/claude-peer
+~/.local/libexec/sessionbus/claude/plugin/.mcp.json
+~/.local/libexec/sessionbus/claude/plugin/bin/sessionbus-mcp -> ../../claude-peer
+```
+
+The private alias invokes the same binary as the native MCP child. There is
+one compiled artifact, one public command and no Node/npm dependency.
+
+## Use
 
 ```sh
 claude-peer -n NAME -g GROUP
 claude-peer --resume NAME -g GROUP
 ```
 
-Only a final `-g VALUE` pair belongs to the launcher. Empty VALUE means no
-groups; otherwise commas separate values without trimming or deduplication.
-Without that suffix, this launch uses no explicit groups, even if a parent
-exported groups. Claude owns `-n`, resume matching, any picker, native errors,
-all other options and their ordering.
+Only a final `-g VALUE` pair belongs to the wrapper. Groups are comma-separated;
+no suffix means this launch's empty groups. Native arguments stay ordered and
+unchanged after the fixed activation prefix:
+`--allowedTools mcp__plugin_sessionbus_sessionbus__sessionbus --plugin-dir ROOT`.
+Native `-n`, resume, `--`, repeated flags and errors remain Claude's own.
 
-The launcher prefixes `--allowedTools mcp__plugin_sessionbus_sessionbus__sessionbus`
-and `--plugin-dir <absolute package root>` before those native arguments. This
-keeps activation before a caller's literal `--`; the fixed-arity plugin flag
-terminates the prefix's variadic allow flag. Explicit caller disallow and
-native policy still apply. No wildcard, bypass mode or permission configuration
-is added. The production tool includes mutations and is not marked read-only.
+Ordinary `claude` stays ordinary. The wrapper loads the whole plugin only for
+this launch. An unconfigured plain nested `claude` stays ordinary; use an
+explicit `claude-peer` invocation with its own `-g` for an integrated child.
+The one Sessionbus skill describes the actual public `sessionbus` tool. Native
+permissions can deny that tool; the allow rule does not bypass native policy.
 
-Use `/sessionbus:sessionbus` for the bundled skill and `/sessionbus:doctor` for
-manual diagnostic guidance. The public tool is
-`mcp__plugin_sessionbus_sessionbus__sessionbus`, accepting `{action, arguments}`.
-Its schema lists the public kit's actions, including list/send and supported
-daemon caller operations. The hidden native identity handler is not a public
-tool. A failed or denied call is reported without an alternative route.
+Presence starts only after a usable native report reaches the resident owner
+and the bus acknowledges it. There is no launch, first-prompt or first-turn
+deadline. A prompt entered during plugin startup may be reported at that
+turn's end or at a later prompt; missed reports are not replayed. A Stop report
+can publish an unnamed peer; a later title report supplies its name. Before
+publication, the session is absent and unaddressable. Rename is reflected at
+the next report that carries its title.
 
-A plain nested claude process does not receive the launcher's plugin flag and is not automatically a peer. Use claude-peer explicitly for a child that should participate, with that launch's groups. Sessionbus does not intercept or rewrite Bash commands.
-
-## Observable costs
-
-A Claude peer appears when its MCP owner receives a usable native session report. Until then it is absent from the roster and cannot receive peer messages. Plugin startup can miss a report; publication is not guaranteed at launch, at the first prompt or by the end of that turn. A peer can initially have no name. Native rename becomes visible at the next report that carries the title. A named session quit before any real turn is not resumable by Claude. Sessionbus does not create a turn or write history to make it resumable.
-
-A written delivery means the local write to Claude's native carrier completed. It does not promise retention, admission or consumption. Connection loss ends this integration instance; it does not restart it or terminate the interactive Claude process. Resuming the same native ID in another integration supersedes the old bus connection; Claude can also run external concurrent writers, which Sessionbus does not lock.
-
-Claude can update its installed executable while a session is running, so a parent and a subsequently launched child may run different versions. Sessionbus uses the installed product and does not pin or select a Claude version. The interactive candidate is not a completed Claude lane release.
-
-These costs are qualified by [native facts](../docs/products/claude.md): first
-report/startup and delivery on 2.1.265, zero-turn resume on 2.1.263, nested
-identities/supersession and per-launch activation on 2.1.266. The AP01 diagnostic
-proved one read-only list call under its tested configuration, not the sole
-granting permission rule or all production actions. FP05 nested evidence used
-a global fixture; it does not prove plugin flags are inherited. Final installed
-launcher ordering, production tool permissions and FC01–FC08 remain to be run.
+`written` means local native socket write completion only, not native admission
+or model consumption. A failure after possible submission remains uncertain.
+There are no retries, reconnects, queues, polling or alternative delivery paths.
+Unexpected bus loss ends this resident integration. Cancelled public waits
+leave their result handles collectible; cancellation does not interrupt a
+native turn or retract a message.
 
 ## Remove
 
+After quitting integrated sessions, remove the exact owned launcher symlink
+and package directory:
+
 ```sh
-npm uninstall --global @sessionbus/claude
+rm "$HOME/.local/bin/claude-peer"
+rm -r "$HOME/.local/libexec/sessionbus/claude"
 ```
 
-The per-launch plugin directory is not registered with Claude, so no native
-plugin uninstall applies to this recipe. Preserve ordinary Claude, its history
-and configuration, other plugins and the Sessionbus service. Account separately
-for any preexisting global integration and any native cache/data left behind;
-this command is not a general configuration rollback. An already running native
-session has its own lifetime; package removal is not a process-kill operation.
+Check that these paths still name this installation before removing them.
+Keep ordinary Claude, its history/configuration, other plugins and the
+Sessionbus service. The integration creates no separate persistent data store.
 
-## Development
-
-Run `npm ci --prefix claude`, `npm test --prefix claude`, `npm pack ./claude`,
-and the repository Go checks. The package tests use local controlled transports
-and a tiny executable fixture, not a real Claude or daemon. Five runtime modules
-own launch, stdio dispatch, presence, native delivery and tool forwarding. Legacy lane guidance is retained outside the activated plugin at
-`docs/designs/claude-0.5.0/held-lane-skills/`; it is not candidate runtime
-acceptance or permission to use an old Go bridge.
+The reviewed Node implementation at `9644348`, including C01–C03 regressions,
+is retained under `docs/designs/claude-0.5.0/node-reference` as a behavioral
+reference. It is not included in this installed archive. Existing native facts
+remain version-qualified evidence; the Go translation requires its own actual
+installed acceptance. Source tests alone do not establish that acceptance.

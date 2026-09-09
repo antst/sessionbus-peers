@@ -1,0 +1,22 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+set -eu
+
+# Build an archive, not an installer. The README installs these exact assets.
+output=${1:?usage: scripts/package-claude OUTPUT_DIRECTORY}
+mkdir -p "$output"
+output=$(cd "$output" && pwd -P)
+repo=$(CDPATH='' cd "$(dirname "$0")/.." && pwd -P)
+stage=$(mktemp -d)
+trap 'rm -rf "$stage"' EXIT HUP INT TERM
+cd "$repo"
+goos=${GOOS:-$(go env GOOS)}
+goarch=${GOARCH:-$(go env GOARCH)}
+GOOS="$goos" GOARCH="$goarch" CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o "$stage/claude-peer" ./cmd/claude-peer
+mkdir -p "$stage/plugin/bin"
+cp -R claude/.claude-plugin claude/.mcp.json claude/hooks claude/skills claude/commands "$stage/plugin/"
+ln -s ../../claude-peer "$stage/plugin/bin/sessionbus-mcp"
+cp LICENSE claude/README.md "$stage/"
+archive="$output/claude-peer-$goos-$goarch.tar.gz"
+tar -czf "$archive" -C "$stage" claude-peer plugin LICENSE README.md
+printf '%s\n' "$archive"

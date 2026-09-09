@@ -1,0 +1,88 @@
+{
+  "scope": "Go interactive installed checklist; scoped observations and limits in interactive-candidate.md; no lane acceptance",
+  "installed_commit": "a0563035c0255c4d2fa6c3562e7a28c2506d1e5b",
+  "reviewed_code_and_ci_head": "d4366646f5f465c5a3f8fe4121978ceacbe3921a",
+  "native_version": "2.1.266",
+  "rows": [
+    {
+      "row": "after-quit-rejection",
+      "host": "umka-dev1",
+      "path": "/home/antst/sessionbus-evidence/claude-go-fc-20260909/raw/after-quit-rejection",
+      "manifest": "FINAL-SHA256SUMS",
+      "entries": 2,
+      "sha256": "34a64198bfd02344fc3fe5ec8e38caedc0e3e43c0e5f5bfa32752ca7c6dae5ff"
+    },
+    {
+      "row": "denied",
+      "host": "umka-dev1",
+      "path": "/home/antst/sessionbus-evidence/claude-go-fc-20260909/raw/denied",
+      "manifest": "FINAL-SHA256SUMS",
+      "entries": 54,
+      "sha256": "564db67a4694f3637c282d68119f141c58197ff0946548b6a0b99132671ebc89"
+    },
+    {
+      "row": "fork",
+      "host": "umka-dev1",
+      "path": "/home/antst/sessionbus-evidence/claude-go-fc-20260909/raw/fork",
+      "manifest": "FINAL-SHA256SUMS",
+      "entries": 48,
+      "sha256": "3195b2ac172d21808878bbb9604e62c1b413becb5b92328364b5c0dce716f75c"
+    },
+    {
+      "row": "fresh",
+      "host": "umka-dev1",
+      "path": "/home/antst/sessionbus-evidence/claude-go-fc-20260909/raw/fresh",
+      "manifest": "FINAL-SHA256SUMS",
+      "entries": 37,
+      "sha256": "ff96df64d76a47eb480735df4b79e1e8310a984353f41def6343e420b601440a"
+    },
+    {
+      "row": "invalid",
+      "host": "umka-dev1",
+      "path": "/home/antst/sessionbus-evidence/claude-go-fc-20260909/raw/invalid",
+      "manifest": "FINAL-SHA256SUMS",
+      "entries": 2,
+      "sha256": "e5c8b6955eb7615cb427bfe50da042333ce2c8f0e78144fd022e998c95def595"
+    },
+    {
+      "row": "ordinary",
+      "host": "umka-dev1",
+      "path": "/home/antst/sessionbus-evidence/claude-go-fc-20260909/raw/ordinary",
+      "manifest": "FINAL-SHA256SUMS",
+      "entries": 42,
+      "sha256": "03413b8f32925db29e4af183efb31ced86077986d94c8bcf2ee09d771254272f"
+    },
+    {
+      "row": "remove-reinstall",
+      "host": "umka-dev1",
+      "path": "/home/antst/sessionbus-evidence/claude-go-fc-20260909/raw/remove-reinstall",
+      "manifest": "FINAL-SHA256SUMS",
+      "entries": 7,
+      "sha256": "be758f75e3098502d91faa89ec858fd478cbce9e375193b5c0e1c9aa8ffdf294"
+    },
+    {
+      "row": "resume",
+      "host": "umka-dev1",
+      "path": "/home/antst/sessionbus-evidence/claude-go-fc-20260909/raw/resume",
+      "manifest": "FINAL-SHA256SUMS",
+      "entries": 51,
+      "sha256": "b0e274fa9d9165485283d747aea6ae0e47a3215ca3e9572cac2f04b0be843d2b"
+    },
+    {
+      "row": "supersede",
+      "host": "umka-dev1",
+      "path": "/home/antst/sessionbus-evidence/claude-go-fc-20260909/raw/supersede",
+      "manifest": "FINAL-SHA256SUMS",
+      "entries": 77,
+      "sha256": "149e55bf7f529df57d7074581c57cf2331eafe3423b863128e526d59d9d04bc3"
+    },
+    {
+      "row": "unnamed",
+      "host": "umka-dev1",
+      "path": "/home/antst/sessionbus-evidence/claude-go-fc-20260909/raw/unnamed",
+      "manifest": "FINAL-SHA256SUMS",
+      "entries": 64,
+      "sha256": "2fe1868864813deadaadba9c00ea595cd6269e5a7b724b66ea1e07c0f7bbd391"
+    }
+  ]
+}
