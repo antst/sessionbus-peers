@@ -15,7 +15,9 @@ this migration does not reset discovery or claim unfinished lane acceptance.
 | delivery.mjs | wrappers/claude/interactive/delivery.go |
 | npm payload | scripts/package-claude + claude native assets + literal README archive recipe |
 
-The shared Go kit is pinned to `fc18c7e4a54efaf8869dda2e7c058ba372b2bb8f`.
+The shared Go kit is pinned to merge `f8d409e98218` (module revision
+`v0.1.0-pre.2.0.20260909061716-f8d409e98218`), with the reviewed contents of
+`fc18c7e4a54efaf8869dda2e7c058ba372b2bb8f`.
 Its public Connection/Request/NewConnection exposes the existing validated
 RPC, including acknowledgment-before-next-frame ordering. Caller.Action uses
 the reviewed WaitContext cancellation; the adapter has no result cache or

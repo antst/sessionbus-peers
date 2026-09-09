@@ -118,7 +118,7 @@ func Serve(owner MCPOwner, input io.ReadCloser, output io.Writer) error {
 		id, hasID := frame["id"]
 		key, validID := requestID(id)
 		var version, method string
-		if json.Unmarshal(frame["jsonrpc"], &version) != nil || version != "2.0" || json.Unmarshal(frame["method"], &method) != nil || hasID && !validID {
+		if json.Unmarshal(frame["jsonrpc"], &version) != nil || version != "2.0" || json.Unmarshal(frame["method"], &method) != nil || string(frame["method"]) == "null" || hasID && !validID {
 			if !validID {
 				id = nil
 			}
@@ -127,7 +127,7 @@ func Serve(owner MCPOwner, input io.ReadCloser, output io.Writer) error {
 		}
 		var params map[string]json.RawMessage
 		p := frame["params"]
-		if p == nil {
+		if p == nil || string(p) == "null" {
 			p = json.RawMessage(`{}`)
 		}
 		paramsErr := json.Unmarshal(p, &params)
