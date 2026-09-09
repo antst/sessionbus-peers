@@ -47,7 +47,7 @@ the current adapters; the per-product facts still define their accepted scope
 Maintainers build Claude/Codex using `scripts/package-claude` and
 `scripts/package-codex`. For other products use
 `scripts/package-product PRODUCT OUTPUT_DIRECTORY`. The `Binary releases`
-workflow builds all five for four platforms, publishes development after its tests and builds pass, and accepts an explicit new version tag for a stable release. Release
+workflow builds all five for four platforms, publishes development after its tests and builds pass, and publishes a stable release when a new `vX.Y.Z` tag is pushed. Release
 archives record their exact source in the accompanying `SOURCE.txt`.
 
 ## Install 0.5.0 from source

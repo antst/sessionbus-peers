@@ -15,7 +15,7 @@ install -m 755 "$src/claude-peer" "$root/claude-peer.new"
 mv -f "$root/claude-peer.new" "$root/claude-peer"
 rm -rf "$root/plugin"
 mv "$stage" "$root/plugin"
-cp "$src/LICENSE" "$src/README.md" "$root/"
+cp "$src/LICENSE" "$src/THIRD-PARTY-NOTICES.txt" "$src/README.md" "$root/"
 ln -sfn "$root/claude-peer" "$HOME/.local/bin/claude-peer"
 "$HOME/.local/bin/claude-peer" --version
 printf 'Installed %s. Ordinary claude remains ordinary.\n' "$HOME/.local/bin/claude-peer"

@@ -17,7 +17,7 @@ install -m 755 "$src/$product-peer" "$root/$product-peer.new"
 mv -f "$root/$product-peer.new" "$root/$product-peer"
 rm -rf "$root/plugin"
 mv "$stage" "$root/plugin"
-cp "$src/LICENSE" "$src/README.md" "$root/"
+cp "$src/LICENSE" "$src/THIRD-PARTY-NOTICES.txt" "$src/README.md" "$root/"
 ln -sfn "$root/$product-peer" "$HOME/.local/bin/$product-peer"
 export PATH="$HOME/.local/bin:$PATH"
 case "$product" in
