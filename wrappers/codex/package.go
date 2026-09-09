@@ -17,8 +17,10 @@ const MCPAlias = "codex-peer-mcp"
 const BrokerAlias = "codex-peer-broker"
 const InstallAlias = "codex-peer-install"
 
+// Native CLI override paths split on dots and do not unquote segments.
+// This spelling differs from the quote-aware config/value/write API.
 func ActivationArguments() []string {
-	return []string{"-c", "features.plugins=true", "-c", `plugins."codex@sessionbus-peers".enabled=true`}
+	return []string{"-c", "features.plugins=true", "-c", `plugins.codex@sessionbus-peers.enabled=true`}
 }
 func packageRoot() (string, error) {
 	binary, err := os.Executable()

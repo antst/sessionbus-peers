@@ -156,9 +156,9 @@ func TestPackageRegistersAbsoluteAliasAndReturnedNativePath(t *testing.T) {
 	}
 }
 func TestActivationPrefixPreservesCallerOverride(t *testing.T) {
-	native := []string{"-c", `plugins."codex@sessionbus-peers".enabled=false`, "--", "operand"}
+	native := []string{"-c", `plugins.codex@sessionbus-peers.enabled=false`, "--", "operand"}
 	actual := append(ActivationArguments(), native...)
-	want := []string{"-c", "features.plugins=true", "-c", `plugins."codex@sessionbus-peers".enabled=true`, "-c", `plugins."codex@sessionbus-peers".enabled=false`, "--", "operand"}
+	want := []string{"-c", "features.plugins=true", "-c", `plugins.codex@sessionbus-peers.enabled=true`, "-c", `plugins.codex@sessionbus-peers.enabled=false`, "--", "operand"}
 	if !reflect.DeepEqual(actual, want) {
 		t.Fatal(actual)
 	}

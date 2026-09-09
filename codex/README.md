@@ -54,8 +54,11 @@ The rendered MCP manifest uses the absolute private binary path and explicitly
 passes only the launch metadata it needs through native `env_vars`.
 
 Plain `codex` uses ordinary native configuration with this plugin disabled.
-A managed launch prefixes native configuration overrides enabling the plugin,
-then keeps the caller's native arguments in order. Caller overrides retain native
+A managed launch prefixes `-c features.plugins=true` and
+`-c plugins.codex@sessionbus-peers.enabled=true` to enable the plugin. CLI keys
+split on dots without unquoting segments; the quotes used by the separate
+config-write API must not be embedded in this CLI key. The launcher
+keeps the caller's native arguments in order. Caller overrides retain native
 precedence; disabling the required tool can make lane Open unavailable.
 There is one generic `sessionbus` skill and public tool, shared across products.
 
