@@ -63,7 +63,7 @@ func TestCodexArchiveContainsOneArtifactAndOneGenericSkill(t *testing.T) {
 		}
 	}
 	sort.Strings(regular)
-	want := []string{"LICENSE", "README.md", "bin/codex-peer", "install", "marketplace/.agents/plugins/marketplace.json", "marketplace/codex/.codex-plugin/plugin.json", "marketplace/codex/.mcp.json", "marketplace/codex/skills/sessionbus/SKILL.md", "uninstall"}
+	want := []string{"LICENSE", "THIRD-PARTY-NOTICES.txt", "README.md", "bin/codex-peer", "install", "marketplace/.agents/plugins/marketplace.json", "marketplace/codex/.codex-plugin/plugin.json", "marketplace/codex/.mcp.json", "marketplace/codex/skills/sessionbus/SKILL.md", "uninstall"}
 	sort.Strings(want)
 	if !reflect.DeepEqual(regular, want) {
 		t.Fatalf("regular payload=%q", regular)
@@ -94,7 +94,7 @@ func main(){if filepath.Base(os.Args[0])!="codex-peer-install"||len(os.Args)!=2{
 	if raw, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("stand-in: %v %s", err, raw)
 	}
-	for _, name := range []string{"install", "uninstall", "README.md"} {
+	for _, name := range []string{"install", "uninstall", "README.md", "THIRD-PARTY-NOTICES.txt"} {
 		body, err := os.ReadFile(filepath.Join("..", "..", "codex", name))
 		if err != nil {
 			t.Fatal(err)

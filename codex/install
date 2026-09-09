@@ -17,6 +17,6 @@ done
 ln -sfn "$package/bin/codex-peer" "$HOME/.local/bin/codex-peer"
 rm -rf "$marketplace"
 mv "$marketplace_stage" "$marketplace"
-cp "$source_dir/README.md" "$source_dir/LICENSE" "$source_dir/uninstall" "$package/"
+cp "$source_dir/README.md" "$source_dir/LICENSE" "$source_dir/THIRD-PARTY-NOTICES.txt" "$source_dir/uninstall" "$package/"
 "$package/bin/codex-peer-install" "$marketplace"
 printf 'Installed %s\n' "$HOME/.local/bin/codex-peer"

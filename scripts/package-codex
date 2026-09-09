@@ -20,7 +20,7 @@ revision=$(git rev-parse --short=12 HEAD)
 manifest="$stage/marketplace/codex/.codex-plugin/plugin.json"
 sed "s/0.5.0-codex.0/0.5.0-codex.g$revision/" "$manifest" > "$manifest.new"
 mv "$manifest.new" "$manifest"
-cp LICENSE codex/README.md codex/install codex/uninstall "$stage/"
+cp codex/THIRD-PARTY-NOTICES.txt LICENSE codex/README.md codex/install codex/uninstall "$stage/"
 archive="$output/codex-peer-$goos-$goarch.tar.gz"
-tar -czf "$archive" -C "$stage" bin marketplace LICENSE README.md install uninstall
+tar -czf "$archive" -C "$stage" bin marketplace LICENSE THIRD-PARTY-NOTICES.txt README.md install uninstall
 printf '%s\n' "$archive"

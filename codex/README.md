@@ -2,8 +2,8 @@
 
 This Go candidate gives a Codex lane one native App Server session and one
 Sessionbus worker. The common package also supplies the private MCP entry point
-used by the interactive broker. Interactive broker integration and installed
-Codex acceptance are still being completed at this checkpoint.
+used by the interactive broker. Both entries are wired into this same executable;
+installed interactive acceptance is still being completed at this checkpoint.
 
 ## Install from an archive
 
@@ -89,6 +89,52 @@ policy. A headless lane has no human approval recipient; unsupported native
 approval requests fail truthfully. Normal close ends stdin, drains native output
 and waits for the direct native process. Hard failure uses forced cleanup; this
 does not promise containment of arbitrary native tool descendants.
+
+`never` prevents approval prompts; it does not grant MCP tool access. On the
+installed candidate, an inherited-policy call was rejected, and a call with
+`permission_mode:"never"` reported that the tool still required approval.
+A caller can explicitly grant the generic Sessionbus tool through native open
+arguments, without changing the installation or activation defaults:
+
+```json
+{"permission_mode":"never","arguments":["-c","plugins.codex@sessionbus-peers.mcp_servers.sessionbus.tools.sessionbus.approval_mode=\"approve\""]}
+```
+
+This grants that tool's actions, not only its read-only `list` action. Use it
+only when that access is intended. The installed acceptance exercised `list`;
+the grant is a native policy choice, not an approval added by the adapter.
+
+## Interactive launch
+
+```sh
+codex-peer --group team -n review
+codex-peer --resume "native session selector" -g team --group review
+```
+
+Repeated `-g`/`--group` values accumulate before native `--`, wherever supplied.
+`--group=value` and comma-separated values are supported. `-n`/`--name` names
+the initial native selection; native Codex owns resume/picker/fork selection.
+`--resume` becomes native `resume`; `--yolo` becomes
+`--dangerously-bypass-approvals-and-sandbox`. Other arguments keep their bytes
+and order. After `--`, all arguments remain native operands.
+
+The launcher starts one Go broker and execs the native TUI. That broker owns
+one native App Server, two local endpoints and a Connection/Caller for each
+loaded native thread. MCP helpers forward native thread metadata to those
+owners. The launcher prefixes its native activation and `--remote` transport;
+a caller's own `--remote` conflicts and is reported as an integration error.
+The broker uses an OS parent-exit watch and closes native stdin on shutdown,
+drains output and joins its owned child. It adds no shared server service,
+polling loop, replay queue or native history lock.
+
+Native `-c`/`--config` occurrences are mirrored to App Server in order and kept
+on the TUI. Other native options go to the TUI. In particular, profile options
+remain on the TUI: native App Server rejects that CLI option. Server-level
+profile settings and settings omitted by native remote projection do not gain
+full standalone equivalence. The wrapper does not read or merge profiles.
+
+The package includes `THIRD-PARTY-NOTICES.txt`, including the ISC notice for
+the Go WebSocket implementation. No Node.js process or runtime is required.
 
 ## Remove
 
