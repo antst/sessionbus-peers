@@ -125,7 +125,9 @@ through the shared worker's cursor. No Claude scheduler or output cache is added
 
 Spawn/resume policies are independent. `persistent:false` (fresh default) retires
 the lane when its authenticated owner leaves; `true` survives owner exit.
-`auto_close_ms` defaults to 60000 after a terminal; zero disables automatic close.
+`auto_close_ms` defaults to 60000 after a native completed, failed or interrupted
+terminal; zero disables automatic close. An unavailable record without a native
+terminal does not start a new grace.
 New work cancels the old deadline; collection and staged messages do not extend
 it. Resume preserves persistence and omitted idle-message policy, but omitted
 `auto_close_ms` resets to 60000. Pass zero again to keep automatic close disabled.

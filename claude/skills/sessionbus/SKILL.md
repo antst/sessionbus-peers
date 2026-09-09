@@ -67,7 +67,9 @@ or failed notification does not mean that work failed or its output was read.
 
 Fresh lanes default to `persistent:false`, `auto_close_ms:60000` and
 `idle_message:"stage"`. Persistence controls owner-exit cleanup only. Automatic
-close starts after a terminal, not at Open; set `auto_close_ms:0` to disable it.
+close starts after a native completed, failed or interrupted terminal, not at Open;
+set `auto_close_ms:0` to disable it. An unavailable record without a native
+terminal does not start a new grace.
 New work cancels the previous deadline; collection and staged messages do not
 extend it. `idle_message:"run"` explicitly permits an idle message to start a
 model turn; staging keeps messages for a later explicit run. None of these
