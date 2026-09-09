@@ -64,6 +64,8 @@ type stream struct {
 	input      io.WriteCloser
 	output     io.ReadCloser
 	mu, writes sync.Mutex
+	inputOnce  sync.Once
+	inputError error
 	closed     error
 	controls   map[string]chan controlResult
 	admissions map[string]*admission
@@ -85,6 +87,10 @@ func newStream(input io.WriteCloser, output io.ReadCloser, fatal func(error)) *s
 	s := &stream{input: input, output: output, controls: make(map[string]chan controlResult), admissions: make(map[string]*admission), done: make(chan struct{}), fatal: fatal}
 	go s.read()
 	return s
+}
+func (s *stream) endInput() error {
+	s.inputOnce.Do(func() { s.inputError = s.input.Close() })
+	return s.inputError
 }
 func (s *stream) stop(err error) {
 	if err == nil {
@@ -110,7 +116,7 @@ func (s *stream) stop(err error) {
 	}
 	close(s.done)
 	s.mu.Unlock()
-	_ = s.input.Close()
+	_ = s.endInput()
 	_ = s.output.Close()
 	if s.fatal != nil {
 		s.fatal(err)

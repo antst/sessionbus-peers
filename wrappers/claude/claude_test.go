@@ -5,10 +5,12 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"github.com/antst/sessionbus-peers/internal/testsocket"
 	"io"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"testing"
@@ -192,4 +194,221 @@ func TestWorkerSerializesTerminalBeforeNativeEOFShutdown(t *testing.T) {
 	}
 	<-done
 	_ = nativeInput.Close()
+}
+
+func TestNativeLifetimeStartupCancellationAndCommit(t *testing.T) {
+	for _, commitFirst := range []bool{false, true} {
+		t.Run(map[bool]string{false: "cancel-pending", true: "cancel-after-commit"}[commitFirst], func(t *testing.T) {
+			type key struct{}
+			ctx, cancel := context.WithCancel(context.WithValue(context.Background(), key{}, "kept"))
+			defer cancel()
+			p := New("unused")
+			stop, err := p.startLifetime(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer stop()
+			defer p.cancel()
+			// A compiled fixture process, never native Claude on the offline host.
+			child := exec.CommandContext(p.ctx, os.Args[0], "-test.run=^TestNativeLifetimeFixture$")
+			child.Env = append(os.Environ(), "CLAUDE_GO_LIFETIME_FIXTURE=1")
+			stdin, err := child.StdinPipe()
+			if err != nil {
+				t.Fatal(err)
+			}
+			stdout, err := child.StdoutPipe()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err = child.Start(); err != nil {
+				t.Fatal(err)
+			}
+			reader := bufio.NewReader(stdout)
+			if line, err := reader.ReadString('\n'); err != nil || line != "ready\n" {
+				t.Fatal(line, err)
+			}
+			if p.ctx.Value(key{}) != "kept" {
+				t.Fatal("Open values lost")
+			}
+			p.identity, p.title = "native-id", "parent/child"
+			request := kit.OpenRequest{Name: "parent/child@local"}
+			if !commitFirst {
+				cancel()
+				<-p.ctx.Done()
+			}
+			_, err = p.commitOpen(ctx, request, stop)
+			if commitFirst {
+				if err != nil {
+					t.Fatal(err)
+				}
+				cancel()
+				if p.ctx.Err() != nil {
+					t.Fatal("completed Open cancellation killed native lifetime")
+				}
+				if _, err := io.WriteString(stdin, "still-alive\n"); err != nil {
+					t.Fatal(err)
+				}
+				if line, err := reader.ReadString('\n'); err != nil || line != "still-alive\n" {
+					t.Fatal(line, err)
+				}
+				_ = stdin.Close()
+				if err := child.Wait(); err != nil {
+					t.Fatal(err)
+				}
+			} else if !errors.Is(err, context.Canceled) || p.opened {
+				t.Fatal("cancelled Open committed", err)
+			} else {
+				if err := child.Wait(); err == nil {
+					t.Fatal("startup cancellation did not abort child")
+				}
+				_ = stdin.Close()
+			}
+		})
+	}
+}
+func TestNativeLifetimeFixture(t *testing.T) {
+	if os.Getenv("CLAUDE_GO_LIFETIME_FIXTURE") != "1" {
+		return
+	}
+	_, _ = io.WriteString(os.Stdout, "ready\n")
+	scanner := bufio.NewScanner(os.Stdin)
+	for scanner.Scan() {
+		_, _ = io.WriteString(os.Stdout, scanner.Text()+"\n")
+	}
+	os.Exit(0)
+}
+
+type lifetimeWorkerProduct struct{ *Wrapper }
+
+func (p *lifetimeWorkerProduct) Open(ctx context.Context, r kit.OpenRequest) (kit.OpenResult, error) {
+	stop, err := p.startLifetime(ctx)
+	if err != nil {
+		return kit.OpenResult{}, err
+	}
+	defer stop()
+	p.mu.Lock()
+	p.identity = "native-id"
+	p.title = nativeName(r.Name)
+	p.mu.Unlock()
+	return p.commitOpen(ctx, r, stop)
+}
+func TestRealWorkerNormalCloseKeepsNativeLifetimeUntilExit(t *testing.T) {
+	for _, scenario := range []string{"stdout-first", "process-first", "close-context-loss"} {
+		t.Run(scenario, func(t *testing.T) {
+			path := filepath.Join(testsocket.Directory(t), "bus.sock")
+			listener, err := net.Listen("unix", path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer listener.Close()
+			t.Setenv("SESSIONBUS_SOCKET", path)
+			t.Setenv("SESSIONBUS_LAUNCH_TOKEN", "controlled-close-token")
+			t.Setenv("SESSIONBUS_LOCAL_KEY", "")
+			p := New("unused")
+			nativeInput, workerInput := io.Pipe()
+			workerOutput, nativeOutput := io.Pipe()
+			defer nativeInput.Close()
+			defer nativeOutput.Close()
+			p.stream = newStream(workerInput, workerOutput, func(err error) { p.end(err, errors.Is(err, io.EOF)) })
+			p.processDone = make(chan struct{})
+			worker := kit.NewWorker(&lifetimeWorkerProduct{p})
+			p.SetCaller(worker.Caller())
+			p.SetShutdown(worker.Shutdown)
+			served := make(chan error, 1)
+			go func() { served <- worker.Serve(context.Background()) }()
+			c, err := listener.Accept()
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer c.Close()
+			reader := bufio.NewReader(c)
+			receive := func() protocol.Frame {
+				t.Helper()
+				line, e := reader.ReadBytes('\n')
+				if e != nil {
+					t.Fatal(e)
+				}
+				f, e := protocol.DecodeFrame(line[:len(line)-1])
+				if e != nil {
+					t.Fatal(e)
+				}
+				return f
+			}
+			send := func(body []byte, e error) {
+				t.Helper()
+				if e != nil {
+					t.Fatal(e)
+				}
+				if _, e = c.Write(body); e != nil {
+					t.Fatal(e)
+				}
+			}
+			hello := receive()
+			send(protocol.ResultBytes(hello.ID, "session.hello", struct{}{}))
+			send(protocol.RequestBytes(1, "session.open", kit.OpenRequest{Name: "parent/child@local", Groups: []string{}}))
+			if f := receive(); f.ID != 1 || len(f.Result) == 0 {
+				t.Fatal("Open failed", f)
+			}
+			send(protocol.RequestBytes(2, "session.close", kit.SessionCloseRequest{SessionID: "native-id"}))
+			var one [1]byte
+			if _, e := nativeInput.Read(one[:]); e != io.EOF {
+				t.Fatal("normal close did not end stdin", e)
+			}
+			// The actual Worker has cancelled its Open-operation context before this
+			// EOF. Its native lifetime must still be live and reports must still work.
+			if p.ctx.Err() != nil {
+				t.Fatal("Worker cancellation killed native before Close")
+			}
+			backendCtx, backendCancel := context.WithCancel(p.ctx)
+			defer backendCancel()
+			backend := &laneBackend{owner: p, ctx: backendCtx, cancel: backendCancel}
+			if _, e := backend.BeginReport(json.RawMessage(`{"hook_event_name":"SessionEnd","session_id":"native-id","agent_id":"${agent_id}"}`)); e != nil {
+				t.Fatal(e)
+			}
+			for _, raw := range []string{`{"hook_event_name":"SessionEnd","session_id":"foreign"}`, `{"hook_event_name":"SessionEnd","session_id":null}`, `{"hook_event_name":"UserPromptSubmit","session_id":"native-id","session_title":"reopen"}`} {
+				if _, e := backend.BeginReport(json.RawMessage(raw)); e == nil {
+					t.Fatal("closing accepted invalid/reopening report", raw)
+				}
+			}
+			backend.End()
+			if p.ctx.Err() != nil || p.title != "parent/child" {
+				t.Fatal("expected report shutdown killed/reopened native")
+			}
+			if scenario == "close-context-loss" {
+				c.Close()
+				<-p.ctx.Done()
+				close(p.processDone)
+				<-served
+				return
+			}
+			if scenario == "process-first" {
+				close(p.processDone)
+				if p.ctx.Err() != nil {
+					t.Fatal("process exit discarded unread stdout")
+				}
+				nativeOutput.Close()
+				<-p.stream.done
+			} else {
+				nativeOutput.Close()
+				<-p.stream.done
+				if p.ctx.Err() != nil {
+					t.Fatal("stdout EOF killed native before exit")
+				}
+				select {
+				case <-served:
+					t.Fatal("stdout EOF completed close without child exit")
+				default:
+				}
+				close(p.processDone)
+			}
+			f := receive()
+			if f.ID != 2 || string(f.Result) != "{}" {
+				t.Fatal("missing close result", f)
+			}
+			if _, e := reader.ReadByte(); e != io.EOF {
+				t.Fatal("worker did not close", e)
+			}
+			<-served
+		})
+	}
 }

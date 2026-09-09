@@ -73,6 +73,8 @@ observations; it does not relabel older receipts or extend cleanup credit.
 | Interrupt produces native aborted_streaming; following explicit run succeeds | fd1e89f / lfc-interrupt | This sealed build incorrectly mapped the terminal to failed; the mapping correction and regression are separate source changes. |
 | Caller-supplied exact Bash allow rule admits the held tool; replay and exact marker occur in the current run, following run returns only NEXT | 7f40b24 / lfc-active-allowed | Recorded queued_for_next_turn was a receipt defect, preserved as observed. No sole permission-classifier attribution. |
 | Bash tool PID/pgrp 1730226 is outside worker pgrp 1729921 | 7f40b24 / lfc-active-allowed | A worker-group signal does not directly reach this tool; normal cleanup does not prove death cleanup. |
+| Hard worker kill leaves a native tool and its parent alive outside the worker group | 145cf92 / lfc-active-death | Pending run gets daemon -32002, no native terminal; operator release and exact endpoint removal are separate cleanup. |
+| Interrupt ends the held tool; following session.close returns success while its held tool/parent survive | 145cf92 / lfc-graceful | Interrupted terminal is not descendant-cleanup acknowledgment. lfc-graceful-cleanup records operator release; later tool release record is supplementary. |
 | Invalid argv/cwd fail Open; concurrent distinct lanes and exact saved-ID resume succeed; connected-ID resume returns AlreadyConnected | 7f40b24 / lfc-config | Zero model input. Same repeated model values establish argv order only; failed-start diagnostics/reaping not captured. Closing one leaves the others connected. |
 
 The [stamped receipt correction](../designs/claude-0.5.0/LANE-DELIVERY-AMENDMENT.md)
@@ -80,7 +82,17 @@ requires exact message UUID/session replay: `injected` during the same confirmed
 active run, `queued_for_next_turn` for demonstrated idle staging, and uncertainty
 across an unclassified run boundary. These receipts acknowledge admission or
 staging, never consumption. The corrected source has controlled boundary tests;
-the original active row remains evidence of the old incorrect label.
+the original active row remains evidence of the old incorrect label. The corrected
+installed `lfc-active-admission` row returns injected before its exact same-run
+marker and is independently verified.
+
+The [graceful-close correction](../designs/claude-0.5.0/LANE-GRACEFUL-CLOSE.md)
+separates native lifetime from the completed Open context. Normal close ends
+stdin, drains native output/reports and waits for actual exit; cancellation or
+unexpected loss aborts. Controlled tests include the real Worker cancellation
+order and an actual compiled child fixture. Installed interrupted-tool cleanup
+on this correction remains to be measured. Generic containment after forced
+death remains a bus/platform ownership gap, not a wrapper PID registry.
 
 ## Historical split archive (unchanged citations)
 

@@ -98,7 +98,8 @@ The daemon launches this same binary as a token-selected lane worker. Use the
 public Sessionbus tool: `spawn` with `product: "claude-peer"`, `name` and `open`,
 then `run` or `start` with the returned `session_id` and `input`. `status`/`wait`
 collect a started turn; `interrupt` requests native interruption; `close`
-releases the lane. Resume passes that exact ID as `resume_session_id` to spawn.
+ends native stdin and waits for native exit after any active interruption.
+Forced failure still aborts. Resume passes that exact ID as `resume_session_id` to spawn.
 No lane-specific public launcher is installed.
 
 Open waits for native initialize, the initial root ID/title report and the
@@ -119,8 +120,10 @@ specific command needed over a broad grant. Native policy remains authoritative.
 Installed Open, public list, staging, active consumption, interruption,
 configuration and independent lanes have been checked at their recorded scope.
 A native Bash tool can have its own process group outside the worker group;
-the daemon’s group kill does not directly reach that tool. The idle-worker
-death check does not establish active-tool cleanup. Remaining lifetime and
+the daemon’s group kill does not directly reach that tool. A measured hard
+worker kill left it alive, and the earlier forced close path also left a tool
+alive after an interrupted terminal. The corrected EOF close path must be
+verified separately; the idle-worker result is not full descendant cleanup. Remaining lifetime and
 combined regression rows are in progress; this is not yet full lane acceptance.
 
 ## Remove

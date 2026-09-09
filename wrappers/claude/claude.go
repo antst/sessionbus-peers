@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -48,15 +49,28 @@ func (p *Wrapper) SetShutdown(f func())    { p.shutdown = f }
 func (*Wrapper) Hello(context.Context) (kit.HelloDescription, error) {
 	return kit.HelloDescription{Product: Product, ExtraArguments: []kit.ExtraArgument{}, SupportedOpenFields: []string{"cwd", "permission_mode", "model", "reasoning_effort", "arguments"}}, nil
 }
-func (p *Wrapper) Open(ctx context.Context, r kit.OpenRequest) (result kit.OpenResult, err error) {
+func (p *Wrapper) startLifetime(ctx context.Context) (func() bool, error) {
 	p.mu.Lock()
+	defer p.mu.Unlock()
 	if p.ctx != nil || p.closing {
-		p.mu.Unlock()
-		return result, errors.New("Claude worker already opened or closed")
+		return nil, errors.New("Claude worker already opened or closed")
 	}
-	p.ctx, p.cancel = context.WithCancel(ctx)
+	p.ctx, p.cancel = context.WithCancel(context.WithoutCancel(ctx))
+	return context.AfterFunc(ctx, func() {
+		p.mu.Lock()
+		defer p.mu.Unlock()
+		if !p.opened {
+			p.cancel()
+		}
+	}), nil
+}
+func (p *Wrapper) Open(ctx context.Context, r kit.OpenRequest) (result kit.OpenResult, err error) {
+	stopStartup, err := p.startLifetime(ctx)
+	if err != nil {
+		return result, err
+	}
+	defer stopStartup()
 	nativeCtx := p.ctx
-	p.mu.Unlock()
 	defer func() {
 		if err != nil {
 			_ = p.Close(context.Background(), kit.SessionCloseRequest{})
@@ -126,7 +140,7 @@ func (p *Wrapper) Open(ctx context.Context, r kit.OpenRequest) (result kit.OpenR
 	close(p.spawnReady)
 	_ = inputRead.Close()
 	_ = outputWrite.Close()
-	s := newStream(inputWrite, outputRead, p.fail)
+	s := newStream(inputWrite, outputRead, func(err error) { p.end(err, errors.Is(err, io.EOF)) })
 	p.mu.Lock()
 	p.stream = s
 	processDone := p.processDone
@@ -157,17 +171,26 @@ func (p *Wrapper) Open(ctx context.Context, r kit.OpenRequest) (result kit.OpenR
 	if err = requiredTools(status); err != nil {
 		return result, err
 	}
+	return p.commitOpen(ctx, r, stopStartup)
+}
+func (p *Wrapper) commitOpen(ctx context.Context, r kit.OpenRequest, stopStartup func() bool) (kit.OpenResult, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return kit.OpenResult{}, err
+	}
 	if p.closing || p.failure != nil {
-		return result, errors.New("native integration ended during open")
+		return kit.OpenResult{}, errors.New("native integration ended during open")
 	}
 	if r.ResumeSessionID != "" && r.ResumeSessionID != p.identity {
-		return result, errors.New("native report did not confirm the requested resume identity")
+		return kit.OpenResult{}, errors.New("native report did not confirm the requested resume identity")
 	}
 	if err := confirmTitle(r.Name, p.title); err != nil {
-		return result, err
+		return kit.OpenResult{}, err
 	}
+	// The startup callback uses this same mutex: it cannot kill a committed
+	// lifetime, even when it has begun and is waiting to acquire ownership.
+	stopStartup()
 	p.opened = true
 	return kit.OpenResult{SessionID: p.identity}, nil
 }
@@ -272,7 +295,14 @@ func (p *Wrapper) Deliver(ctx context.Context, r kit.DeliveryRequest, _ *kit.Run
 	return s.append(ctx, id, string(body))
 }
 func (p *Wrapper) fail(err error) {
+	p.end(err, false)
+}
+func (p *Wrapper) end(err error, expectedClose bool) {
 	p.mu.Lock()
+	if expectedClose && p.closing {
+		p.mu.Unlock()
+		return
+	}
 	first := p.failure == nil
 	if first {
 		p.failure = err
@@ -293,11 +323,37 @@ func (p *Wrapper) fail(err error) {
 		}()
 	}
 }
-func (p *Wrapper) Close(context.Context, kit.SessionCloseRequest) error {
+func (p *Wrapper) Close(ctx context.Context, _ kit.SessionCloseRequest) error {
 	p.mu.Lock()
 	p.closing = true
 	cancel, s, endpoint, done := p.cancel, p.stream, p.endpoint, p.processDone
+	graceful := p.opened && p.failure == nil && ctx.Err() == nil
 	p.mu.Unlock()
+	if graceful && s != nil {
+		if err := s.endInput(); err != nil {
+			p.fail(err)
+			graceful = false
+		}
+	}
+	if graceful {
+		var drained <-chan struct{}
+		if s != nil {
+			drained = s.done
+		}
+		for done != nil || drained != nil {
+			select {
+			case <-done:
+				done = nil
+			case <-drained:
+				drained = nil
+			case <-ctx.Done():
+				graceful = false
+			}
+			if !graceful {
+				break
+			}
+		}
+	}
 	if cancel != nil {
 		cancel()
 	}
@@ -310,7 +366,7 @@ func (p *Wrapper) Close(context.Context, kit.SessionCloseRequest) error {
 	if done != nil {
 		<-done
 	}
-	return nil
+	return ctx.Err()
 }
 func shellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'" }
 

@@ -155,9 +155,16 @@ func (b *laneBackend) BeginReport(raw json.RawMessage) (<-chan error, error) {
 		return nil, errors.New("unsupported native report event")
 	}
 	p.mu.Lock()
-	if p.closing || p.identity == "" || report.ID != p.identity {
+	if p.identity == "" || report.ID != p.identity {
 		p.mu.Unlock()
 		return nil, errors.New("native report does not match this lane")
+	}
+	if p.closing {
+		p.mu.Unlock()
+		if report.Event == "SessionEnd" {
+			return nil, nil
+		}
+		return nil, errors.New("lane closing")
 	}
 	if !interactive.MissingNativeField(report.Title) {
 		p.title = report.Title
@@ -165,7 +172,7 @@ func (b *laneBackend) BeginReport(raw json.RawMessage) (<-chan error, error) {
 	ended := report.Event == "SessionEnd"
 	p.mu.Unlock()
 	if ended {
-		p.fail(errors.New("native session ended"))
+		p.end(errors.New("native session ended"), true)
 	}
 	return nil, nil
 }
@@ -184,7 +191,7 @@ func (b *laneBackend) End() {
 	initial := b.initial
 	b.mu.Unlock()
 	if !initial {
-		b.owner.fail(errors.New("native MCP forwarder disconnected"))
+		b.owner.end(errors.New("native MCP forwarder disconnected"), true)
 	}
 }
 
