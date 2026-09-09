@@ -75,6 +75,17 @@ result = {
     'whole_checkout_excluding_this_measurement': summary(rows),
     'whole_checkout_including_this_measurement': {},
 }
+if len(sys.argv) > 2:
+    installed = pathlib.Path(sys.argv[2]).resolve()
+    value = json.loads(installed.read_text())
+    result['real_installed_inventory'] = {
+        'record': str(installed),
+        'sha256': hashlib.sha256(installed.read_bytes()).hexdigest(),
+        'scope': value['scope'],
+        'entries': len(value['files']),
+        'regular_bytes': value['regular_bytes'],
+        'members': value['files'],
+    }
 for _ in range(20):
     text = json.dumps(result, indent=2) + '\n'
     total = {'files': len(rows) + 1, 'bytes': sum(r['bytes'] for r in rows) + len(text.encode()),

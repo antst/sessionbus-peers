@@ -1,5 +1,5 @@
 {
-  "measured_source_commit": "ff50f09c43e6cb49df176987adabad643e021647",
+  "measured_source_commit": "8c0a98e5bb647ba3a9e0c73a01780a14ccc7fb4d",
   "scope": "Whole checkout includes retained source, tests, docs and old installers. SIZE.json has a separate self-size, no impossible self-hash. Dependency source is the non-stdlib files selected by Linux go list, not installed module trees. All stdlib/runtime cost is included in linked binary.",
   "archive": {
     "bytes": 2978321,
@@ -905,8 +905,8 @@
   },
   "whole_checkout_excluding_this_measurement": {
     "files": 227,
-    "bytes": 1573797,
-    "lines": 33949,
+    "bytes": 1574227,
+    "lines": 33960,
     "members": [
       {
         "path": ".forgejo/workflows/ci.yml",
@@ -1468,9 +1468,9 @@
       },
       {
         "path": "docs/designs/codex-0.5.0/measure.py",
-        "bytes": 4472,
-        "lines": 88,
-        "sha256": "7412d8154722fae1cbe42cd4b126c270cc679844a63e8d2a2f838a4607677b97"
+        "bytes": 4902,
+        "lines": 99,
+        "sha256": "d817680aae47eb9fed347504bb256ccf283bfec8432c243f456830da12970af4"
       },
       {
         "path": "docs/development/codex-broker.md",
@@ -2274,8 +2274,94 @@
   },
   "whole_checkout_including_this_measurement": {
     "files": 228,
-    "bytes": 1648896,
-    "lines": 36230,
-    "measurement_bytes": 75099
+    "bytes": 1653053,
+    "lines": 36327,
+    "measurement_bytes": 78826
+  },
+  "real_installed_inventory": {
+    "record": "/home/antst/codex-architecture-20260909/dev1-final-package/INSTALLED-INVENTORY.json",
+    "sha256": "5e11cbc8fccbdec7ba9ba179635262d6bafea2116bb2a8329b659faf668062f0",
+    "scope": "Owned permanent package + marketplace + all native cached versions of this plugin; evidence archives and external native product excluded. Symlinks not counted twice.",
+    "entries": 16,
+    "regular_bytes": 7166770,
+    "members": [
+      {
+        "path": "/home/antst/.local/libexec/sessionbus/codex/LICENSE",
+        "bytes": 1080,
+        "sha256": "5eab6128815879aded938085ac18293e4a09ed84cb425405c5810cdacde776e8"
+      },
+      {
+        "path": "/home/antst/.local/libexec/sessionbus/codex/README.md",
+        "bytes": 8105,
+        "sha256": "3fd1557ab1241c5f9c843897d500b786c9bd2dc3447d6e70bdaf33fd0d329573"
+      },
+      {
+        "path": "/home/antst/.local/libexec/sessionbus/codex/THIRD-PARTY-NOTICES.txt",
+        "bytes": 3484,
+        "sha256": "ad571bc8f2264f4abd09382591d96ebbf9f0f67f33c5fc1c5715fbc891eb1be0"
+      },
+      {
+        "path": "/home/antst/.local/libexec/sessionbus/codex/bin/codex-peer",
+        "bytes": 7135394,
+        "sha256": "44e476739cdada2a411e3db857855d3c480d03fa5e7395b2e12854bd9d1af2d2"
+      },
+      {
+        "path": "/home/antst/.local/libexec/sessionbus/codex/bin/codex-peer-broker",
+        "symlink": "codex-peer"
+      },
+      {
+        "path": "/home/antst/.local/libexec/sessionbus/codex/bin/codex-peer-install",
+        "symlink": "codex-peer"
+      },
+      {
+        "path": "/home/antst/.local/libexec/sessionbus/codex/bin/codex-peer-mcp",
+        "symlink": "codex-peer"
+      },
+      {
+        "path": "/home/antst/.local/libexec/sessionbus/codex/installed.json",
+        "bytes": 404,
+        "sha256": "689f636829982942f6364032b136fae9104b2ac636f02d4d0cb82d8d9cd9c14c"
+      },
+      {
+        "path": "/home/antst/.local/libexec/sessionbus/codex/uninstall",
+        "bytes": 380,
+        "sha256": "6e1c82391b998cbf7b828b7305c7eb29ceabf24d3f0b6144901825bc31b365dc"
+      },
+      {
+        "path": "/home/antst/.local/share/sessionbus/codex/marketplace/.agents/plugins/marketplace.json",
+        "bytes": 251,
+        "sha256": "7b74c03908433ab4decc835cac91ee54e5796cb45a133b7fe9c690640814cdb8"
+      },
+      {
+        "path": "/home/antst/.local/share/sessionbus/codex/marketplace/codex/.codex-plugin/plugin.json",
+        "bytes": 691,
+        "sha256": "63ef1e34e9cdb88527a8bae2b047e69fe164a054f34197c58d86483cb28881b0"
+      },
+      {
+        "path": "/home/antst/.local/share/sessionbus/codex/marketplace/codex/.mcp.json",
+        "bytes": 257,
+        "sha256": "55b425438b9ca4da1d1de0ce688e7f41953fde70d073df974d81899c5a8ec747"
+      },
+      {
+        "path": "/home/antst/.local/share/sessionbus/codex/marketplace/codex/skills/sessionbus/SKILL.md",
+        "bytes": 7888,
+        "sha256": "67490fc7b9adf1e3fb86e9e646c40a7c3148c896a49baae68629b50cc20f4e93"
+      },
+      {
+        "path": "/home/antst/.codex/plugins/cache/sessionbus-peers/codex/0.5.0-codex.g9b65de839185/.codex-plugin/plugin.json",
+        "bytes": 691,
+        "sha256": "63ef1e34e9cdb88527a8bae2b047e69fe164a054f34197c58d86483cb28881b0"
+      },
+      {
+        "path": "/home/antst/.codex/plugins/cache/sessionbus-peers/codex/0.5.0-codex.g9b65de839185/.mcp.json",
+        "bytes": 257,
+        "sha256": "55b425438b9ca4da1d1de0ce688e7f41953fde70d073df974d81899c5a8ec747"
+      },
+      {
+        "path": "/home/antst/.codex/plugins/cache/sessionbus-peers/codex/0.5.0-codex.g9b65de839185/skills/sessionbus/SKILL.md",
+        "bytes": 7888,
+        "sha256": "67490fc7b9adf1e3fb86e9e646c40a7c3148c896a49baae68629b50cc20f4e93"
+      }
+    ]
   }
 }
