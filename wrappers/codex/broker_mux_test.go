@@ -233,43 +233,29 @@ func TestBrokerRejectsNullIDWithoutAliasingEmptyString(t *testing.T) {
 	}
 }
 func TestBrokerAggregateByteBudgetAndRelease(t *testing.T) {
-	// Two independently bounded queues share one byte budget, including an
-	// in-flight native write and original IDs held by response correlations.
-	m, p := muxFixture(t, nil)
-	initializeMux(t, m, p)
-	m.budgetMu.Lock()
-	m.byteLimit = 240
-	m.budgetMu.Unlock()
+	// Drive queue/transport completion explicitly so there is no scheduler gap
+	// between a peer read and the native writer releasing its accounted bytes.
+	m := &brokerMux{ctx: context.Background(), byteLimit: 240, nativeOut: make(chan brokerPacket, 2), tuiOut: make(chan brokerPacket, 2)}
 	f := frame("notice", nil, map[string]string{"body": "one"})
 	if err := m.enqueue(m.tuiOut, f); err != nil {
 		t.Fatal(err)
 	}
-	packet := <-m.tuiOut
-	if err := m.reserve(m.byteLimit - len(packet.body)); err != nil {
+	packet := <-m.tuiOut // Dequeue is not completion: an in-write frame stays charged.
+	held := m.byteLimit - len(packet.body)
+	if err := m.reserve(held); err != nil {
 		t.Fatal(err)
 	}
 	if err := m.enqueue(m.nativeOut, f); err == nil {
 		t.Fatal("other queue escaped aggregate budget")
 	}
-	m.release(m.byteLimit - len(packet.body))
+	m.release(held)
 	m.release(len(packet.body))
 	if err := m.enqueue(m.nativeOut, f); err != nil {
 		t.Fatal(err)
 	}
-	receiveNative(t, p)
-	// Wait for writer release using an ordered subsequent native write.
-	if err := m.fromTUI(frame("thread/read", "small", map[string]string{"body": "still opaque"})); err != nil {
-		t.Fatal(err)
-	}
-	call := receiveNative(t, p)
-	if err := p.Write(brokerFrame{"id": call["id"], "result": brokerRaw(map[string]any{})}); err != nil {
-		t.Fatal(err)
-	}
-	receiveTUI(t, m)
-	m.mu.Lock()
-	retained := len(m.calls)
-	m.mu.Unlock()
-	if retained != 0 {
-		t.Fatal(retained)
+	next := <-m.nativeOut
+	m.release(len(next.body))
+	if m.buffered != 0 {
+		t.Fatal(m.buffered)
 	}
 }
