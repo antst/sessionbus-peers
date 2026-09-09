@@ -170,9 +170,9 @@ func TestWorkerPublishesTerminalReadyBeforeNativeEOFShutdown(t *testing.T) {
 	if err = protocol.UnmarshalResult("session.open", opened.Result, &openResult); err != nil {
 		t.Fatal(err)
 	}
-	send(protocol.RequestBytes(2, "turn.execute", protocol.ExecuteRequest{SessionID: "native-id", RunID: "g/1", Input: "prompt"}))
+	send(protocol.RequestBytes(2, "turn.execute", protocol.ExecuteRequest{SessionID: "native-id@local", RunID: "g/1", Input: "prompt"}))
 	admission := receive()
-	if admission.ID != 2 || string(admission.Result) != `{"session_id":"native-id","run_id":"g/1"}` {
+	if admission.ID != 2 || string(admission.Result) != `{"session_id":"native-id@local","run_id":"g/1"}` {
 		t.Fatal(admission)
 	}
 	var input map[string]json.RawMessage

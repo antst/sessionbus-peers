@@ -1,8 +1,9 @@
 # Shared lane lifecycle adaptation
 
 Preparation from peers develop `9c034132d00a3fda630a5200bbb91b8e30594f08`.
-The SDK pin `a7c10044f3b4e5dba552fbb50fedfd50e84767fe` is an immutable
-**compile-only checkpoint**, not an independently accepted daemon/install pin.
+The SDK pin `d33bc820bd9762cab4952ef2bbf13afdc441c386` is the coherent PR48
+checkpoint under review, superseding the earlier compile-only `a7c10044f3b4`
+pin. It is not a final reviewed daemon/install pin.
 No shared-lifecycle installation or native acceptance is claimed here.
 
 Authority: 2026-09-09 `codex-architecture-20260909/persistence-repair/SELECTION.md`,

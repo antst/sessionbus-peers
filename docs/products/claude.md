@@ -9,7 +9,8 @@
 ## Shared lifecycle adaptation — pending installed acceptance
 
 The [shared lifecycle mapping](../designs/claude-0.5.0/shared-lifecycle.md)
-describes the current adaptation against compile-only SDK `a7c10044f3b4`.
+describes the adaptation against PR48 SDK checkpoint `d33bc820bd97`, still
+under review and not a final installation pin.
 It replaces Caller-local destructive handles with shared non-consuming reads
 and explicit acknowledgment, and adds an independently selected idle-message
 run policy. This code has no new umka installation or native acceptance yet.
