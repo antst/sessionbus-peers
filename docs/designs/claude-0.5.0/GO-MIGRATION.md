@@ -67,5 +67,9 @@ by that Write. Successful full local Write is written only, never native ack.
 The first runnable efcd86b archive was installed on real umka and version
 passthrough was checked. Evidence is under
 `/home/antst/sessionbus-evidence/claude-go-install-efcd86b/` on umka. That checkpoint
-includes G01 and is not final acceptance. Subsequent fixes require new installed
-artifact bindings. Keep the candidate installed for owner manual testing.
+includes G01 and is not final acceptance. Corrected76b921b and a056303 have separate installed artifact bindings. The
+[installed ledger](../../../probes/claude/interactive-candidate.md) records
+FC01–FC08 observations and retained limits; the a056303 candidate remains
+installed for owner manual testing. The Go kit source/module sums are bound in
+[GO-KIT-BINDING.json](GO-KIT-BINDING.json); KIT-BINDING.json remains the historical
+Node dependency record. Lane remains a separate unfinished step.

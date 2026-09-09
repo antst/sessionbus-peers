@@ -418,9 +418,9 @@
     ]
   },
   "whole_repository_excluding_this_self_report": {
-    "files": 166,
-    "bytes": 1128275,
-    "lines": 22921,
+    "files": 169,
+    "bytes": 1148116,
+    "lines": 23266,
     "members": [
       {
         "path": ".claude-plugin/marketplace.json",
@@ -615,10 +615,16 @@
         "sha256": "a3aa76d5296e9294e563bb92dd78a6f6c45d2badde693a47135f1fdb76db3148"
       },
       {
+        "path": "docs/designs/claude-0.5.0/GO-KIT-BINDING.json",
+        "bytes": 4897,
+        "lines": 143,
+        "sha256": "8c30d42157bee26528f9ff39e5b8546ff77d6a96d82b1cc4493f45d5c0be28b5"
+      },
+      {
         "path": "docs/designs/claude-0.5.0/GO-MIGRATION.md",
-        "bytes": 4258,
-        "lines": 71,
-        "sha256": "ea4d42d84e08ce248456caf970fbaa8b6471109791f50259b76d63bc10f01bcc"
+        "bytes": 4601,
+        "lines": 75,
+        "sha256": "a8494898088a23e0b493280feb11a9dac5751acbe5d35631e53916049e981653"
       },
       {
         "path": "docs/designs/claude-0.5.0/IMPLEMENTATION-BASE.md",
@@ -844,9 +850,9 @@
       },
       {
         "path": "docs/products/claude.md",
-        "bytes": 12032,
-        "lines": 64,
-        "sha256": "f07396cb9281a457876c24485cd6e7fb7eeadc90b8bfce63fe8b8175f541a399"
+        "bytes": 14380,
+        "lines": 94,
+        "sha256": "29f50b1d16d59594af1f89f4ef2da1366712d9a168bfcf95c974d34eae9b480b"
       },
       {
         "path": "docs/products/codex.md",
@@ -1009,6 +1015,18 @@
         "bytes": 972,
         "lines": 22,
         "sha256": "3e9367036a67c8ffedaa92be9d7d019979bbd0c3f2a633f13c59a051f1046045"
+      },
+      {
+        "path": "probes/claude/first-contact.json",
+        "bytes": 3243,
+        "lines": 88,
+        "sha256": "285022331a1a9600b85a278be8e91e41e4800fd7f4e26aefd9326dde9f4f3bf4"
+      },
+      {
+        "path": "probes/claude/interactive-candidate.md",
+        "bytes": 9010,
+        "lines": 80,
+        "sha256": "5498a599a55672920f218884d5a41fbcaa977ec546bcff22b8a270db6b0ddec0"
       },
       {
         "path": "qwen/mcp.json",
@@ -1433,10 +1451,10 @@
     "native_claude_rss_kib": 247584,
     "note": "One checkpoint on76b921b after first prompt+idle message, not peak/steady-state/full-host memory; no comparable Node baseline measured."
   },
-  "acceptance": "Fresh Go installed row reviewed; remaining interactive rows and lane acceptance pending. Numbers include archived/held sources rather than treating moves as removal.",
+  "acceptance": "Installed interactive rows completed with scoped independent reviews; final consolidated review pending. Lane acceptance unfinished. Numbers include archived/held sources rather than treating moves as removal.",
   "whole_repository_including_this_report": {
-    "files": 167,
-    "bytes": 1176893,
-    "lines": 24363
+    "files": 170,
+    "bytes": 1197392,
+    "lines": 24726
   }
 }
