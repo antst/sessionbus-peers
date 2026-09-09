@@ -12,12 +12,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/antst/sessionbus-peers/internal/testsocket"
 	"github.com/coder/websocket"
 )
 
 func TestBrokerWebSocketFragmentationPingAndSingleClient(t *testing.T) {
 	m, p := muxFixture(t, nil)
-	path := filepath.Join(t.TempDir(), "tui.sock")
+	path := filepath.Join(testsocket.Directory(t), "tui.sock")
 	listener, err := net.Listen("unix", path)
 	if err != nil {
 		t.Fatal(err)

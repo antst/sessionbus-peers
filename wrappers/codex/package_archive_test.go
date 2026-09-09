@@ -144,7 +144,11 @@ func main(){if filepath.Base(os.Args[0])!="codex-peer-install"||len(os.Args)!=2{
 		t.Fatalf("private installer dispatch=%q %v", b, err)
 	}
 	public, err := filepath.EvalSymlinks(filepath.Join(home, ".local", "bin", "codex-peer"))
-	if err != nil || public != filepath.Join(packagePath, "bin", "codex-peer") {
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected, err := filepath.EvalSymlinks(filepath.Join(packagePath, "bin", "codex-peer"))
+	if err != nil || public != expected {
 		t.Fatalf("public bin=%q %v", public, err)
 	}
 }

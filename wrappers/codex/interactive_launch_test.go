@@ -14,6 +14,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/antst/sessionbus-peers/internal/testsocket"
 )
 
 func TestBrokerNativeFixture(t *testing.T) {
@@ -36,15 +38,14 @@ func TestBrokerNativeFixture(t *testing.T) {
 	os.Exit(0)
 }
 func TestBrokerProcessCancellationClosesSoleStdinAndJoins(t *testing.T) {
-	root, err := os.MkdirTemp("", "br-test-")
+	root := testsocket.Directory(t)
+	// Match the production launcher directly under the OS temp root. The old
+	// extra nested fixture directory exceeded macOS's Unix socket path limit.
+	dir, err := os.MkdirTemp("", "sessionbus-codex-launch-")
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = os.RemoveAll(root) })
-	dir := filepath.Join(root, "sessionbus-codex-launch-fixture")
-	if err := os.Mkdir(dir, 0700); err != nil {
-		t.Fatal(err)
-	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 	marker := filepath.Join(root, "native-finished")
 	t.Setenv("BROKER_NATIVE_FIXTURE_MARKER", marker)
 	previous := brokerNativeCommand
@@ -67,7 +68,8 @@ func TestBrokerProcessCancellationClosesSoleStdinAndJoins(t *testing.T) {
 	}()
 	var ready map[string]bool
 	if err := json.NewDecoder(bufio.NewReader(readyRead)).Decode(&ready); err != nil || !ready["Ready"] {
-		t.Fatal(ready, err)
+		cancel()
+		t.Fatalf("ready=%v decode=%v broker=%v", ready, err, <-done)
 	}
 	for _, name := range []string{"tui.sock", "owner.sock"} {
 		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {

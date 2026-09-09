@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/antst/sessionbus-peers/internal/testsocket"
 	kit "github.com/antst/sessionbus/bus/sdk/go"
 )
 
@@ -214,7 +215,7 @@ func TestBrokerInitialNameOnlyCorrelatedTUISelection(t *testing.T) {
 func TestBrokerMCPForwarderCatalogEOFDoesNotWithdrawResident(t *testing.T) {
 	o, m, p, _ := residentFixture(t)
 	loaded(t, o, m, p, "loaded")
-	endpoint, err := newBrokerEndpoint(t.TempDir(), o)
+	endpoint, err := newBrokerEndpoint(testsocket.Directory(t), o)
 	if err != nil {
 		t.Fatal(err)
 	}

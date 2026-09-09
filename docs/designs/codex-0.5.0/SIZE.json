@@ -1,5 +1,5 @@
 {
-  "measured_source_commit": "8c0a98e5bb647ba3a9e0c73a01780a14ccc7fb4d",
+  "measured_source_commit": "868b84e25335b43e5cf808732e58eb4be5d30a4a",
   "scope": "Whole checkout includes retained source, tests, docs and old installers. SIZE.json has a separate self-size, no impossible self-hash. Dependency source is the non-stdlib files selected by Linux go list, not installed module trees. All stdlib/runtime cost is included in linked binary.",
   "archive": {
     "bytes": 2978321,
@@ -217,8 +217,8 @@
   },
   "codex_and_common_mcp_tests": {
     "files": 22,
-    "bytes": 143056,
-    "lines": 4079,
+    "bytes": 143461,
+    "lines": 4087,
     "members": [
       {
         "path": "cmd/codex-peer/main_test.go",
@@ -258,15 +258,15 @@
       },
       {
         "path": "wrappers/codex/broker_owners_test.go",
-        "bytes": 11673,
-        "lines": 317,
-        "sha256": "b4a39f84f7f2e8d9cc4130b1a0232d043f98b589180f8f16fa3ad9b73ee11279"
+        "bytes": 11742,
+        "lines": 318,
+        "sha256": "65ad407d379a4bf514e81683ad646d98b3a774e80a41bfe738f0505f5cf6f811"
       },
       {
         "path": "wrappers/codex/broker_transport_test.go",
-        "bytes": 2336,
-        "lines": 84,
-        "sha256": "3f8e9a45c14a6f74f6fd3f4f9047e2a3f28c5371b7e09b5274eb52b22a18acb6"
+        "bytes": 2405,
+        "lines": 85,
+        "sha256": "ce82b72e2b3f67353a33f5e3db7c392c12837213e6237be26b25ebfdf72fa8bc"
       },
       {
         "path": "wrappers/codex/broker_watch_test.go",
@@ -282,9 +282,9 @@
       },
       {
         "path": "wrappers/codex/interactive_launch_test.go",
-        "bytes": 3311,
-        "lines": 99,
-        "sha256": "a5f7717fe051901c8af2aa6849d32c36f096c58cc6f2fc31059ea13fa075c3ff"
+        "bytes": 3493,
+        "lines": 101,
+        "sha256": "86d051a139734be0a27bc87bc9a37fa45a32aa58ae05e6ca572512bb0d5befce"
       },
       {
         "path": "wrappers/codex/interactive_options_test.go",
@@ -300,9 +300,9 @@
       },
       {
         "path": "wrappers/codex/package_archive_test.go",
-        "bytes": 5531,
-        "lines": 150,
-        "sha256": "0c81ca9c545d9a2b74e48fba332de8257c017945b7be56ad32490c7ee7ee0afb"
+        "bytes": 5616,
+        "lines": 154,
+        "sha256": "85c75d6870c909000047ec5d4080ea99f28a01eea4e9f79ce9f8bb49f608f046"
       },
       {
         "path": "wrappers/codex/package_test.go",
@@ -905,8 +905,8 @@
   },
   "whole_checkout_excluding_this_measurement": {
     "files": 227,
-    "bytes": 1574227,
-    "lines": 33960,
+    "bytes": 1574632,
+    "lines": 33968,
     "members": [
       {
         "path": ".forgejo/workflows/ci.yml",
@@ -1900,9 +1900,9 @@
       },
       {
         "path": "wrappers/codex/broker_owners_test.go",
-        "bytes": 11673,
-        "lines": 317,
-        "sha256": "b4a39f84f7f2e8d9cc4130b1a0232d043f98b589180f8f16fa3ad9b73ee11279"
+        "bytes": 11742,
+        "lines": 318,
+        "sha256": "65ad407d379a4bf514e81683ad646d98b3a774e80a41bfe738f0505f5cf6f811"
       },
       {
         "path": "wrappers/codex/broker_transport.go",
@@ -1912,9 +1912,9 @@
       },
       {
         "path": "wrappers/codex/broker_transport_test.go",
-        "bytes": 2336,
-        "lines": 84,
-        "sha256": "3f8e9a45c14a6f74f6fd3f4f9047e2a3f28c5371b7e09b5274eb52b22a18acb6"
+        "bytes": 2405,
+        "lines": 85,
+        "sha256": "ce82b72e2b3f67353a33f5e3db7c392c12837213e6237be26b25ebfdf72fa8bc"
       },
       {
         "path": "wrappers/codex/broker_watch_darwin.go",
@@ -1954,9 +1954,9 @@
       },
       {
         "path": "wrappers/codex/interactive_launch_test.go",
-        "bytes": 3311,
-        "lines": 99,
-        "sha256": "a5f7717fe051901c8af2aa6849d32c36f096c58cc6f2fc31059ea13fa075c3ff"
+        "bytes": 3493,
+        "lines": 101,
+        "sha256": "86d051a139734be0a27bc87bc9a37fa45a32aa58ae05e6ca572512bb0d5befce"
       },
       {
         "path": "wrappers/codex/interactive_options.go",
@@ -2002,9 +2002,9 @@
       },
       {
         "path": "wrappers/codex/package_archive_test.go",
-        "bytes": 5531,
-        "lines": 150,
-        "sha256": "0c81ca9c545d9a2b74e48fba332de8257c017945b7be56ad32490c7ee7ee0afb"
+        "bytes": 5616,
+        "lines": 154,
+        "sha256": "85c75d6870c909000047ec5d4080ea99f28a01eea4e9f79ce9f8bb49f608f046"
       },
       {
         "path": "wrappers/codex/package_test.go",
@@ -2274,9 +2274,9 @@
   },
   "whole_checkout_including_this_measurement": {
     "files": 228,
-    "bytes": 1653053,
-    "lines": 36327,
-    "measurement_bytes": 78826
+    "bytes": 1653460,
+    "lines": 36335,
+    "measurement_bytes": 78828
   },
   "real_installed_inventory": {
     "record": "/home/antst/codex-architecture-20260909/dev1-final-package/INSTALLED-INVENTORY.json",
