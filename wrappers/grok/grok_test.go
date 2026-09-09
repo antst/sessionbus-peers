@@ -412,10 +412,12 @@ func TestDeliveryDoesNotHoldRunHandoff(t *testing.T) {
 	t.Setenv("GROK_TEST_RECORD", recordPath)
 	t.Setenv("GROK_TEST_RELEASE", filepath.Join(root, "never"))
 	t.Setenv("GROK_TEST_INTERJECT_BLOCK", interjectRelease)
-	_, _, reader := startGrokWorker(t, root)
+	p, _, reader := startGrokWorker(t, root)
 	writeWorkerRequest(t, reader, 2, "turn.execute", map[string]any{"session_id": testSessionID + "@local", "run_id": "g/1", "input": "hold"})
 	check(t, readWorkerResponse(t, reader, 2).Error == nil, "execute admission failed")
 	waitFrame(t, recordPath, "session/prompt", 1)
+	// Child decoding may precede the parent's completed-write admission.
+	waitActive(t, p)
 	writeWorkerRequest(t, reader, 3, "message.deliver", delivery("crossed delivery"))
 	waitFrame(t, recordPath, "_x.ai/interject", 1)
 	writeWorkerRequest(t, reader, 4, "turn.interrupt", map[string]string{"session_id": testSessionID + "@local"})
