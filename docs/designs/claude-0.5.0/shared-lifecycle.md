@@ -4,7 +4,10 @@ Preparation from peers develop `9c034132d00a3fda630a5200bbb91b8e30594f08`.
 The SDK pin `d11fa7433694c077f57b1f0af05a48325b464516` is the merged PR48
 revision of reviewed head `d33bc820bd9762cab4952ef2bbf13afdc441c386`,
 superseding the earlier compile-only `a7c10044f3b4` pin.
-No shared-lifecycle installation or native acceptance is claimed here.
+The paired daemon and Claude package were installed on the real umka home/service.
+The [acceptance ledger](shared-lifecycle-acceptance.json) maps all seven installed
+rows to their exact evidence and limitations; tests ran on `7d5fb9f`, followed by
+wording-only artifact `c138131` at the same permanent path.
 
 Authority: 2026-09-09 `codex-architecture-20260909/persistence-repair/SELECTION.md`,
 `DEV2-BOUNDARY.md`, `CONTRACT.md` and `ACCEPTANCE.md`. This is a shared lifecycle
@@ -81,7 +84,26 @@ a controller-only send or resident MCP event is insufficient.
   Hello/Run methods ensure native state cannot be touched silently. Only
   Open/Close are controlled, and no native executable is launched.
 
-Remaining acceptance: exact shared-wire review and final pin, paired permanent
-umka daemon/Claude replacement, independent policy combinations, actual parent
-notification/collection, collector replacement and normal-close/interactive
-regressions on that same changed installation. All earlier seals are retained.
+## Installed acceptance
+
+The actual native parent used the generic public tool for four policy-selected
+opens, native turns, message-triggered work, repeated result reads, explicit ack
+and saved-ID resume. Its ordinary completion-pointer message woke the idle
+interactive parent, which collected the referenced result through the tool.
+A real parent quit distinguished nonpersistent cleanup from persistent survival;
+a distinct authorized collector then cancelled/read/acknowledged wake results.
+The persistent lane with a six-second archive grace still retired after its new
+native terminal. The zero-auto lane stayed live until explicit normal close.
+
+See the [row ledger](shared-lifecycle-acceptance.json) for exact manifests,
+correlation IDs, source generations and the ordinary/mixed-group/quit regression.
+The observed no-record status caused the model to stop; a separate explicit-run
+prompt continued the staged case without resending anything. This accounting is
+retained rather than described as one uninterrupted instruction.
+
+Native completed/failed/interrupted terminals arm automatic close. An
+unavailable record without a native terminal does not invent a new grace.
+Controlled tests cover the exact default deadline, scheduling races, unavailable
+and oversize handling, active owner loss and native MCP cancellation. Installed
+results do not substitute for those tests or imply arbitrary tool containment.
+All previous seals remain unchanged.
