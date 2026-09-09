@@ -419,8 +419,8 @@
   },
   "whole_repository_excluding_this_self_report": {
     "files": 169,
-    "bytes": 1148116,
-    "lines": 23266,
+    "bytes": 1148418,
+    "lines": 23272,
     "members": [
       {
         "path": ".claude-plugin/marketplace.json",
@@ -622,9 +622,9 @@
       },
       {
         "path": "docs/designs/claude-0.5.0/GO-MIGRATION.md",
-        "bytes": 4601,
-        "lines": 75,
-        "sha256": "a8494898088a23e0b493280feb11a9dac5751acbe5d35631e53916049e981653"
+        "bytes": 4955,
+        "lines": 81,
+        "sha256": "04aa60294ef828d1d91e225c1ba2e1d1c0eed9a72ec2ba416fe6ced09af50d80"
       },
       {
         "path": "docs/designs/claude-0.5.0/IMPLEMENTATION-BASE.md",
@@ -649,6 +649,12 @@
         "bytes": 18315,
         "lines": 88,
         "sha256": "f7de8f34f96f9e1a354611a23cf74bfa9baace5a27bb1f2f50f2683767a9aa18"
+      },
+      {
+        "path": "docs/designs/claude-0.5.0/first-contact.json",
+        "bytes": 3243,
+        "lines": 88,
+        "sha256": "285022331a1a9600b85a278be8e91e41e4800fd7f4e26aefd9326dde9f4f3bf4"
       },
       {
         "path": "docs/designs/claude-0.5.0/held-lane-skills/README.md",
@@ -727,6 +733,12 @@
         "bytes": 2689,
         "lines": 55,
         "sha256": "2220f8dcf0c2bdc056c32d5eb41ddf7675b18ddd44cbcc2cb76c5ee5415b6448"
+      },
+      {
+        "path": "docs/designs/claude-0.5.0/interactive-candidate.md",
+        "bytes": 8946,
+        "lines": 80,
+        "sha256": "52b2cbe487c142f0394db8fa6826560f191e29912f2cae4065ab3070d6de8765"
       },
       {
         "path": "docs/designs/claude-0.5.0/node-reference/.claude-plugin/plugin.json",
@@ -850,9 +862,9 @@
       },
       {
         "path": "docs/products/claude.md",
-        "bytes": 14380,
+        "bytes": 14392,
         "lines": 94,
-        "sha256": "29f50b1d16d59594af1f89f4ef2da1366712d9a168bfcf95c974d34eae9b480b"
+        "sha256": "419913b2422bdf4e343e9854ba355a1bae8017b8d58dde2a99028d74f1f315e3"
       },
       {
         "path": "docs/products/codex.md",
@@ -1015,18 +1027,6 @@
         "bytes": 972,
         "lines": 22,
         "sha256": "3e9367036a67c8ffedaa92be9d7d019979bbd0c3f2a633f13c59a051f1046045"
-      },
-      {
-        "path": "probes/claude/first-contact.json",
-        "bytes": 3243,
-        "lines": 88,
-        "sha256": "285022331a1a9600b85a278be8e91e41e4800fd7f4e26aefd9326dde9f4f3bf4"
-      },
-      {
-        "path": "probes/claude/interactive-candidate.md",
-        "bytes": 9010,
-        "lines": 80,
-        "sha256": "5498a599a55672920f218884d5a41fbcaa977ec546bcff22b8a270db6b0ddec0"
       },
       {
         "path": "qwen/mcp.json",
@@ -1454,7 +1454,7 @@
   "acceptance": "Installed interactive rows completed with scoped independent reviews; final consolidated review pending. Lane acceptance unfinished. Numbers include archived/held sources rather than treating moves as removal.",
   "whole_repository_including_this_report": {
     "files": 170,
-    "bytes": 1197392,
-    "lines": 24726
+    "bytes": 1197718,
+    "lines": 24732
   }
 }

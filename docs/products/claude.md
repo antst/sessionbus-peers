@@ -15,7 +15,7 @@ SHA256 `dc5d8b745a393e32721a5f2c14d59dc2c455f59419f34a88881657bb2083d805`.
 It requires no Node/npm integration runtime. The
 [Go migration](../designs/claude-0.5.0/GO-MIGRATION.md),
 [Go dependency binding](../designs/claude-0.5.0/GO-KIT-BINDING.json) and
-[installed ledger](../../probes/claude/interactive-candidate.md) supersede the
+[installed ledger](../designs/claude-0.5.0/interactive-candidate.md) supersede the
 archived Node installation instructions. Actual installed interactive checks
 ran in the real umka environment; lane L02/OB03 and lane implementation remain
 unfinished. Offline fixtures establish implementation behavior separately.
@@ -39,8 +39,8 @@ The historical table below uses raw paths on umka-dev1 under `/home/antst/sessio
 
 Raw root on umka: `/home/antst/sessionbus-evidence/claude-go-fc-20260909/raw/`.
 Immutable row manifest hashes and counts are in
-[first-contact.json](../../probes/claude/first-contact.json); detailed comparisons
-and limitations are in the [installed ledger](../../probes/claude/interactive-candidate.md).
+[first-contact.json](../designs/claude-0.5.0/first-contact.json); detailed comparisons
+and limitations are in the [installed ledger](../designs/claude-0.5.0/interactive-candidate.md).
 
 | Observation | Raw row | Limit |
 |---|---|---|

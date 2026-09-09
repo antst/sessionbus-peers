@@ -68,8 +68,14 @@ The first runnable efcd86b archive was installed on real umka and version
 passthrough was checked. Evidence is under
 `/home/antst/sessionbus-evidence/claude-go-install-efcd86b/` on umka. That checkpoint
 includes G01 and is not final acceptance. Corrected76b921b and a056303 have separate installed artifact bindings. The
-[installed ledger](../../../probes/claude/interactive-candidate.md) records
+[installed ledger](interactive-candidate.md) records
 FC01–FC08 observations and retained limits; the a056303 candidate remains
 installed for owner manual testing. The Go kit source/module sums are bound in
 [GO-KIT-BINDING.json](GO-KIT-BINDING.json); KIT-BINDING.json remains the historical
 Node dependency record. Lane remains a separate unfinished step.
+
+The inventory's proposed `probes/claude` ledger paths are mapped to
+`docs/designs/claude-0.5.0/{first-contact.json,interactive-candidate.md}` in the
+implementation repository. These are documentation artifacts within its
+existing boundary; the root architecture allowlist is unchanged. The original
+b7a4fda handoff remains a sealed snapshot of the prior documentation layout.

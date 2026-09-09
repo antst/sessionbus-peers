@@ -20,7 +20,7 @@ found G01 blocked stdin during Go dial/write. The corrected `76b921b` binary
 passed the fresh row. Subsequent rows use `a0563035c0255c4d2fa6c3562e7a28c2506d1e5b`
 with merged public Go SDK `f8d409e98218`; later PR commits change tests, CI and
 documentation only. G01 is explicitly described in
-[GO-MIGRATION.md](../../docs/designs/claude-0.5.0/GO-MIGRATION.md).
+[GO-MIGRATION.md](GO-MIGRATION.md).
 
 Current installed binary SHA256:
 `dc5d8b745a393e32721a5f2c14d59dc2c455f59419f34a88881657bb2083d805`.
@@ -76,5 +76,5 @@ retroactive seal rewrite occurred. Earlier rows remain immutable.
 The current binary is 3,162,274 bytes plus 12,348 asset/README/license bytes;
 archive1,349,048 bytes. One Go MCP checkpoint measured5,356KiB RSS, not peak or
 a measured Node comparison. Full source, tests, held assets and Node reference
-are counted in [INTERACTIVE-SIZE.json](../../docs/designs/claude-0.5.0/INTERACTIVE-SIZE.json).
+are counted in [INTERACTIVE-SIZE.json](INTERACTIVE-SIZE.json).
 Lane L02/OB03 and end-to-end lane implementation remain unfinished.
