@@ -30,7 +30,16 @@ behavior are historical integration choices, not current Codex limitations.
   absent after close in the grant row; no direct exit-status or arbitrary
   descendant-containment claim is made.
 
-Interactive installed rows are being consolidated separately. Whole combined
+Interactive installed9b rows establish actual parent-to-lane lifecycle and
+completion-pointer collection, idle/active admission, mixed groups, native
+rename/fork/clear/resume and ordinary isolation. Normal quit and abrupt TUI death
+removed the identified owned processes/endpoints. Broker SIGKILL instead left
+stale socket files and the TUI's native reconnect UI; the bus row and native
+server/helpers disappeared. Operator removal of those exact stale paths is
+separate from product cleanup. Shared Claude smoke passed on the rebuilt real
+installation. See `docs/designs/codex-0.5.0/ACCEPTANCE.md` and its manifest index
+for exact limits, including controlled-only cancellation/lane interrupt/settings
+coverage and inherited transcript attribution. Whole combined
 9b833c3 archive size is 2,978,023 bytes, with one 7,135,394-byte linked executable
 and 7,157,883 bytes across regular payload files. The increase relative to the
 lane checkpoint includes the entire broker integration, not just the WebSocket

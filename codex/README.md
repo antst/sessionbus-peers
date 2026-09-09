@@ -1,9 +1,9 @@
 # Codex with Sessionbus
 
-This Go candidate gives a Codex lane one native App Server session and one
-Sessionbus worker. The common package also supplies the private MCP entry point
-used by the interactive broker. Both entries are wired into this same executable;
-installed interactive acceptance is still being completed at this checkpoint.
+This Go package supports interactive Codex and daemon-owned Codex lanes through
+one executable and one native plugin. Installed checks cover native identity,
+public tools, parent-to-lane work, delivery, resume and process cleanup. The
+acceptance ledger distinguishes those observations from controlled race tests.
 
 ## Install from an archive
 
@@ -103,6 +103,8 @@ arguments, without changing the installation or activation defaults:
 This grants that tool's actions, not only its read-only `list` action. Use it
 only when that access is intended. The installed acceptance exercised `list`;
 the grant is a native policy choice, not an approval added by the adapter.
+It does not enable a disabled plugin, server or tool, or override managed
+requirements. Native `strict_auto_review` has a separate policy path.
 
 ## Interactive launch
 
@@ -126,6 +128,15 @@ a caller's own `--remote` conflicts and is reported as an integration error.
 The broker uses an OS parent-exit watch and closes native stdin on shutdown,
 drains output and joins its owned child. It adds no shared server service,
 polling loop, replay queue or native history lock.
+
+Loaded native threads have separate peer rows. Rename updates the same row;
+fork adds a new one. Clear can leave earlier threads loaded and addressable;
+native thread closure or server loss withdraws their rows. Normal TUI quit and
+abrupt TUI death removed the owned processes and endpoints in installed checks.
+Killing the broker itself left stale private sockets and the TUI's native
+reconnect screen; the bus rows and native server/MCP processes disappeared.
+No individual child exit status or arbitrary-tool containment follows from
+those absence checkpoints.
 
 Native `-c`/`--config` occurrences are mirrored to App Server in order and kept
 on the TUI. Other native options go to the TUI. In particular, profile options

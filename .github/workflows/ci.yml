@@ -61,7 +61,9 @@ jobs:
           golangci-lint run ./...
       - name: Claude Go archive
         run: ./scripts/package-claude "${RUNNER_TEMP}/claude archive"
-      - name: Codex installer transaction
+      - name: Codex Go archive
+        run: ./scripts/package-codex "${RUNNER_TEMP}/codex archive"
+      - name: Historical Codex installer fixture
         run: ./scripts/test-codex-mcp
       - name: OpenCode installer and plugin
         working-directory: opencode
