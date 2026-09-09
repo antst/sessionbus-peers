@@ -100,6 +100,32 @@ after forced death remains a bus/platform ownership gap, not a wrapper PID regis
 Startup cancellation is covered by controlled actual-Worker/compiled-child tests;
 no separate installed native startup-cancellation row is claimed.
 
+## Claude-originated lane lifecycle — Claude 2.1.266
+
+The corrected live tool, doctor and generic Sessionbus skill describe lane
+operations. The unused repository marketplace was removed; the native manifest
+remains at `claude/.claude-plugin/plugin.json`. Plugin and MCP metadata now use
+`0.5.0`. Historical Node and held-reference metadata is unchanged.
+
+On installed source `3ee62d6`, native parent `ec74d626-aeb0-4da0-b28b-026b34d6cecd`
+called the public Sessionbus tool to spawn child
+`8ec6b75a-36e1-49b8-9744-70ce817264f1@local`, start a turn, wait on returned handle
+`t-1`, and close that child. The collected result was completed with the exact
+child marker; the separate child transcript has the same reply and input hash.
+The close tool result decodes to `{}`. This is the parent's real tool lifecycle,
+not an external controller's lane operations. Source:
+`/home/antst/sessionbus-evidence/claude-parent-lane-20260909/raw/parent/FINAL-SHA256SUMS`
+(43 entries). Parent quit0/reaped and three identified PIDs absent are recorded;
+child PID/exit-status accounting is not. The parent final response contained extra
+prose rather than the requested exact marker. Read-only observer executable-mode
+and group corrections are harness notes, not product failures or absence proof.
+
+Installed `9fd7aa5` subsequently makes the single skill's wording product-generic,
+using Claude as its concrete example. Archive comparison proves the binary is
+byte-equal and only that skill asset changed; no native rerun is attributed to
+the wording amendment. Installation evidence:
+`/home/antst/sessionbus-evidence/claude-parent-lane-install-9fd7aa5/`.
+
 ## Historical split archive (unchanged citations)
 
 - Claude Code 2.1.260 accepts `-p --input-format stream-json --output-format stream-json --verbose --replay-user-messages` for one resident headless session. — verified: 2.1.260 — source: `/home/antst/agentbus-evidence/claude-20260906T004825Z/native-private-mcp.processes.txt`

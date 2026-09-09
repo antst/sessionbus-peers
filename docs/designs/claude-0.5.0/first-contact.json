@@ -84,7 +84,7 @@
     }
   ],
   "interactive_installed_commit": "a0563035c0255c4d2fa6c3562e7a28c2506d1e5b",
-  "current_lane_artifact": "653b41ea6e73653ee167d18ce48bec20e7bbb271",
+  "current_lane_artifact": "9fd7aa5b4e7a136a94784821ceb7735988f534be",
   "lane_rows": [
     {
       "row": "first-open-cleanup",
@@ -238,5 +238,28 @@
     "Forced worker death can leave native Bash descendants outside its process group; generic bus/platform containment unresolved.",
     "Startup cancellation and run-boundary uncertainty have controlled real-Worker/compiled-child or stream tests, not separate installed native timing guarantees.",
     "Native control response bodies and raw exit ordering are not independently retained in every installed row."
-  ]
+  ],
+  "parent_claude_rows": [
+    {
+      "row": "parent",
+      "host": "umka-dev1",
+      "path": "/home/antst/sessionbus-evidence/claude-parent-lane-20260909/raw/parent",
+      "manifest": "FINAL-SHA256SUMS",
+      "entries": 43,
+      "sha256": "d3812c927e9feff77fabb1bc30da112064d5e146381e395cdbfbc66adef3fa7e",
+      "tested_source": "3ee62d6ebb130f28b6b7c043e57e1906c16623a9",
+      "actions": [
+        "spawn",
+        "start",
+        "wait",
+        "close"
+      ],
+      "limits": [
+        "Parent final response includes additional prose; exact child response proved.",
+        "No direct child PID/exit-status accounting; parent native tool results and separate child transcript establish lifecycle.",
+        "Read-only observer mode/group corrections recorded separately, no native rerun."
+      ]
+    }
+  ],
+  "current_install_evidence": "/home/antst/sessionbus-evidence/claude-parent-lane-install-9fd7aa5"
 }

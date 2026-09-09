@@ -85,8 +85,8 @@ Lane L02/OB03 were unfinished at that historical snapshot; the current scoped re
 The ledger filename is retained for existing references. The same permanent
 installation now contains both interactive exec and token-selected Go lane
 worker modes; the Node reference and all historical seals remain unchanged.
-Current installed source: `653b41ea6e73653ee167d18ce48bec20e7bbb271`.
-Its artifact/install records are under
+The original combined lane rows used `653b41ea6e73653ee167d18ce48bec20e7bbb271`.
+Those artifact/install records are under
 `/home/antst/sessionbus-evidence/claude-go-lane-install-653b41e/` on umka.
 
 The [lane handoff](GO-LANE.md) owns the implementation boundary. The runtime
@@ -127,3 +127,14 @@ a separate generic bus/platform gap; no full descendant-cleanup acceptance is cl
 The whole combined footprint remains in [INTERACTIVE-SIZE.json](INTERACTIVE-SIZE.json);
 its name is historical. It counts both modes, tests, active assets, linked
 dependencies, and held/reference sources without treating moves as deletion.
+
+## Parent Claude delegation correction
+
+Current installed source is `9fd7aa5b4e7a136a94784821ceb7735988f534be`; the parent
+lifecycle was tested on `3ee62d6`, with equal Go binary bytes and only the generic
+skill wording amended afterward. Native parent public spawn/start/wait/close and
+exact completed child reply are sealed in the 43-entry `parent_claude_rows`
+index. See the [product facts](../../products/claude.md#claude-originated-lane-lifecycle--claude-21266)
+for exact identities, evidence paths and accounting limits. Root marketplace
+removal and corrected tool/doctor/plugin metadata eliminate the stale unavailable-
+lane claims. This remains one generic skill and one public tool.
