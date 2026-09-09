@@ -5,7 +5,12 @@ description: Discover and message Sessionbus peers through the single sessionbus
 
 # Sessionbus
 
-Use the single `sessionbus` tool with `{action, arguments}`. Its advertised
+This skill is loaded for an explicit `claude-peer` invocation through the
+package's native per-launch plugin. Ordinary and unconfigured plain nested
+`claude` do not load it automatically. Use `claude-peer` explicitly with that
+launch's groups for an integrated child.
+
+Use `mcp__plugin_sessionbus_sessionbus__sessionbus` with `{action, arguments}`. Its advertised
 `action` enum comes from the pinned public kit: list, send, spawn, describe,
 run, start, wait, status, interrupt, close and forget. Use the actual tool and
 daemon schemas for each arguments object; do not invent convenience methods.
@@ -14,6 +19,10 @@ Call `list` to discover a peer before selecting an ambiguous name. Use the
 returned native/daemon ID as the send target. Keep bus-provided source identity
 separate from labels inside message text. Never use Claude's native session
 listing, selectors, teams or another transport to repair a failed bus call.
+
+Claude's native policy can deny the public tool; the exact launcher allow
+rule is not a bypass. Preserve a denial or omitted tool as reported, without
+changing permissions or calling the hidden report handler.
 
 The owner needs an acknowledged usable native report before a public call.
 A peer can initially have no name. Native rename becomes visible at a later

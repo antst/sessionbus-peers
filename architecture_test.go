@@ -249,11 +249,11 @@ func TestRepositoryURLsAndRemovedPaths(t *testing.T) {
 
 func TestRetainedManifestCommandReachability(t *testing.T) {
 	installed := map[string]bool{
-		"sessionbus-claude-mcp": true,
-		"claude-peer":           true,
-		"codex-peer":            true,
-		"grok-peer":             true,
-		"qwen-peer":             true,
+		"node":        true,
+		"claude-peer": true,
+		"codex-peer":  true,
+		"grok-peer":   true,
+		"qwen-peer":   true,
 	}
 	for _, item := range []struct {
 		path    string
@@ -482,7 +482,7 @@ func TestClaudeInteractivePackageBoundary(t *testing.T) {
 	if err := json.Unmarshal(read(t, "claude/package.json"), &manifest); err != nil {
 		t.Fatal(err)
 	}
-	if manifest.Name != "@sessionbus/claude" || manifest.Bin["claude-peer"] != "main.mjs" || manifest.Bin["sessionbus-claude-mcp"] != "mcp.mjs" {
+	if manifest.Name != "@sessionbus/claude" || manifest.Bin["claude-peer"] != "main.mjs" || len(manifest.Bin) != 1 {
 		t.Fatal("Claude Node executable ownership is incorrect")
 	}
 	if len(manifest.Dependencies) != 1 || manifest.Dependencies["@sessionbus/kit"] != "https://pkg.pr.new/@sessionbus/kit@5f93fbb" {

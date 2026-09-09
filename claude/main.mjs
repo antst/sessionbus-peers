@@ -5,11 +5,14 @@ import { resolve, delimiter } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { socketPath } from './owner.mjs';
 
+export const packageRoot = resolve(fileURLToPath(new URL('.', import.meta.url)));
+const activation = ['--allowedTools', 'mcp__plugin_sessionbus_sessionbus__sessionbus', '--plugin-dir', packageRoot];
+
 export function launchPlan(args, env = process.env, cwd = process.cwd()) {
   if (env.SESSIONBUS_LAUNCH_TOKEN) throw new Error('Claude lane mode is unavailable in this interactive candidate');
   const suffix = args.length >= 2 && args.at(-2) === '-g';
   const value = suffix ? args.at(-1) : '';
-  return { args: suffix ? args.slice(0, -2) : [...args], env: { ...env,
+  return { args: [...activation, ...(suffix ? args.slice(0, -2) : args)], env: { ...env,
     SESSIONBUS_GROUPS: JSON.stringify(value === '' ? [] : value.split(',')),
     SESSIONBUS_SOCKET: socketPath(env, cwd) } };
 }

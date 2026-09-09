@@ -54,3 +54,11 @@ All following raw paths resolve on umka-dev1 under `/home/antst/sessionbus-evide
 - `/clear` replaces the native Claude session ID on the same bus connection, and later delivery targets the replacement ID. — verified: 2.1.260 — source: `/home/antst/agentbus-evidence/claude-20260906T004825Z/peer-clear.after.stdout`
 - Interactive delivery through the Claude messaging socket is reported as `injected`. — verified: 2.1.260 — source: `/home/antst/agentbus-evidence/claude-20260906T004825Z/peer-delivery.stdout`
 - `UNVERIFIED:` The exact stream-json result fields and error text emitted by Claude Code 2.1.260 for every failed terminal subtype have not been captured.
+
+## Per-launch activation amendment and implementation scope
+
+AP01 on Claude2.1.266/bus b1d7adb, signed evidence293ebf3 at `/home/antst/sessionbus-evidence/claude-phase-a-20260908/AP01-ledger.md`, observes native per-launch skill expansion, hidden identity reports, named/grouped hello and one public diagnostic list call. Exact native disallow omits the public tool from observed ToolSearch results; the handler is never called. Ordinary control supplies no fixture MCP/report/row, with incomplete skill-inventory coverage. The granting rule was not isolated; the diagnostic was read-only. No production-action approval follows.
+
+The stamped [activation amendment](../designs/claude-0.5.0/ACTIVATION-AMENDMENT.md) replaces global publication with npm-only per-launch whole-plugin loading. The launcher prefixes exact allow then plugin-dir before verbatim native argv; only its final group suffix is consumed. One public bin, native-root MCP path, three hidden hooks and the bundled skill are included. Production multi-action tool has no read-only annotation. Plain unconfigured nested Claude remains ordinary; earlier globally installed FP05 evidence does not prove inherited flags.
+
+Offline package/transport tests establish implementation behavior only. Actual installed payload, exact production prefix, native permissions, FC01–FC08 and lane acceptance remain separately gated; no current production native run is claimed.

@@ -29,8 +29,11 @@ and is not installed under the competing `claude-peer` name.
 
 Claude's interactive candidate is the separate `@sessionbus/claude` Node
 package in [`claude/`](claude/README.md), version 0.5.0-interactive.0. It owns
-`claude-peer` and `sessionbus-claude-mcp`. Follow its README for the separately
-sequenced native installation and removal. This is an interactive-only
+`claude-peer`. Install from this checkout with `npm ci --prefix claude` then
+`npm install --global ./claude`; no native marketplace or plugin registration
+is required. Run `claude-peer` to load its bundled skill, hooks and tools for
+that session. Ordinary `claude` remains ordinary unless explicitly configured
+otherwise. Follow its README for use and `npm uninstall --global @sessionbus/claude`. This is an interactive-only
 implementation branch; installed first contact has not run and token mode is
 explicitly unavailable. Do not register it as the daemon's Claude lane command.
 

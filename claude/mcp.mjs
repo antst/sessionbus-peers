@@ -1,5 +1,8 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: MIT
+import { realpathSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { Owner } from './owner.mjs';
 import { createInterface } from 'node:readline';
 import { ProtocolError } from '@sessionbus/kit';
 import { callTool, tool } from './tools.mjs';
@@ -70,4 +73,9 @@ function cancellable(value, signal) {
     if(signal.aborted) abort();
     Promise.resolve(value).then(value=>finish(resolve,value),error=>finish(reject,error));
   });
+}
+
+if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  try { serve(new Owner(), process.stdin, process.stdout); }
+  catch (error) { process.stderr.write(`sessionbus: ${error.message}\n`); process.exitCode = 1; }
 }

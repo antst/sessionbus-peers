@@ -1,0 +1,955 @@
+{
+  "schema": 1,
+  "implementation_base": "21dea989ac700ec5ba072983a155f17706c7f381",
+  "inventory_baseline": "d65ffaa21a05490ababc13da19c2b4d97c7d8ce5",
+  "method": "Physical lines use bytes.splitlines; whole tracked repository and whole files, including unchanged guidance. Self-accounting file included in final totals, omitted from content digest. npm pack lists real tarball files; dependencies count installed production bytes separately. No native runtime acceptance.",
+  "scope": "Interactive only; held Go lane and other products/dependencies remain. Runtime/test targets are review triggers, not total implementation size.",
+  "generator": {
+    "path": "/home/antst/sessionbus-evidence/claude-interactive-offline-20260909/size.py",
+    "sha256": "8f9a6d8707bd8d9f81a64ebe1e31c08f16adb40f0812356c6cb60293d94d7d1b",
+    "bytes": 5659,
+    "physical_lines": 26,
+    "scope": "Offline accounting helper outside runtime/package; bytes and lines reported, no installation/helper process added"
+  },
+  "tools": {
+    "node": "v25.9.0",
+    "npm": "11.12.1",
+    "go": "go1.26.5 linux/amd64"
+  },
+  "before": {
+    "repository": {
+      "files": 121,
+      "bytes": 853718,
+      "physical_lines": 18497
+    },
+    "claude_package": {
+      "files": 17,
+      "bytes": 54279,
+      "physical_lines": 1097
+    },
+    "inventory_claude_package": {
+      "files": 17,
+      "bytes": 55495,
+      "physical_lines": 1105
+    },
+    "removed_interactive_go": {
+      "wrappers/claude/peer.go": {
+        "bytes": 5490,
+        "physical_lines": 171
+      },
+      "wrappers/claude/peer_test.go": {
+        "bytes": 8408,
+        "physical_lines": 213
+      }
+    }
+  },
+  "after": {
+    "repository": {
+      "files": 145,
+      "bytes": 1041427,
+      "physical_lines": 20479
+    },
+    "claude_package": {
+      "files": 31,
+      "bytes": 100540,
+      "physical_lines": 1881
+    },
+    "package_categories": {
+      "runtime": {
+        "files": 5,
+        "bytes": 13994,
+        "physical_lines": 278
+      },
+      "tests": {
+        "files": 6,
+        "bytes": 28097,
+        "physical_lines": 384
+      },
+      "manifests_and_lock": {
+        "files": 5,
+        "bytes": 3507,
+        "physical_lines": 146
+      },
+      "guidance_and_retained_scripts": {
+        "files": 15,
+        "bytes": 54942,
+        "physical_lines": 1073
+      }
+    },
+    "runtime_modules": [
+      "claude/main.mjs",
+      "claude/mcp.mjs",
+      "claude/owner.mjs",
+      "claude/delivery.mjs",
+      "claude/tools.mjs"
+    ],
+    "test_files": [
+      "claude/main.test.mjs",
+      "claude/mcp.test.mjs",
+      "claude/owner.test.mjs",
+      "claude/delivery.test.mjs",
+      "claude/tools.test.mjs",
+      "claude/install.test.mjs"
+    ]
+  },
+  "package_files": [
+    {
+      "path": "claude/.claude-plugin/plugin.json",
+      "bytes": 325,
+      "physical_lines": 13
+    },
+    {
+      "path": "claude/.mcp.json",
+      "bytes": 141,
+      "physical_lines": 10
+    },
+    {
+      "path": "claude/README.md",
+      "bytes": 6351,
+      "physical_lines": 102
+    },
+    {
+      "path": "claude/commands/doctor.md",
+      "bytes": 1537,
+      "physical_lines": 26
+    },
+    {
+      "path": "claude/delivery.mjs",
+      "bytes": 1928,
+      "physical_lines": 38
+    },
+    {
+      "path": "claude/delivery.test.mjs",
+      "bytes": 4103,
+      "physical_lines": 56
+    },
+    {
+      "path": "claude/hooks/hooks.json",
+      "bytes": 1496,
+      "physical_lines": 58
+    },
+    {
+      "path": "claude/install.test.mjs",
+      "bytes": 4658,
+      "physical_lines": 59
+    },
+    {
+      "path": "claude/main.mjs",
+      "bytes": 1799,
+      "physical_lines": 37
+    },
+    {
+      "path": "claude/main.test.mjs",
+      "bytes": 3436,
+      "physical_lines": 51
+    },
+    {
+      "path": "claude/mcp.mjs",
+      "bytes": 4268,
+      "physical_lines": 81
+    },
+    {
+      "path": "claude/mcp.test.mjs",
+      "bytes": 5807,
+      "physical_lines": 73
+    },
+    {
+      "path": "claude/owner.mjs",
+      "bytes": 5174,
+      "physical_lines": 106
+    },
+    {
+      "path": "claude/owner.test.mjs",
+      "bytes": 8086,
+      "physical_lines": 116
+    },
+    {
+      "path": "claude/package-lock.json",
+      "bytes": 751,
+      "physical_lines": 28
+    },
+    {
+      "path": "claude/package.json",
+      "bytes": 794,
+      "physical_lines": 37
+    },
+    {
+      "path": "claude/skills/claude-lane/SKILL.md",
+      "bytes": 2770,
+      "physical_lines": 55
+    },
+    {
+      "path": "claude/skills/codex-lane/SKILL.md",
+      "bytes": 11586,
+      "physical_lines": 205
+    },
+    {
+      "path": "claude/skills/codex-lane/references/events.md",
+      "bytes": 5974,
+      "physical_lines": 107
+    },
+    {
+      "path": "claude/skills/codex-lane/references/failures.md",
+      "bytes": 3601,
+      "physical_lines": 46
+    },
+    {
+      "path": "claude/skills/codex-lane/references/install.md",
+      "bytes": 1840,
+      "physical_lines": 60
+    },
+    {
+      "path": "claude/skills/codex-lane/references/policy.md",
+      "bytes": 4412,
+      "physical_lines": 82
+    },
+    {
+      "path": "claude/skills/codex-lane/scripts/lane-preflight",
+      "bytes": 3615,
+      "physical_lines": 111
+    },
+    {
+      "path": "claude/skills/grok-lane/SKILL.md",
+      "bytes": 3830,
+      "physical_lines": 79
+    },
+    {
+      "path": "claude/skills/grok-lane/references/contract.md",
+      "bytes": 1732,
+      "physical_lines": 24
+    },
+    {
+      "path": "claude/skills/grok-lane/references/install.md",
+      "bytes": 485,
+      "physical_lines": 17
+    },
+    {
+      "path": "claude/skills/grok-lane/scripts/lane-preflight",
+      "bytes": 1953,
+      "physical_lines": 58
+    },
+    {
+      "path": "claude/skills/qwen-lane/SKILL.md",
+      "bytes": 2689,
+      "physical_lines": 55
+    },
+    {
+      "path": "claude/skills/sessionbus/SKILL.md",
+      "bytes": 2567,
+      "physical_lines": 46
+    },
+    {
+      "path": "claude/tools.mjs",
+      "bytes": 825,
+      "physical_lines": 16
+    },
+    {
+      "path": "claude/tools.test.mjs",
+      "bytes": 2007,
+      "physical_lines": 29
+    }
+  ],
+  "shared_whole_files": [
+    {
+      "path": "wrappers/claude/claude.go",
+      "before": {
+        "bytes": 15887,
+        "physical_lines": 543
+      },
+      "after": {
+        "bytes": 13512,
+        "physical_lines": 475
+      }
+    },
+    {
+      "path": "wrappers/claude/claude_test.go",
+      "before": {
+        "bytes": 17342,
+        "physical_lines": 398
+      },
+      "after": {
+        "bytes": 15660,
+        "physical_lines": 369
+      }
+    },
+    {
+      "path": "cmd/claude-peer/main.go",
+      "before": {
+        "bytes": 1836,
+        "physical_lines": 73
+      },
+      "after": {
+        "bytes": 1684,
+        "physical_lines": 60
+      }
+    },
+    {
+      "path": "cmd/claude-peer/main_test.go",
+      "before": {
+        "bytes": 369,
+        "physical_lines": 18
+      },
+      "after": {
+        "bytes": 369,
+        "physical_lines": 18
+      }
+    },
+    {
+      "path": "architecture_test.go",
+      "before": {
+        "bytes": 16146,
+        "physical_lines": 473
+      },
+      "after": {
+        "bytes": 17665,
+        "physical_lines": 508
+      }
+    },
+    {
+      "path": ".github/workflows/ci.yml",
+      "before": {
+        "bytes": 1985,
+        "physical_lines": 79
+      },
+      "after": {
+        "bytes": 2172,
+        "physical_lines": 85
+      }
+    },
+    {
+      "path": ".github/workflows/pkg-pr-new.yml",
+      "before": {
+        "bytes": 1472,
+        "physical_lines": 45
+      },
+      "after": {
+        "bytes": 2197,
+        "physical_lines": 68
+      }
+    },
+    {
+      "path": ".forgejo/workflows/ci.yml",
+      "before": {
+        "bytes": 1577,
+        "physical_lines": 62
+      },
+      "after": {
+        "bytes": 1713,
+        "physical_lines": 65
+      }
+    },
+    {
+      "path": "README.md",
+      "before": {
+        "bytes": 3834,
+        "physical_lines": 89
+      },
+      "after": {
+        "bytes": 4723,
+        "physical_lines": 100
+      }
+    },
+    {
+      "path": ".claude-plugin/marketplace.json",
+      "before": {
+        "bytes": 755,
+        "physical_lines": 28
+      },
+      "after": {
+        "bytes": 759,
+        "physical_lines": 28
+      }
+    },
+    {
+      "path": "docs/products/claude.md",
+      "before": {
+        "bytes": 6212,
+        "physical_lines": 35
+      },
+      "after": {
+        "bytes": 12032,
+        "physical_lines": 64
+      }
+    }
+  ],
+  "changed_files": [
+    {
+      "path": ".claude-plugin/marketplace.json",
+      "before": {
+        "bytes": 755,
+        "physical_lines": 28
+      },
+      "after": {
+        "bytes": 759,
+        "physical_lines": 28
+      }
+    },
+    {
+      "path": ".forgejo/workflows/ci.yml",
+      "before": {
+        "bytes": 1577,
+        "physical_lines": 62
+      },
+      "after": {
+        "bytes": 1713,
+        "physical_lines": 65
+      }
+    },
+    {
+      "path": ".github/workflows/ci.yml",
+      "before": {
+        "bytes": 1985,
+        "physical_lines": 79
+      },
+      "after": {
+        "bytes": 2172,
+        "physical_lines": 85
+      }
+    },
+    {
+      "path": ".github/workflows/pkg-pr-new.yml",
+      "before": {
+        "bytes": 1472,
+        "physical_lines": 45
+      },
+      "after": {
+        "bytes": 2197,
+        "physical_lines": 68
+      }
+    },
+    {
+      "path": "README.md",
+      "before": {
+        "bytes": 3834,
+        "physical_lines": 89
+      },
+      "after": {
+        "bytes": 4723,
+        "physical_lines": 100
+      }
+    },
+    {
+      "path": "architecture_test.go",
+      "before": {
+        "bytes": 16146,
+        "physical_lines": 473
+      },
+      "after": {
+        "bytes": 17665,
+        "physical_lines": 508
+      }
+    },
+    {
+      "path": "claude/.claude-plugin/plugin.json",
+      "before": {
+        "bytes": 355,
+        "physical_lines": 17
+      },
+      "after": {
+        "bytes": 325,
+        "physical_lines": 13
+      }
+    },
+    {
+      "path": "claude/.mcp.json",
+      "before": {
+        "bytes": 122,
+        "physical_lines": 10
+      },
+      "after": {
+        "bytes": 141,
+        "physical_lines": 10
+      }
+    },
+    {
+      "path": "claude/README.md",
+      "before": {
+        "bytes": 3566,
+        "physical_lines": 66
+      },
+      "after": {
+        "bytes": 6351,
+        "physical_lines": 102
+      }
+    },
+    {
+      "path": "claude/commands/doctor.md",
+      "before": {
+        "bytes": 1503,
+        "physical_lines": 27
+      },
+      "after": {
+        "bytes": 1537,
+        "physical_lines": 26
+      }
+    },
+    {
+      "path": "claude/delivery.mjs",
+      "before": null,
+      "after": {
+        "bytes": 1928,
+        "physical_lines": 38
+      }
+    },
+    {
+      "path": "claude/delivery.test.mjs",
+      "before": null,
+      "after": {
+        "bytes": 4103,
+        "physical_lines": 56
+      }
+    },
+    {
+      "path": "claude/hooks/hooks.json",
+      "before": null,
+      "after": {
+        "bytes": 1496,
+        "physical_lines": 58
+      }
+    },
+    {
+      "path": "claude/install.test.mjs",
+      "before": null,
+      "after": {
+        "bytes": 4658,
+        "physical_lines": 59
+      }
+    },
+    {
+      "path": "claude/main.mjs",
+      "before": null,
+      "after": {
+        "bytes": 1799,
+        "physical_lines": 37
+      }
+    },
+    {
+      "path": "claude/main.test.mjs",
+      "before": null,
+      "after": {
+        "bytes": 3436,
+        "physical_lines": 51
+      }
+    },
+    {
+      "path": "claude/mcp.mjs",
+      "before": null,
+      "after": {
+        "bytes": 4268,
+        "physical_lines": 81
+      }
+    },
+    {
+      "path": "claude/mcp.test.mjs",
+      "before": null,
+      "after": {
+        "bytes": 5807,
+        "physical_lines": 73
+      }
+    },
+    {
+      "path": "claude/owner.mjs",
+      "before": null,
+      "after": {
+        "bytes": 5174,
+        "physical_lines": 106
+      }
+    },
+    {
+      "path": "claude/owner.test.mjs",
+      "before": null,
+      "after": {
+        "bytes": 8086,
+        "physical_lines": 116
+      }
+    },
+    {
+      "path": "claude/package-lock.json",
+      "before": null,
+      "after": {
+        "bytes": 751,
+        "physical_lines": 28
+      }
+    },
+    {
+      "path": "claude/package.json",
+      "before": null,
+      "after": {
+        "bytes": 794,
+        "physical_lines": 37
+      }
+    },
+    {
+      "path": "claude/skills/sessionbus/SKILL.md",
+      "before": {
+        "bytes": 4246,
+        "physical_lines": 78
+      },
+      "after": {
+        "bytes": 2567,
+        "physical_lines": 46
+      }
+    },
+    {
+      "path": "claude/tools.mjs",
+      "before": null,
+      "after": {
+        "bytes": 825,
+        "physical_lines": 16
+      }
+    },
+    {
+      "path": "claude/tools.test.mjs",
+      "before": null,
+      "after": {
+        "bytes": 2007,
+        "physical_lines": 29
+      }
+    },
+    {
+      "path": "cmd/claude-peer/main.go",
+      "before": {
+        "bytes": 1836,
+        "physical_lines": 73
+      },
+      "after": {
+        "bytes": 1684,
+        "physical_lines": 60
+      }
+    },
+    {
+      "path": "docs/designs/claude-0.5.0/ACTIVATION-AMENDMENT.md",
+      "before": null,
+      "after": {
+        "bytes": 11799,
+        "physical_lines": 78
+      }
+    },
+    {
+      "path": "docs/designs/claude-0.5.0/ACTIVATION-REVIEW.md",
+      "before": null,
+      "after": {
+        "bytes": 8500,
+        "physical_lines": 40
+      }
+    },
+    {
+      "path": "docs/designs/claude-0.5.0/B04-DESIGN.md",
+      "before": null,
+      "after": {
+        "bytes": 3982,
+        "physical_lines": 17
+      }
+    },
+    {
+      "path": "docs/designs/claude-0.5.0/B05-EDGE-AND-CONTRADICTION-ANALYSIS.md",
+      "before": null,
+      "after": {
+        "bytes": 40220,
+        "physical_lines": 166
+      }
+    },
+    {
+      "path": "docs/designs/claude-0.5.0/B06-PLAN.md",
+      "before": null,
+      "after": {
+        "bytes": 5210,
+        "physical_lines": 23
+      }
+    },
+    {
+      "path": "docs/designs/claude-0.5.0/FIRST-REPORT-CONTRACT.md",
+      "before": null,
+      "after": {
+        "bytes": 5299,
+        "physical_lines": 31
+      }
+    },
+    {
+      "path": "docs/designs/claude-0.5.0/FP06-COMPOSITION-PROPOSAL.md",
+      "before": null,
+      "after": {
+        "bytes": 3788,
+        "physical_lines": 18
+      }
+    },
+    {
+      "path": "docs/designs/claude-0.5.0/IMPLEMENTATION-BASE.md",
+      "before": null,
+      "after": {
+        "bytes": 1738,
+        "physical_lines": 9
+      }
+    },
+    {
+      "path": "docs/designs/claude-0.5.0/INTERACTIVE-IMPLEMENTATION-INVENTORY.md",
+      "before": null,
+      "after": {
+        "bytes": 29465,
+        "physical_lines": 124
+      }
+    },
+    {
+      "path": "docs/designs/claude-0.5.0/KIT-BINDING.json",
+      "before": null,
+      "after": {
+        "bytes": 1194,
+        "physical_lines": 36
+      }
+    },
+    {
+      "path": "docs/designs/claude-0.5.0/REQUIREMENTS.md",
+      "before": null,
+      "after": {
+        "bytes": 18315,
+        "physical_lines": 88
+      }
+    },
+    {
+      "path": "docs/products/claude.md",
+      "before": {
+        "bytes": 6212,
+        "physical_lines": 35
+      },
+      "after": {
+        "bytes": 12032,
+        "physical_lines": 64
+      }
+    },
+    {
+      "path": "wrappers/claude/claude.go",
+      "before": {
+        "bytes": 15887,
+        "physical_lines": 543
+      },
+      "after": {
+        "bytes": 13512,
+        "physical_lines": 475
+      }
+    },
+    {
+      "path": "wrappers/claude/claude_test.go",
+      "before": {
+        "bytes": 17342,
+        "physical_lines": 398
+      },
+      "after": {
+        "bytes": 15660,
+        "physical_lines": 369
+      }
+    },
+    {
+      "path": "wrappers/claude/peer.go",
+      "before": {
+        "bytes": 5490,
+        "physical_lines": 171
+      },
+      "after": null
+    },
+    {
+      "path": "wrappers/claude/peer_test.go",
+      "before": {
+        "bytes": 8408,
+        "physical_lines": 213
+      },
+      "after": null
+    }
+  ],
+  "partial_shared_deletions": [
+    "4\t17\tcmd/claude-peer/main.go",
+    "0\t68\twrappers/claude/claude.go",
+    "0\t29\twrappers/claude/claude_test.go"
+  ],
+  "npm_pack": {
+    "name": "@sessionbus/claude",
+    "version": "0.5.0-interactive.0",
+    "size": 24341,
+    "unpackedSize": 71692,
+    "shasum": "7491a6dbee32becb6ff96053f211359bf1c9bfef",
+    "integrity": "sha512-5xMo5AemedBHYykeuabSjusYpykRtBxjLGEYfXiKDHWNO8omweMTQygxMh62Ygu6QTZM1ng+hf8sfJEpu7yGrw==",
+    "filename": "sessionbus-claude-0.5.0-interactive.0.tgz",
+    "files": [
+      {
+        "path": ".claude-plugin/plugin.json",
+        "size": 325,
+        "mode": 420
+      },
+      {
+        "path": ".mcp.json",
+        "size": 141,
+        "mode": 420
+      },
+      {
+        "path": "README.md",
+        "size": 6351,
+        "mode": 420
+      },
+      {
+        "path": "commands/doctor.md",
+        "size": 1537,
+        "mode": 420
+      },
+      {
+        "path": "delivery.mjs",
+        "size": 1928,
+        "mode": 420
+      },
+      {
+        "path": "hooks/hooks.json",
+        "size": 1496,
+        "mode": 420
+      },
+      {
+        "path": "main.mjs",
+        "size": 1799,
+        "mode": 493
+      },
+      {
+        "path": "mcp.mjs",
+        "size": 4268,
+        "mode": 493
+      },
+      {
+        "path": "owner.mjs",
+        "size": 5174,
+        "mode": 420
+      },
+      {
+        "path": "package.json",
+        "size": 794,
+        "mode": 420
+      },
+      {
+        "path": "skills/claude-lane/SKILL.md",
+        "size": 2770,
+        "mode": 420
+      },
+      {
+        "path": "skills/codex-lane/references/events.md",
+        "size": 5974,
+        "mode": 420
+      },
+      {
+        "path": "skills/codex-lane/references/failures.md",
+        "size": 3601,
+        "mode": 420
+      },
+      {
+        "path": "skills/codex-lane/references/install.md",
+        "size": 1840,
+        "mode": 420
+      },
+      {
+        "path": "skills/codex-lane/references/policy.md",
+        "size": 4412,
+        "mode": 420
+      },
+      {
+        "path": "skills/codex-lane/scripts/lane-preflight",
+        "size": 3615,
+        "mode": 493
+      },
+      {
+        "path": "skills/codex-lane/SKILL.md",
+        "size": 11586,
+        "mode": 420
+      },
+      {
+        "path": "skills/grok-lane/references/contract.md",
+        "size": 1732,
+        "mode": 420
+      },
+      {
+        "path": "skills/grok-lane/references/install.md",
+        "size": 485,
+        "mode": 420
+      },
+      {
+        "path": "skills/grok-lane/scripts/lane-preflight",
+        "size": 1953,
+        "mode": 493
+      },
+      {
+        "path": "skills/grok-lane/SKILL.md",
+        "size": 3830,
+        "mode": 420
+      },
+      {
+        "path": "skills/qwen-lane/SKILL.md",
+        "size": 2689,
+        "mode": 420
+      },
+      {
+        "path": "skills/sessionbus/SKILL.md",
+        "size": 2567,
+        "mode": 420
+      },
+      {
+        "path": "tools.mjs",
+        "size": 825,
+        "mode": 420
+      }
+    ],
+    "entryCount": 24,
+    "bundled": []
+  },
+  "production_dependencies": {
+    "direct_count": 1,
+    "names": [
+      "@sessionbus/kit"
+    ],
+    "installed_tree": {
+      "files": 8,
+      "bytes": 49638,
+      "physical_lines": 882
+    },
+    "installed_file_bytes": [
+      {
+        "path": ".package-lock.json",
+        "bytes": 417
+      },
+      {
+        "path": "@sessionbus/kit/package.json",
+        "bytes": 542
+      },
+      {
+        "path": "@sessionbus/kit/sdk/go/protocol/session.schema.json",
+        "bytes": 16974
+      },
+      {
+        "path": "@sessionbus/kit/sdk/js/LICENSE",
+        "bytes": 1080
+      },
+      {
+        "path": "@sessionbus/kit/sdk/js/caller.js",
+        "bytes": 5069
+      },
+      {
+        "path": "@sessionbus/kit/sdk/js/connection.js",
+        "bytes": 6617
+      },
+      {
+        "path": "@sessionbus/kit/sdk/js/index.js",
+        "bytes": 14562
+      },
+      {
+        "path": "@sessionbus/kit/sdk/js/schema.js",
+        "bytes": 4377
+      }
+    ],
+    "kit_binding": "KIT-BINDING.json",
+    "scope": "Includes installed kit and npm metadata; no dependency removal credited. Shared Go SDK retained and excluded from Node dependency subtotal."
+  },
+  "final_content_digest_excluding_this_file": "53eeb27cd48ad24c6f43df8353a7add222034c13ace96ac93ba1191ee8b2e22e",
+  "validation": {
+    "claude_tests": 28,
+    "opencode_tests": 31,
+    "go_test": "pass",
+    "go_race": "pass",
+    "go_vet": "pass",
+    "golangci_lint": "0 issues",
+    "actionlint": "pass",
+    "codex_installer_transaction": "pass",
+    "pack_install_remove": "temporary local prefix with spaces; real npm bin and stdio entry; no native Claude/daemon execution"
+  }
+}

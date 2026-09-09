@@ -7,9 +7,12 @@ Do not run an automatic repair, probe loop, login change, installer or service
 restart. No diagnostic command is embedded in this document.
 
 Confirm the Node/npm executable paths and that Node supplies `process.execve`.
-Confirm `claude-peer` and `sessionbus-claude-mcp` resolve to the intended
-`@sessionbus/claude` installation. Inspect native plugin inventory and its
-reported status using Claude's own commands. Do not print configuration dumps,
+Confirm `claude-peer` resolves to the intended `@sessionbus/claude` npm
+installation. The native per-launch plugin uses `node` and its own
+`${CLAUDE_PLUGIN_ROOT}/mcp.mjs`; there is no second public bin or required
+global marketplace installation. Inspect the current session's plugin/MCP
+status with Claude's native commands. Ordinary `claude` does not activate this
+package by installation alone; existing global plugins remain separate. Do not print configuration dumps,
 credentials or environment values.
 
 When an acknowledged peer exists, the single `sessionbus` tool's `list` action

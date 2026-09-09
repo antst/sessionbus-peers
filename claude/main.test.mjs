@@ -7,19 +7,20 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
-import { launchPlan, nativePath } from './main.mjs';
+import { launchPlan, nativePath, packageRoot } from './main.mjs';
 import { socketPath } from './owner.mjs';
 
+const prefix = ['--allowedTools','mcp__plugin_sessionbus_sessionbus__sessionbus','--plugin-dir',packageRoot];
 const main = fileURLToPath(new URL('./main.mjs', import.meta.url));
 test('only terminal group pair is consumed; all native argv stays byte-exact', () => {
   for (const args of [[], ['-n',''], ['--resume','name','--resume','other'], ['--','-g'],
-    ['mcp'], ['--bad=value'], ['--model','-g','prompt','extra'], ['-g','a','--version']]) {
+    ['plain prompt'], ['--allowedTools','caller-tool','--disallowedTools','caller-deny'], ['--plugin-dir','caller root'], ['mcp'], ['--bad=value'], ['--model','-g','prompt','extra'], ['-g','a','--version']]) {
     const p = launchPlan(args, { PATH:'/bin', SESSIONBUS_GROUPS:'["old"]' });
-    assert.deepEqual(p.args, args); assert.equal(p.env.SESSIONBUS_GROUPS, '[]');
+    assert.deepEqual(p.args, [...prefix,...args]); assert.equal(p.env.SESSIONBUS_GROUPS, '[]');
   }
   for (const [value, groups] of [['',[]], ['a,b',['a','b']], [' a,,a,',[' a','','a','']]]) {
     const p = launchPlan(['--','-n','native','-g',value], {});
-    assert.deepEqual(p.args, ['--','-n','native']); assert.deepEqual(JSON.parse(p.env.SESSIONBUS_GROUPS), groups);
+    assert.deepEqual(p.args, [...prefix,'--','-n','native']); assert.deepEqual(JSON.parse(p.env.SESSIONBUS_GROUPS), groups);
   }
   assert.throws(() => launchPlan([], { SESSIONBUS_LAUNCH_TOKEN:'test' }), /lane mode is unavailable/);
 });
@@ -44,7 +45,7 @@ test('real exec preserves PID, argv, cwd, stdin/stdout/stderr, exit and signal',
     const p = spawn(process.execPath,[main,'-n','exact','--',mode,'-g','a,b'],{cwd:dir,env:{...process.env,PATH:dir,SESSIONBUS_LAUNCH_TOKEN:''}});
     let out='',err=''; p.stdout.on('data',b=>out+=b); p.stderr.on('data',b=>err+=b);
     const closed=once(p,'close'); p.stdin.end('fixture-input'); const [code,signal]=await closed;
-    assert.deepEqual(JSON.parse(out),{pid:p.pid,cwd:dir,args:['-n','exact','--',mode],input:'fixture-input',groups:'["a","b"]'});
+    assert.deepEqual(JSON.parse(out),{pid:p.pid,cwd:dir,args:[...prefix,'-n','exact','--',mode],input:'fixture-input',groups:'["a","b"]'});
     assert.ok(err.includes('fixture-error')); assert.equal(code,mode==='exit'?17:null); assert.equal(signal,mode==='signal'?'SIGTERM':null);
   }
 });

@@ -1,14 +1,14 @@
 {
   "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
   "name": "sessionbus",
-  "description": "Sessionbus orchestration surface for named, messageable Codex, Claude, Grok, and Qwen sessions.",
+  "description": "Repository metadata for the Claude interactive candidate; install through npm and launch explicitly.",
   "owner": {
     "name": "Sessionbus contributors"
   },
   "plugins": [
     {
       "name": "sessionbus",
-      "description": "Start, collect, message, resume, and archive named Codex, Claude, Grok, and Qwen sessions.",
+      "description": "Claude interactive candidate with per-launch communication; Claude lane mode unavailable.",
       "author": {
         "name": "Sessionbus contributors"
       },
