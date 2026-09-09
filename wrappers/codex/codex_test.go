@@ -17,7 +17,6 @@ import (
 
 	"github.com/antst/sessionbus-peers/internal/testsocket"
 	"github.com/antst/sessionbus-peers/wrappers/host"
-	"github.com/antst/sessionbus-peers/wrappers/mcp"
 	sessionkit "github.com/antst/sessionbus/bus/sdk/go"
 )
 
@@ -39,8 +38,8 @@ func TestWrapperFreshOpenAndClose(t *testing.T) {
 	}
 	t.Cleanup(func() { laneCommand = original })
 	socket := filepath.Join(testsocket.Directory(t), "sessionbus.sock")
-	p := New(socket, "provisional")
-	p.backend = mcp.BackendFunc(func(context.Context, string, any) (json.RawMessage, error) { return json.RawMessage(`{}`), nil })
+	p := New()
+	p.SetCall(func(context.Context, string, any) (json.RawMessage, error) { return json.RawMessage(`{}`), nil })
 	result, err := p.Open(context.Background(), sessionkit.OpenRequest{
 		Name: "parent/lane@host", Open: sessionkit.OpenOptions{Cwd: workspace, Model: "gpt-test", ReasoningEffort: "high", Arguments: []string{"--enable", "feature"}},
 	})
@@ -64,21 +63,26 @@ func TestWrapperFreshOpenAndClose(t *testing.T) {
 	if json.Unmarshal(body, &observed) != nil {
 		t.Fatalf("evidence = %s", body)
 	}
-	wantTail := []string{"--enable", "feature", "app-server", "--stdio"}
+	wantTail := []string{"--enable", "feature"}
 	if !slices.Equal(observed.Args[len(observed.Args)-len(wantTail):], wantTail) {
 		t.Fatalf("args = %v", observed.Args)
 	}
-	if slices.Contains(observed.Env, host.TokenEnv) || !slices.Contains(observed.Env, mcp.LaneSocketEnv) {
+	if slices.Contains(observed.Env, host.TokenEnv) || !slices.Contains(observed.Env, EndpointEnv) {
 		t.Fatalf("env names = %v", observed.Env)
 	}
-	if len(observed.Calls) < 7 || observed.Calls[2].Method != "thread/start" || !strings.Contains(string(observed.Calls[2].Params), `"sessionbus"`) || !strings.Contains(string(observed.Calls[2].Params), `"code_mode_host":false`) {
-		t.Fatalf("calls = %#v", observed.Calls)
+	for _, call := range observed.Calls {
+		if call.Method == "thread/delete" || call.Method == "thread/archive" {
+			t.Fatalf("close mutated history: %+v", call)
+		}
+		if strings.Contains(string(call.Params), `"approvalPolicy"`) || strings.Contains(string(call.Params), `"code_mode_host"`) {
+			t.Fatalf("implicit policy override: %+v", call)
+		}
 	}
-	if _, err = os.Stat(filepath.Join(filepath.Dir(socket), "locks", "codex", "thread-1")); err != nil {
-		t.Fatalf("renamed lock: %v", err)
+	if _, err = os.Stat(filepath.Join(filepath.Dir(socket), "locks")); !os.IsNotExist(err) {
+		t.Fatalf("lock created: %v", err)
 	}
-	if _, err = os.Stat(filepath.Join(filepath.Dir(socket), "lanes", "provisional.sock")); !os.IsNotExist(err) {
-		t.Fatalf("lane socket remains: %v", err)
+	if _, err = os.Stat(p.endpoint.path); !os.IsNotExist(err) {
+		t.Fatalf("endpoint remains: %v", err)
 	}
 }
 
@@ -101,6 +105,9 @@ func TestCodexProcess(t *testing.T) {
 		names = append(names, name)
 	}
 	calls := []appRequest{}
+	title := ""
+	var mcp net.Conn
+	var mcpDecoder *json.Decoder
 	decoder, encoder := json.NewDecoder(os.Stdin), json.NewEncoder(os.Stdout)
 	for {
 		var request appRequest
@@ -116,9 +123,24 @@ func TestCodexProcess(t *testing.T) {
 		result := any(map[string]any{})
 		switch request.Method {
 		case "thread/start":
-			result = map[string]any{"thread": map[string]string{"id": "thread-1"}, "cwd": os.Getenv("CODEX_TEST_CWD"), "approvalPolicy": "never", "sandbox": map[string]string{"type": "readOnly"}}
+			mcp, _ = net.Dial("unix", os.Getenv(EndpointEnv))
+			if mcp != nil {
+				_ = json.NewEncoder(mcp).Encode(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": map[string]string{"protocolVersion": "2024-11-05"}})
+				mcpDecoder = json.NewDecoder(mcp)
+				var frame any
+				_ = mcpDecoder.Decode(&frame)
+			}
+			startup := first(os.Getenv("CODEX_TEST_STARTUP_STATUS"), "ready")
+			_ = encoder.Encode(map[string]any{"method": "mcpServer/startupStatus/updated", "params": map[string]string{"threadId": "thread-1", "name": "sessionbus", "status": startup}})
+			result = map[string]any{"thread": map[string]string{"id": "thread-1", "name": title}, "cwd": os.Getenv("CODEX_TEST_CWD"), "approvalPolicy": "never", "sandbox": map[string]string{"type": "readOnly"}}
+		case "thread/name/set":
+			var params struct{ Name string }
+			_ = json.Unmarshal(request.Params, &params)
+			title = params.Name
+		case "mcpServerStatus/list":
+			result = map[string]any{"data": []any{map[string]any{"name": "sessionbus", "pluginId": "codex@sessionbus-peers", "runtimeStatus": "connected", "tools": map[string]any{"sessionbus": map[string]string{"name": "sessionbus"}}}}}
 		case "thread/resume":
-			result = map[string]any{"thread": map[string]string{"id": "thread-1"}, "cwd": os.Getenv("CODEX_TEST_CWD"), "approvalPolicy": "never", "sandbox": map[string]string{"type": "readOnly"}}
+			result = map[string]any{"thread": map[string]string{"id": "thread-1", "name": title}, "cwd": os.Getenv("CODEX_TEST_CWD"), "approvalPolicy": "never", "sandbox": map[string]string{"type": "readOnly"}}
 		}
 		if request.ID != 0 {
 			_ = encoder.Encode(map[string]any{"id": request.ID, "result": result})
@@ -143,8 +165,8 @@ func TestAbnormalRunCarriesNothingIntoReopen(t *testing.T) {
 	}
 	t.Setenv(host.TokenEnv, "token")
 	t.Setenv(host.SocketEnv, socket)
-	p := New(socket, "provisional")
-	p.backend = mcp.BackendFunc(func(context.Context, string, any) (json.RawMessage, error) { return json.RawMessage(`{}`), nil })
+	p := New()
+	p.SetCall(func(context.Context, string, any) (json.RawMessage, error) { return json.RawMessage(`{}`), nil })
 	worker := sessionkit.NewWorker(p)
 	p.SetShutdown(worker.Shutdown)
 	served := make(chan error, 1)
@@ -205,18 +227,9 @@ func TestAbnormalRunCarriesNothingIntoReopen(t *testing.T) {
 }
 
 func TestLargeTerminalFrameDrainsAfterExit(t *testing.T) {
-	socket := filepath.Join(testsocket.Directory(t), "sessionbus.sock")
-	lock, err := host.AcquireSessionLock(socket, "codex", "thread-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	endpoint, err := host.ListenPrivate(socket, "thread-1")
-	if err != nil {
-		t.Fatal(err)
-	}
 	command := exec.Command(os.Args[0], "-test.run=TestCodexProcess")
 	command.Env = append(os.Environ(), "GO_WANT_CODEX_PROCESS=1", "CODEX_TEST_LARGE_EXIT=1")
-	child, input, output, err := host.StartChild(command, lock, endpoint)
+	child, input, output, err := startNative(command)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -232,7 +245,7 @@ func TestLargeTerminalFrameDrainsAfterExit(t *testing.T) {
 	if result.Outcome != "completed" || len(result.Result) != 300004 || !strings.HasSuffix(result.Result, "tail") {
 		t.Fatalf("terminal = %#v", result)
 	}
-	if err = child.Close(context.Background(), func(context.Context) error { return p.app.close() }); err != nil {
+	if err = p.Close(context.Background(), sessionkit.SessionCloseRequest{}); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -322,7 +335,7 @@ func TestLaneInterruptAfterNativeStart(t *testing.T) {
 	}
 }
 
-func TestLaneTerminalBeforeSteerResponseQueuesDelivery(t *testing.T) {
+func TestLaneTerminalBeforeSteerResponseRetainsAdmission(t *testing.T) {
 	p, server := testLane(t)
 	started := make(chan host.Turn, 1)
 	go func() { turn, _ := p.start(context.Background(), "original"); started <- turn }()
@@ -344,7 +357,7 @@ func TestLaneTerminalBeforeSteerResponseQueuesDelivery(t *testing.T) {
 	request = readAppRequest(t, server)
 	writeRaw(t, server, `{"method":"turn/completed","params":{"threadId":"thread-1","turn":{"id":"turn-3","status":"completed"}}}`)
 	writeApp(t, server, map[string]any{"id": request.ID, "result": map[string]string{"turnId": "turn-3"}})
-	if got := <-injected; got.outcome != host.NotInjected || got.err != nil {
+	if got := <-injected; got.outcome != host.Injected || got.err != nil {
 		t.Fatalf("inject = %v, %v", got.outcome, got.err)
 	}
 	waited := make(chan error, 1)

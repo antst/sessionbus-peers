@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,28 +16,34 @@ import (
 	"sync"
 
 	"github.com/antst/sessionbus-peers/wrappers/host"
-	"github.com/antst/sessionbus-peers/wrappers/mcp"
 	sessionkit "github.com/antst/sessionbus/bus/sdk/go"
 )
 
 const Product = "codex-peer"
+const EndpointEnv = "SESSIONBUS_CODEX_ENDPOINT"
 
 var laneCommand = exec.Command
 
 type Wrapper struct {
-	socket, provisional string
-	handoff             host.Handoff
-	backend             mcp.Backend
-	mu                  sync.Mutex
-	child               *host.Child
-	app                 *appClient
-	id, model, effort   string
-	approval            string
-	sandbox             string
-	active              *turn
-	run                 *sessionkit.Run
-	closing             bool
-	shutdown            func()
+	caller            *sessionkit.Caller
+	mu                sync.Mutex
+	child             *nativeChild
+	app               *appClient
+	id, model, effort string
+	approval          string
+	sandbox           string
+	active            *turn
+	run               *sessionkit.Run
+	boundary          uint64
+	closing           bool
+	shutdown          func()
+	ctx               context.Context
+	cancel            context.CancelFunc
+	opened            bool
+	failure           error
+	endpoint          *laneEndpoint
+	startup           map[string]string
+	startupChanged    chan struct{}
 }
 
 type turn struct {
@@ -62,39 +69,65 @@ type nativeThread struct {
 	Status              json.RawMessage
 }
 type threadReply struct {
-	Thread         nativeThread `json:"thread"`
-	Cwd            string       `json:"cwd"`
-	ApprovalPolicy string       `json:"approvalPolicy"`
+	Thread         nativeThread   `json:"thread"`
+	Cwd            string         `json:"cwd"`
+	ApprovalPolicy nativeApproval `json:"approvalPolicy"`
 	Sandbox        struct {
 		Type string `json:"type"`
 	} `json:"sandbox"`
 }
+
+// Native can report a granular approval object inherited from real config.
+// Preserve it without substituting a policy; typed string requests stay strings.
+type nativeApproval string
+
+func (p *nativeApproval) UnmarshalJSON(raw []byte) error {
+	var text string
+	if json.Unmarshal(raw, &text) == nil {
+		*p = nativeApproval(text)
+		return nil
+	}
+	var object map[string]json.RawMessage
+	if json.Unmarshal(raw, &object) != nil || len(object) == 0 {
+		return errors.New("invalid native approval policy")
+	}
+	*p = nativeApproval(string(raw))
+	return nil
+}
+
 type turnReply struct {
 	Turn nativeTurn `json:"turn"`
 }
 
-func New(socket, provisional string) *Wrapper {
-	return &Wrapper{socket: socket, provisional: provisional}
+func New() *Wrapper {
+	return &Wrapper{startup: map[string]string{}, startupChanged: make(chan struct{})}
 }
 func (p *Wrapper) SetShutdown(shutdown func()) { p.shutdown = shutdown }
 func (p *Wrapper) SetCall(call func(context.Context, string, any) (json.RawMessage, error)) {
-	p.backend = mcp.BackendFunc(call)
+	p.caller = sessionkit.NewCaller(call)
 }
+
+func (p *Wrapper) SetCaller(c *sessionkit.Caller) { p.caller = c }
 
 func (*Wrapper) Hello(context.Context) (sessionkit.HelloDescription, error) {
 	return sessionkit.HelloDescription{
-		Product: Product, SupportedOpenFields: []string{"cwd", "permission_mode", "model", "reasoning_effort", "arguments"},
-		ExtraArguments: []sessionkit.ExtraArgument{
-			{Name: "-c", Description: "Codex configuration override", TakesValue: true},
-			{Name: "--config", Description: "Codex configuration override", TakesValue: true},
-			{Name: "--enable", Description: "Enable a Codex feature", TakesValue: true},
-			{Name: "--disable", Description: "Disable a Codex feature", TakesValue: true},
-			{Name: "--search", Description: "Enable web search"},
-		},
+		Product: Product, SupportsMessageRun: true, SupportedOpenFields: []string{"cwd", "permission_mode", "model", "reasoning_effort", "arguments"},
+		ExtraArguments: []sessionkit.ExtraArgument{},
 	}, nil
 }
 
-func (p *Wrapper) Open(ctx context.Context, request sessionkit.OpenRequest) (sessionkit.OpenResult, error) {
+func (p *Wrapper) Open(ctx context.Context, request sessionkit.OpenRequest) (result sessionkit.OpenResult, err error) {
+	stopStartup, err := p.startLifetime(ctx)
+	if err != nil {
+		return result, err
+	}
+	defer stopStartup()
+	defer func() {
+		if err != nil {
+			_ = p.Close(context.Background(), sessionkit.SessionCloseRequest{})
+		}
+	}()
+	nativeCtx := p.ctx
 	arguments, err := processArguments(request.Open.Arguments)
 	if err != nil {
 		return sessionkit.OpenResult{}, err
@@ -107,60 +140,51 @@ func (p *Wrapper) Open(ctx context.Context, request sessionkit.OpenRequest) (ses
 	if err != nil {
 		return sessionkit.OpenResult{}, fmt.Errorf("resolve Codex cwd: %w", err)
 	}
-	claim := request.ResumeSessionID
-	if claim == "" {
-		if _, err = namePart(request.Name); err != nil {
-			return sessionkit.OpenResult{}, err
-		}
-		claim = p.provisional
+	if _, err = namePart(request.Name); err != nil {
+		return result, err
 	}
-	lock, err := host.AcquireSessionLock(p.socket, "codex", claim)
+
+	if p.caller == nil {
+		return result, errors.New("Sessionbus lane caller unavailable")
+	}
+	endpoint, err := newLaneEndpoint(p)
 	if err != nil {
-		return sessionkit.OpenResult{}, err
+		return result, err
 	}
-	endpoint, err := host.ListenPrivate(p.socket, claim)
-	if err != nil {
-		_ = lock.Close()
-		return sessionkit.OpenResult{}, err
-	}
-	if p.backend == nil {
-		return sessionkit.OpenResult{}, closeLaunch(lock, endpoint, errors.New("Sessionbus lane backend is unavailable"))
-	}
-	go func() { _ = mcp.ServeLane(ctx, endpoint, p.backend) }()
-	command := laneCommand("codex", append(arguments, "app-server", "--stdio")...)
+	p.mu.Lock()
+	p.endpoint = endpoint
+	p.mu.Unlock()
+	command := laneCommand("codex", append(append([]string{"app-server", "--stdio"}, ActivationArguments()...), arguments...)...)
 	command.Dir, command.Stderr = request.Open.Cwd, os.Stderr
-	command.Env = slices.DeleteFunc(os.Environ(), func(value string) bool { return strings.HasPrefix(value, mcp.LaneSocketEnv+"=") })
-	command.Env = append(command.Env, mcp.LaneSocketEnv+"="+endpoint.Path)
-	child, input, output, err := host.StartChild(command, lock, endpoint)
+	command.Env = slices.DeleteFunc(os.Environ(), func(value string) bool { return strings.HasPrefix(value, EndpointEnv+"=") })
+	command.Env = append(command.Env, EndpointEnv+"="+endpoint.path)
+	command.Env = slices.DeleteFunc(command.Env, func(value string) bool {
+		key, _, _ := strings.Cut(value, "=")
+		return slices.Contains([]string{host.TokenEnv, host.LocalKeyEnv, host.SocketEnv, host.SessionIDEnv, host.NameEnv, host.GroupsEnv}, key)
+	})
+	child, input, output, err := startNative(command)
 	if err != nil {
-		return sessionkit.OpenResult{}, closeLaunch(lock, endpoint, fmt.Errorf("start Codex App Server: %w", err))
+		return sessionkit.OpenResult{}, fmt.Errorf("start Codex App Server: %w", err)
 	}
 	p.mu.Lock()
 	p.child, p.model, p.effort, p.approval, p.sandbox = child, request.Open.Model, request.Open.ReasoningEffort, approval, sandbox
-	p.app = newAppClient(input, output, p.receive, p.fail)
+	p.app = newAppClient(input, output, p.receive, p.nativeFailure, p.serverRequest)
 	p.mu.Unlock()
+	stopNative := context.AfterFunc(nativeCtx, child.abort)
+	go func() { <-child.Done(); stopNative() }()
 	go p.watch(child, p.app.done)
 	threadID := request.ResumeSessionID
 	fresh := threadID == ""
-	cleanup := func(err error) (sessionkit.OpenResult, error) {
-		if fresh && threadID != "" {
-			_ = p.app.call(ctx, "thread/delete", map[string]string{"threadId": threadID}, &struct{}{})
-		}
-		p.mu.Lock()
-		p.closing = true
-		p.mu.Unlock()
-		_ = child.Close(ctx, func(context.Context) error { return p.app.close() })
-		return sessionkit.OpenResult{}, err
-	}
-	if err = p.app.initialize(ctx, "Sessionbus Codex Wrapper"); err != nil {
+	cleanup := func(err error) (sessionkit.OpenResult, error) { return sessionkit.OpenResult{}, err }
+	if err = p.app.initialize(nativeCtx, "Sessionbus Codex Wrapper"); err != nil {
 		return cleanup(err)
 	}
-	config := laneConfig(endpoint.Path)
+	config := map[string]any{}
 	if fresh {
 		var started threadReply
 		params := p.threadParams(request.Open.Cwd, config)
 		params["ephemeral"], params["serviceName"], params["historyMode"] = false, Product, "legacy"
-		if err = p.app.call(ctx, "thread/start", params, &started); err != nil {
+		if err = p.app.call(nativeCtx, "thread/start", params, &started); err != nil {
 			return cleanup(err)
 		}
 		threadID = strings.TrimSpace(started.Thread.ID)
@@ -170,21 +194,18 @@ func (p *Wrapper) Open(ctx context.Context, request sessionkit.OpenRequest) (ses
 		if err = p.checkEffective("thread/start", effectiveCwd, started); err != nil {
 			return cleanup(err)
 		}
-		if err = lock.Rename(threadID); err != nil {
-			return cleanup(err)
-		}
 		name, nameErr := namePart(request.Name)
 		if nameErr != nil {
 			return cleanup(nameErr)
 		}
-		if err = p.app.call(ctx, "thread/name/set", map[string]string{"threadId": threadID, "name": name}, &struct{}{}); err != nil {
+		if err = p.app.call(nativeCtx, "thread/name/set", map[string]string{"threadId": threadID, "name": name}, &struct{}{}); err != nil {
 			return cleanup(err)
 		}
 	}
 	params := p.threadParams(request.Open.Cwd, config)
 	params["threadId"], params["excludeTurns"] = threadID, true
 	var resumed threadReply
-	if err = p.app.call(ctx, "thread/resume", params, &resumed); err != nil {
+	if err = p.app.call(nativeCtx, "thread/resume", params, &resumed); err != nil {
 		return cleanup(err)
 	}
 	if resumed.Thread.ID != threadID {
@@ -196,14 +217,38 @@ func (p *Wrapper) Open(ctx context.Context, request sessionkit.OpenRequest) (ses
 	p.mu.Lock()
 	p.id = threadID
 	p.mu.Unlock()
-	return sessionkit.OpenResult{SessionID: threadID}, nil
+	if err = p.awaitTools(nativeCtx, threadID); err != nil {
+		return result, err
+	}
+	return p.commitOpen(ctx, request, resumed.Thread, stopStartup)
+}
+
+func (p *Wrapper) commitOpen(ctx context.Context, request sessionkit.OpenRequest, thread nativeThread, stopStartup func() bool) (sessionkit.OpenResult, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return sessionkit.OpenResult{}, err
+	}
+	if p.ctx.Err() != nil || p.closing || p.failure != nil {
+		return sessionkit.OpenResult{}, errors.New("Codex integration ended during open")
+	}
+	name, err := namePart(request.Name)
+	if err != nil {
+		return sessionkit.OpenResult{}, err
+	}
+	if thread.Name != name {
+		return sessionkit.OpenResult{}, errors.New("native title did not confirm requested name")
+	}
+	stopStartup()
+	p.opened = true
+	return sessionkit.OpenResult{SessionID: p.id}, nil
 }
 
 func (p *Wrapper) checkEffective(method, cwd string, reply threadReply) error {
 	if reply.ApprovalPolicy == "" {
 		return errors.New(method + " did not report its effective approval policy")
 	}
-	if reply.ApprovalPolicy != p.approval {
+	if p.approval != "" && string(reply.ApprovalPolicy) != p.approval {
 		return fmt.Errorf("%s applied approval policy %q, expected %q", method, reply.ApprovalPolicy, p.approval)
 	}
 	if strings.TrimSpace(reply.Cwd) == "" {
@@ -212,7 +257,7 @@ func (p *Wrapper) checkEffective(method, cwd string, reply threadReply) error {
 	if reply.Cwd != cwd {
 		return fmt.Errorf("%s applied cwd %q, expected %q", method, reply.Cwd, cwd)
 	}
-	if !slices.Contains([]string{"readOnly", "workspaceWrite", "dangerFullAccess"}, reply.Sandbox.Type) {
+	if reply.Sandbox.Type == "" {
 		return fmt.Errorf("%s reported unsupported sandbox %q", method, reply.Sandbox.Type)
 	}
 	if p.sandbox != "" && reply.Sandbox.Type != "dangerFullAccess" {
@@ -222,7 +267,10 @@ func (p *Wrapper) checkEffective(method, cwd string, reply threadReply) error {
 }
 
 func (p *Wrapper) threadParams(cwd string, config map[string]any) map[string]any {
-	params := map[string]any{"approvalPolicy": p.approval, "config": config}
+	params := map[string]any{"config": config}
+	if p.approval != "" {
+		params["approvalPolicy"] = p.approval
+	}
 	if cwd != "" {
 		params["cwd"] = cwd
 	}
@@ -236,22 +284,62 @@ func (p *Wrapper) threadParams(cwd string, config map[string]any) map[string]any
 }
 
 func (p *Wrapper) Run(ctx context.Context, run *sessionkit.Run, seed sessionkit.RunInput) (sessionkit.TurnResult, error) {
-	// This mechanical interface migration does not add native wake support.
-	if seed.Delivery != nil {
-		if err := run.ReportDelivery(sessionkit.DeliveryReceipt{Disposition: "rejected", Reason: "unsupported_delivery_seed"}, nil); err != nil {
-			return sessionkit.TurnResult{}, err
+	return p.executeRun(ctx, run, seed, run.ReportDelivery)
+}
+func (p *Wrapper) executeRun(ctx context.Context, run *sessionkit.Run, seed sessionkit.RunInput, report func(sessionkit.DeliveryReceipt, error) error) (sessionkit.TurnResult, error) {
+	reject := func(err error) (sessionkit.TurnResult, error) {
+		if seed.Delivery != nil {
+			if reportErr := report(sessionkit.DeliveryReceipt{Disposition: "rejected", Reason: "not_submitted"}, nil); reportErr != nil {
+				return sessionkit.TurnResult{}, reportErr
+			}
 		}
-		return sessionkit.TurnResult{}, errors.New("delivery-seeded runs are not supported by this product")
+		return sessionkit.TurnResult{}, err
 	}
-	if seed.Text == nil {
-		return sessionkit.TurnResult{}, errors.New("missing explicit run input")
+	if (seed.Text == nil) == (seed.Delivery == nil) {
+		return reject(errors.New("expected exactly one run input"))
 	}
-	input := *seed.Text
+	if err := ctx.Err(); err != nil {
+		return reject(err)
+	}
+	if run.Interrupted() {
+		return reject(errors.New("run interrupted before native submission"))
+	}
+	var input string
+	if seed.Text != nil {
+		input = *seed.Text
+	} else {
+		var err error
+		input, err = host.RenderNativeMessage(*seed.Delivery)
+		if err != nil {
+			return reject(err)
+		}
+	}
 	p.mu.Lock()
 	p.run = run
-	go p.retireRun(run)
 	p.mu.Unlock()
-	return p.handoff.Run(ctx, run, input, p.start)
+	go p.retireRun(run)
+	native, err := p.start(ctx, input)
+	if err != nil {
+		if seed.Delivery != nil {
+			if reportErr := report(sessionkit.DeliveryReceipt{}, uncertainAdmission(err)); reportErr != nil {
+				return sessionkit.TurnResult{}, reportErr
+			}
+		}
+		return sessionkit.TurnResult{}, err
+	}
+	run.Admitted()
+	// Public receipt I/O cannot block the native reader or terminal correlation.
+	if seed.Delivery != nil {
+		if err = report(sessionkit.DeliveryReceipt{Disposition: "injected"}, nil); err != nil {
+			return sessionkit.TurnResult{}, err
+		}
+	}
+	if run.Interrupted() {
+		if err = native.Interrupt(ctx); err != nil {
+			return sessionkit.TurnResult{}, err
+		}
+	}
+	return native.Wait(ctx)
 }
 func (p *Wrapper) retireRun(run *sessionkit.Run) {
 	<-run.Done()
@@ -262,10 +350,63 @@ func (p *Wrapper) retireRun(run *sessionkit.Run) {
 	p.mu.Unlock()
 }
 func (p *Wrapper) Interrupt(ctx context.Context, run *sessionkit.Run) error {
-	return p.handoff.Interrupt(ctx, run)
+	p.mu.Lock()
+	t := p.active
+	matching := p.run == run
+	p.mu.Unlock()
+	if !matching || t == nil {
+		return nil
+	}
+	p.mu.Lock()
+	started := t.started
+	p.mu.Unlock()
+	// The Run path sees Interrupted after native start if admission is pending.
+	if !started {
+		return nil
+	}
+	return t.Interrupt(ctx)
+}
+func uncertainAdmission(cause error) error {
+	return &sessionkit.ProtocolError{Code: -32603, Message: cause.Error(), Data: json.RawMessage(`"uncertain_native_admission"`)}
 }
 func (p *Wrapper) Deliver(ctx context.Context, request sessionkit.DeliveryRequest, _ *sessionkit.Run) (sessionkit.DeliveryReceipt, error) {
-	return p.handoff.Deliver(ctx, request, p.inject)
+	body, err := host.RenderNativeMessage(request)
+	if err != nil {
+		return sessionkit.DeliveryReceipt{Disposition: "rejected", Reason: err.Error()}, nil
+	}
+	if err = ctx.Err(); err != nil {
+		return sessionkit.DeliveryReceipt{Disposition: "rejected", Reason: "not_submitted"}, nil
+	}
+	p.mu.Lock()
+	active, epoch, id := p.active, p.boundary, p.id
+	p.mu.Unlock()
+	if active != nil {
+		disposition, err := p.inject(ctx, body)
+		if err != nil {
+			return sessionkit.DeliveryReceipt{}, uncertainAdmission(err)
+		}
+		if disposition != host.Injected {
+			return sessionkit.DeliveryReceipt{}, uncertainAdmission(errors.New("native turn changed before steer submission"))
+		}
+		return sessionkit.DeliveryReceipt{Disposition: "injected"}, nil
+	}
+	if id == "" {
+		return sessionkit.DeliveryReceipt{Disposition: "rejected", Reason: "native_unavailable"}, nil
+	}
+	// Fix classification on the native reader, before subsequent events. The
+	// empty native reply does not identify its active/idle internal branch.
+	err = p.app.callObserved(ctx, "thread/inject_items", map[string]any{"threadId": id, "items": []any{map[string]any{"type": "message", "role": "user", "content": []any{map[string]string{"type": "input_text", "text": body}}}}}, &struct{}{}, func(json.RawMessage) error {
+		p.mu.Lock()
+		defer p.mu.Unlock()
+		if p.id != id || p.boundary != epoch || p.active != nil {
+			return errors.New("native run boundary crossed staged submission")
+		}
+		return nil
+	})
+	if err != nil {
+		return sessionkit.DeliveryReceipt{}, uncertainAdmission(err)
+	}
+	return sessionkit.DeliveryReceipt{Disposition: "queued_for_next_turn"}, nil
 }
 
 func (p *Wrapper) start(ctx context.Context, prompt string) (host.Turn, error) {
@@ -276,7 +417,11 @@ func (p *Wrapper) start(ctx context.Context, prompt string) (host.Turn, error) {
 	}
 	t := &turn{owner: p, ready: make(chan error, 1), done: make(chan error, 1)}
 	p.active = t
-	params := map[string]any{"threadId": p.id, "input": textInput(prompt), "approvalPolicy": p.approval}
+	p.boundary++
+	params := map[string]any{"threadId": p.id, "input": textInput(prompt)}
+	if p.approval != "" {
+		params["approvalPolicy"] = p.approval
+	}
 	if p.model != "" {
 		params["model"] = p.model
 	}
@@ -336,13 +481,7 @@ func (p *Wrapper) inject(ctx context.Context, prompt string) (host.Injection, er
 	if result.TurnID != turnID {
 		return host.NotInjected, fmt.Errorf("Codex App Server steered turn %q, expected %q", result.TurnID, turnID)
 	}
-	p.mu.Lock()
-	active := p.active == t && t.started
-	p.mu.Unlock()
-	if active {
-		return host.Injected, nil
-	}
-	return host.NotInjected, nil
+	return host.Injected, nil
 }
 
 func (t *turn) Wait(ctx context.Context) (sessionkit.TurnResult, error) {
@@ -406,6 +545,10 @@ func (t *turn) Interrupt(ctx context.Context) error {
 }
 
 func (p *Wrapper) receive(method string, raw json.RawMessage) {
+	if method == "mcpServer/startupStatus/updated" {
+		p.receiveStartup(raw)
+		return
+	}
 	if method != "turn/started" && method != "turn/completed" {
 		return
 	}
@@ -419,6 +562,9 @@ func (p *Wrapper) receive(method string, raw json.RawMessage) {
 	}
 	p.mu.Lock()
 	t := p.active
+	if event.ThreadID == p.id {
+		p.boundary++
+	}
 	if t == nil || event.ThreadID != p.id {
 		p.mu.Unlock()
 		return
@@ -496,28 +642,43 @@ func (p *Wrapper) clear(t *turn) {
 }
 func (p *Wrapper) fail(err error) {
 	p.mu.Lock()
+	if p.failure != nil {
+		p.mu.Unlock()
+		return
+	}
+	p.failure = err
 	t := p.active
 	p.active = nil
+	cancel, opened, closing, run, shutdown := p.cancel, p.opened, p.closing, p.run, p.shutdown
 	if t != nil {
 		if !t.started {
 			t.started = true
 			t.ready <- err
-			t = nil
+		} else {
+			t.done <- err
 		}
 	}
 	p.mu.Unlock()
-	if t != nil {
-		t.done <- err
+	if cancel != nil {
+		cancel()
+	}
+	if opened && !closing && shutdown != nil {
+		go func() {
+			if run != nil {
+				<-run.Done()
+			}
+			shutdown()
+		}()
 	}
 }
 
-func (p *Wrapper) watch(child *host.Child, drained <-chan struct{}) {
+func (p *Wrapper) watch(child *nativeChild, drained <-chan struct{}) {
 	err := child.Wait()
 	<-drained
 	if err == nil {
 		err = errors.New("Codex App Server exited")
 	}
-	p.fail(err)
+	p.transportEnd(err)
 	p.mu.Lock()
 	opened, closing, run := p.id != "", p.closing, p.run
 	p.mu.Unlock()
@@ -534,24 +695,67 @@ func (p *Wrapper) watch(child *host.Child, drained <-chan struct{}) {
 func (p *Wrapper) Close(ctx context.Context, _ sessionkit.SessionCloseRequest) error {
 	p.mu.Lock()
 	p.closing = true
-	child, app, id := p.child, p.app, p.id
+	child, app, endpoint, cancel := p.child, p.app, p.endpoint, p.cancel
+	graceful := p.opened && p.failure == nil && ctx.Err() == nil
+	var cleanupErr error
 	p.mu.Unlock()
-	if child == nil {
-		return nil
+	if graceful && app != nil {
+		if err := app.close(); err != nil {
+			cleanupErr = errors.Join(cleanupErr, err)
+			p.fail(err)
+			graceful = false
+		}
 	}
-	if id != "" {
-		archiveErr := app.call(ctx, "thread/archive", map[string]string{"threadId": id}, &struct{}{})
-		unsubscribeErr := app.call(ctx, "thread/unsubscribe", map[string]string{"threadId": id}, &struct{}{})
-		return errors.Join(archiveErr, unsubscribeErr, child.Close(ctx, func(context.Context) error { return app.close() }))
+	if !graceful && cancel != nil {
+		cancel()
 	}
-	return child.Close(ctx, func(context.Context) error { return app.close() })
+	if child != nil {
+		var drained <-chan struct{}
+		if app != nil {
+			drained = app.done
+		}
+		done := child.Done()
+		for done != nil || drained != nil {
+			select {
+			case <-done:
+				done = nil
+			case <-drained:
+				drained = nil
+			case <-ctx.Done():
+				if cancel != nil {
+					cancel()
+				}
+				child.abort()
+				_ = child.Wait()
+				if app != nil {
+					app.fail(ctx.Err())
+					<-app.done
+				}
+				done = nil
+				drained = nil
+			}
+		}
+	}
+	if child != nil {
+		cleanupErr = errors.Join(cleanupErr, child.Wait())
+	}
+	if app != nil {
+		app.mu.Lock()
+		drainErr := app.failed
+		app.mu.Unlock()
+		if drainErr != nil && !errors.Is(drainErr, io.EOF) {
+			cleanupErr = errors.Join(cleanupErr, drainErr)
+		}
+	}
+	if cancel != nil {
+		cancel()
+	}
+	if endpoint != nil {
+		cleanupErr = errors.Join(cleanupErr, endpoint.Close())
+	}
+	return errors.Join(cleanupErr, ctx.Err())
 }
 
-func laneConfig(socket string) map[string]any {
-	return map[string]any{"features": map[string]any{"code_mode_host": false}, "mcp_servers": map[string]any{"sessionbus": map[string]any{
-		"command": Product, "args": []string{"mcp"}, "env": map[string]string{mcp.LaneSocketEnv: socket},
-	}}}
-}
 func textInput(text string) []map[string]string {
 	return []map[string]string{{"type": "text", "text": text}}
 }
@@ -562,7 +766,4 @@ func first(values ...string) string {
 		}
 	}
 	return ""
-}
-func closeLaunch(lock *host.SessionLock, endpoint *host.PrivateEndpoint, err error) error {
-	return errors.Join(err, endpoint.Close(), lock.Close())
 }

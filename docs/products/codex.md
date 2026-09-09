@@ -6,6 +6,53 @@
 > commit recorded by the split archive manifest. Host evidence paths are
 > immutable external artifacts, not repository paths.
 
+## Current Go candidate, 2026-09-09
+
+Current installation and policies are described in `codex/README.md` and
+`docs/designs/codex-0.5.0/{LANE-SELECTION,INTERACTIVE-SELECTION}.md`. The older
+facts below retain their original version and topology. In particular, the old
+shared-daemon restriction on per-launch groups and the old archive-on-close
+behavior are historical integration choices, not current Codex limitations.
+
+- Native CLI override keys split literally on dots; embedded quotes around the
+  plugin ID prevent activation. The working per-launch key is
+  `plugins.codex@sessionbus-peers.enabled=true`. Native `config/value/write`
+  has a different quote-aware key parser. The original failed no-input Open and
+  corrected successful Open are preserved in `dev1-lane-open-{ebd5c0a,aaea430}`
+  under `/home/antst/codex-architecture-20260909/`.
+- On installed aaea430/native0.153.4, idle `thread/inject_items` staging received
+  `queued_for_next_turn`; the marker appeared in native user history before any
+  assistant response and was consumed in the following explicit run. The
+  receipt is admission, not consumption. Evidence: `dev1-lane-stage-aaea430`.
+- An omitted approval policy yielded native MCP rejection. Explicit `never`
+  still rejected a tool requiring approval. Caller-selected per-plugin per-tool
+  `approval_mode="approve"` allowed the public Sessionbus call; it grants that
+  tool's actions, not only list. No default policy or read-only annotation was
+  substituted. Evidence: `dev1-lane-{wake,grant}-aaea430`.
+- A message with `idle_message:"run"` started a shared native run, whose
+  retained result was collected, acknowledged and then closed. Successful
+  Open itself submitted no model input. Normal close preserved saved native
+  history. Four identified worker/native/configured-helper processes were
+  absent after close in the grant row; no direct exit-status or arbitrary
+  descendant-containment claim is made.
+
+Interactive installed9b rows establish actual parent-to-lane lifecycle and
+completion-pointer collection, idle/active admission, mixed groups, native
+rename/fork/clear/resume and ordinary isolation. Normal quit and abrupt TUI death
+removed the identified owned processes/endpoints. Broker SIGKILL instead left
+stale socket files and the TUI's native reconnect UI; the bus row and native
+server/helpers disappeared. Operator removal of those exact stale paths is
+separate from product cleanup. Shared Claude smoke passed on the rebuilt real
+installation. See `docs/designs/codex-0.5.0/ACCEPTANCE.md` and its manifest index
+for exact limits, including controlled-only cancellation/lane interrupt/settings
+coverage and inherited transcript attribution. Whole combined
+9b833c3 archive size is 2,978,023 bytes, with one 7,135,394-byte linked executable
+and 7,157,883 bytes across regular payload files. The increase relative to the
+lane checkpoint includes the entire broker integration, not just the WebSocket
+dependency. Build/member hashes are in `dev1-combined-entry/BUILD.json`.
+
+## Retained earlier native and integration evidence
+
 - `codex app-server --stdio` accepts newline-delimited JSON-RPC requests and emits response objects without a `jsonrpc` member. — verified: 0.153.4 — source: `/home/antst/agentbus-evidence/codex-p3-20260906T074029Z/P3-appserver.jsonl`
 - An App Server client initializes with `initialize`, then sends the `initialized` notification. — verified: 0.153.4 — source: `/home/antst/agentbus-evidence/codex-p3-20260906T074029Z/P3-appserver.jsonl`
 - `thread/start` with `ephemeral:false`, `serviceName:"codex-peer"`, and `historyMode:"legacy"` returns the product-owned thread UUID. — verified: 0.153.4 — source: `/home/antst/agentbus-evidence/codex-p3-20260906T074029Z/P3-appserver.jsonl`
