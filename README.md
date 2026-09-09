@@ -56,7 +56,7 @@ Product evidence and constraints are in `docs/products/claude.md`,
 `docs/products/codex.md`, `docs/products/opencode.md`,
 `docs/products/grok.md`, and `docs/products/qwen.md`. Held Claude lane references are outside the activated plugin under
 `docs/designs/claude-0.5.0/held-lane-skills/` as historical references;
-the product READMEs describe the current installation routes.
+this README is the installation authority until then.
 
 ## Build and test
 

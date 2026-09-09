@@ -520,7 +520,7 @@
   },
   "whole_repository_excluding_this_self_report": {
     "files": 176,
-    "bytes": 1229750,
+    "bytes": 1229742,
     "lines": 24979,
     "members": [
       {
@@ -573,9 +573,9 @@
       },
       {
         "path": "README.md",
-        "bytes": 4861,
+        "bytes": 4853,
         "lines": 102,
-        "sha256": "26e5d94548c1e18bfc55895d0c119e01c64180fecaaede74caeb83578358d4fd"
+        "sha256": "42f63994c3917e190f79a556aacf91a198e758fec42dd7760eea576c6bcc1894"
       },
       {
         "path": "architecture_test.go",
@@ -1598,7 +1598,7 @@
   "scope": "whole combined Claude Go artifact; filename retained for existing links, no interactive-only exclusion",
   "whole_repository_including_this_report": {
     "files": 177,
-    "bytes": 1283551,
+    "bytes": 1283543,
     "lines": 26583
   }
 }
