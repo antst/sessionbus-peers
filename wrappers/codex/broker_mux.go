@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 	"sync"
 )
 
@@ -27,7 +28,6 @@ type brokerCall struct {
 }
 type brokerServerCall struct {
 	original json.RawMessage
-	resolved bool
 	held     int
 }
 
@@ -247,13 +247,20 @@ func (m *brokerMux) fromTUI(f brokerFrame) error {
 	}
 	c := m.servers[key]
 	if c == nil {
+		// Native resolution dismisses the TUI handler without a response. Its
+		// deterministic mapped ID lets a racing late response drain without
+		// retaining a tombstone or occupying a live request slot.
+		var mapped string
+		if json.Unmarshal(id, &mapped) == nil && strings.HasPrefix(mapped, "sessionbus/server/") {
+			raw, decodeErr := base64.RawURLEncoding.DecodeString(strings.TrimPrefix(mapped, "sessionbus/server/"))
+			if _, idErr := brokerID(raw); decodeErr == nil && idErr == nil {
+				return nil
+			}
+		}
 		return errors.New("unknown TUI response ID")
 	}
 	delete(m.servers, key)
 	m.release(c.held)
-	if c.resolved {
-		return nil
-	} // Native resolved it while the TUI response was in flight.
 	f["id"] = c.original
 	return m.enqueue(m.nativeOut, f)
 }
@@ -296,7 +303,8 @@ func (m *brokerMux) fromNative(f brokerFrame) error {
 			mapped := serverID(p["requestId"])
 			key, _ := brokerID(mapped)
 			if c := m.servers[key]; c != nil {
-				c.resolved = true
+				delete(m.servers, key)
+				m.release(c.held)
 			}
 			p["requestId"] = mapped
 			f["params"] = brokerRaw(p)

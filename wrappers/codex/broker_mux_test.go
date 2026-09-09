@@ -113,32 +113,49 @@ func TestBrokerMuxInitializeAndOpaqueIDs(t *testing.T) {
 func TestBrokerMuxServerRequestAndResolvedTranslation(t *testing.T) {
 	m, p := muxFixture(t, nil)
 	initializeMux(t, m, p)
-	nativeID := brokerRaw(int64(72))
-	if err := p.Write(frame("item/commandExecution/requestApproval", int64(72), map[string]string{"threadId": "t"})); err != nil {
+	var lateID json.RawMessage
+	// Native resolution dismisses the TUI handler without any response. More than
+	// one full live-map capacity must remain usable with no retained tombstones.
+	for id := int64(1); id <= brokerRouteLimit+1; id++ {
+		if err := p.Write(frame("item/commandExecution/requestApproval", id, map[string]string{"threadId": "t"})); err != nil {
+			t.Fatal(err)
+		}
+		request := receiveTUI(t, m)
+		if id == 1 {
+			lateID = append(json.RawMessage(nil), request["id"]...)
+		}
+		if err := p.Write(frame("serverRequest/resolved", nil, map[string]any{"threadId": "t", "requestId": id})); err != nil {
+			t.Fatal(err)
+		}
+		resolved := receiveTUI(t, m)
+		var params map[string]json.RawMessage
+		if err := json.Unmarshal(resolved["params"], &params); err != nil {
+			t.Fatal(err)
+		}
+		if string(params["requestId"]) != string(request["id"]) {
+			t.Fatal(params)
+		}
+		m.mu.Lock()
+		live := len(m.servers)
+		m.mu.Unlock()
+		if live != 0 {
+			t.Fatalf("resolved request retained live capacity: %d", live)
+		}
+	}
+	// A genuinely racing mapped response is harmless after final dismissal.
+	if err := m.fromTUI(brokerFrame{"id": lateID, "result": brokerRaw(map[string]string{"decision": "decline"})}); err != nil {
 		t.Fatal(err)
 	}
-	req := receiveTUI(t, m)
-	if string(req["id"]) == string(nativeID) {
-		t.Fatal("ID not translated")
-	}
-	if err := p.Write(frame("serverRequest/resolved", nil, map[string]any{"threadId": "t", "requestId": int64(72)})); err != nil {
-		t.Fatal(err)
-	}
-	resolved := receiveTUI(t, m)
-	var params map[string]json.RawMessage
-	_ = json.Unmarshal(resolved["params"], &params)
-	if string(params["requestId"]) != string(req["id"]) {
-		t.Fatal(params)
-	}
-	if err := m.fromTUI(brokerFrame{"id": req["id"], "result": brokerRaw(map[string]string{"decision": "decline"})}); err != nil {
-		t.Fatal(err)
-	}
-	// A subsequent TUI call is next on native wire; the resolved late reply drained.
 	if err := m.fromTUI(frame("thread/read", int64(1), map[string]any{})); err != nil {
 		t.Fatal(err)
 	}
 	if got := receiveNative(t, p); string(got["method"]) != `"thread/read"` {
 		t.Fatal(got)
+	}
+	for _, id := range []string{"foreign", "sessionbus/server/!", "sessionbus/server/bnVsbA"} {
+		if err := m.fromTUI(brokerFrame{"id": brokerRaw(id), "result": brokerRaw(nil)}); err == nil {
+			t.Fatalf("accepted foreign/malformed response %q", id)
+		}
 	}
 }
 func TestBrokerMuxCancelledCallDrainsAndReaderProgresses(t *testing.T) {
