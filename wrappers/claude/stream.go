@@ -159,6 +159,13 @@ func (s *stream) write(ctx context.Context, value any) (bool, error) {
 		}
 		return result.attempted, result.err
 	case <-ctx.Done():
+		// A completed write wins over later request cancellation. Only an
+		// outstanding write needs transport closure to unblock it.
+		select {
+		case result := <-done:
+			return result.attempted, result.err
+		default:
+		}
 		s.stop(ctx.Err())
 		result := <-done
 		result.err = ctx.Err()
@@ -336,7 +343,7 @@ func (s *stream) finishLocked() {
 	if f.IsError || f.Subtype != "success" || f.StopReason == "refusal" {
 		outcome = "failed"
 	}
-	if f.TerminalReason == "aborted_tools" || f.TerminalReason == "interrupted" {
+	if f.TerminalReason == "aborted_tools" || f.TerminalReason == "aborted_streaming" {
 		outcome = "interrupted"
 	}
 	result := f.Result

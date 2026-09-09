@@ -151,7 +151,7 @@ func TestNativeErrorAndInterruptReasons(t *testing.T) {
 		reason, stop, outcome string
 		isError               bool
 	}{
-		{"api_error", "refusal", "failed", true}, {"aborted_tools", "tool_use", "interrupted", true},
+		{"api_error", "refusal", "failed", true}, {"aborted_tools", "tool_use", "interrupted", true}, {"aborted_streaming", "", "interrupted", true},
 	} {
 		t.Run(tc.reason, func(t *testing.T) {
 			f := streamFixture(t)
@@ -161,7 +161,12 @@ func TestNativeErrorAndInterruptReasons(t *testing.T) {
 			f.send(t, map[string]any{"type": "user", "session_id": "id", "uuid": id, "isReplay": true})
 			f.send(t, map[string]any{"type": "result", "session_id": "id", "subtype": "success", "is_error": tc.isError, "terminal_reason": tc.reason, "stop_reason": tc.stop, "user_message_uuid": id})
 			got := <-done
-			if got.err != nil || got.value.Outcome != tc.outcome || got.value.NativeStopReason != tc.reason+"; "+tc.stop {
+			if got.err != nil || got.value.Outcome != tc.outcome || got.value.NativeStopReason != func() string {
+				if tc.stop == "" {
+					return tc.reason
+				}
+				return tc.reason + "; " + tc.stop
+			}() {
 				t.Fatalf("%+v", got)
 			}
 		})
@@ -227,4 +232,30 @@ func TestProcessExitBeforeReaderPreservesBufferedTerminal(t *testing.T) {
 	if got.err != nil || got.value.Result != "buffered terminal" {
 		t.Fatalf("%+v", got)
 	}
+}
+
+func TestCanceledInterruptResponseWaitKeepsLaneTransport(t *testing.T) {
+	f := streamFixture(t)
+	p := New(t.TempDir())
+	p.opened = true
+	p.identity = "id"
+	p.stream = f.s
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- p.Interrupt(ctx, nil) }()
+	request := f.next(t)
+	// Later complete control exchange proves the first serialized write returned.
+	f.barrier(t)
+	cancel()
+	if err := <-done; !errors.Is(err, context.Canceled) {
+		t.Fatal(err)
+	}
+	p.mu.Lock()
+	failure := p.failure
+	p.mu.Unlock()
+	if failure != nil {
+		t.Fatalf("request cancellation retired lane: %v", failure)
+	}
+	f.send(t, map[string]any{"type": "control_response", "response": map[string]any{"subtype": "success", "request_id": rawString(t, request["request_id"]), "response": map[string]any{}}})
+	f.barrier(t)
 }

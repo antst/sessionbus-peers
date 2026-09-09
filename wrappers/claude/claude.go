@@ -255,7 +255,7 @@ func (p *Wrapper) Interrupt(ctx context.Context, _ *kit.Run) error {
 		return err
 	}
 	_, err = s.control(ctx, map[string]string{"subtype": "interrupt"})
-	if err != nil {
+	if err != nil && ctx.Err() == nil {
 		p.fail(err)
 	}
 	return err
