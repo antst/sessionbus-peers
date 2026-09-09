@@ -5,10 +5,10 @@
   "method": "Physical lines use bytes.splitlines; whole tracked repository and whole files, including unchanged guidance. Self-accounting file included in final totals, omitted from content digest. npm pack lists real tarball files; dependencies count installed production bytes separately. No native runtime acceptance.",
   "scope": "Interactive only; held Go lane and other products/dependencies remain. Runtime/test targets are review triggers, not total implementation size.",
   "generator": {
-    "path": "/home/antst/sessionbus-evidence/claude-interactive-offline-20260909/size.py",
-    "sha256": "8f9a6d8707bd8d9f81a64ebe1e31c08f16adb40f0812356c6cb60293d94d7d1b",
-    "bytes": 5659,
-    "physical_lines": 26,
+    "path": "/home/antst/sessionbus-evidence/claude-interactive-offline-20260909/review-c02-c03/size.py",
+    "sha256": "62eabe3a425b8a428adb7c4691c7c8876723d66655fd3f003407f551de76b465",
+    "bytes": 6059,
+    "physical_lines": 28,
     "scope": "Offline accounting helper outside runtime/package; bytes and lines reported, no installation/helper process added"
   },
   "tools": {
@@ -45,25 +45,25 @@
   },
   "after": {
     "repository": {
-      "files": 145,
-      "bytes": 1041427,
-      "physical_lines": 20479
+      "files": 146,
+      "bytes": 1051642,
+      "physical_lines": 20700
     },
     "claude_package": {
-      "files": 31,
-      "bytes": 100540,
-      "physical_lines": 1881
+      "files": 19,
+      "bytes": 61682,
+      "physical_lines": 1050
     },
     "package_categories": {
       "runtime": {
         "files": 5,
-        "bytes": 13994,
-        "physical_lines": 278
+        "bytes": 15545,
+        "physical_lines": 290
       },
       "tests": {
         "files": 6,
-        "bytes": 28097,
-        "physical_lines": 384
+        "bytes": 32116,
+        "physical_lines": 441
       },
       "manifests_and_lock": {
         "files": 5,
@@ -71,9 +71,9 @@
         "physical_lines": 146
       },
       "guidance_and_retained_scripts": {
-        "files": 15,
-        "bytes": 54942,
-        "physical_lines": 1073
+        "files": 3,
+        "bytes": 10514,
+        "physical_lines": 173
       }
     },
     "runtime_modules": [
@@ -105,13 +105,13 @@
     },
     {
       "path": "claude/README.md",
-      "bytes": 6351,
+      "bytes": 6415,
       "physical_lines": 102
     },
     {
       "path": "claude/commands/doctor.md",
-      "bytes": 1537,
-      "physical_lines": 26
+      "bytes": 1538,
+      "physical_lines": 25
     },
     {
       "path": "claude/delivery.mjs",
@@ -130,8 +130,8 @@
     },
     {
       "path": "claude/install.test.mjs",
-      "bytes": 4658,
-      "physical_lines": 59
+      "bytes": 5379,
+      "physical_lines": 68
     },
     {
       "path": "claude/main.mjs",
@@ -174,79 +174,19 @@
       "physical_lines": 37
     },
     {
-      "path": "claude/skills/claude-lane/SKILL.md",
-      "bytes": 2770,
-      "physical_lines": 55
-    },
-    {
-      "path": "claude/skills/codex-lane/SKILL.md",
-      "bytes": 11586,
-      "physical_lines": 205
-    },
-    {
-      "path": "claude/skills/codex-lane/references/events.md",
-      "bytes": 5974,
-      "physical_lines": 107
-    },
-    {
-      "path": "claude/skills/codex-lane/references/failures.md",
-      "bytes": 3601,
-      "physical_lines": 46
-    },
-    {
-      "path": "claude/skills/codex-lane/references/install.md",
-      "bytes": 1840,
-      "physical_lines": 60
-    },
-    {
-      "path": "claude/skills/codex-lane/references/policy.md",
-      "bytes": 4412,
-      "physical_lines": 82
-    },
-    {
-      "path": "claude/skills/codex-lane/scripts/lane-preflight",
-      "bytes": 3615,
-      "physical_lines": 111
-    },
-    {
-      "path": "claude/skills/grok-lane/SKILL.md",
-      "bytes": 3830,
-      "physical_lines": 79
-    },
-    {
-      "path": "claude/skills/grok-lane/references/contract.md",
-      "bytes": 1732,
-      "physical_lines": 24
-    },
-    {
-      "path": "claude/skills/grok-lane/references/install.md",
-      "bytes": 485,
-      "physical_lines": 17
-    },
-    {
-      "path": "claude/skills/grok-lane/scripts/lane-preflight",
-      "bytes": 1953,
-      "physical_lines": 58
-    },
-    {
-      "path": "claude/skills/qwen-lane/SKILL.md",
-      "bytes": 2689,
-      "physical_lines": 55
-    },
-    {
       "path": "claude/skills/sessionbus/SKILL.md",
-      "bytes": 2567,
+      "bytes": 2561,
       "physical_lines": 46
     },
     {
       "path": "claude/tools.mjs",
-      "bytes": 825,
-      "physical_lines": 16
+      "bytes": 2376,
+      "physical_lines": 28
     },
     {
       "path": "claude/tools.test.mjs",
-      "bytes": 2007,
-      "physical_lines": 29
+      "bytes": 5305,
+      "physical_lines": 77
     }
   ],
   "shared_whole_files": [
@@ -301,7 +241,7 @@
         "physical_lines": 473
       },
       "after": {
-        "bytes": 17665,
+        "bytes": 17723,
         "physical_lines": 508
       }
     },
@@ -345,7 +285,7 @@
         "physical_lines": 89
       },
       "after": {
-        "bytes": 4723,
+        "bytes": 4739,
         "physical_lines": 100
       }
     },
@@ -424,7 +364,7 @@
         "physical_lines": 89
       },
       "after": {
-        "bytes": 4723,
+        "bytes": 4739,
         "physical_lines": 100
       }
     },
@@ -435,7 +375,7 @@
         "physical_lines": 473
       },
       "after": {
-        "bytes": 17665,
+        "bytes": 17723,
         "physical_lines": 508
       }
     },
@@ -468,7 +408,7 @@
         "physical_lines": 66
       },
       "after": {
-        "bytes": 6351,
+        "bytes": 6415,
         "physical_lines": 102
       }
     },
@@ -479,8 +419,8 @@
         "physical_lines": 27
       },
       "after": {
-        "bytes": 1537,
-        "physical_lines": 26
+        "bytes": 1538,
+        "physical_lines": 25
       }
     },
     {
@@ -511,8 +451,8 @@
       "path": "claude/install.test.mjs",
       "before": null,
       "after": {
-        "bytes": 4658,
-        "physical_lines": 59
+        "bytes": 5379,
+        "physical_lines": 68
       }
     },
     {
@@ -580,13 +520,109 @@
       }
     },
     {
+      "path": "claude/skills/claude-lane/SKILL.md",
+      "before": {
+        "bytes": 2770,
+        "physical_lines": 55
+      },
+      "after": null
+    },
+    {
+      "path": "claude/skills/codex-lane/SKILL.md",
+      "before": {
+        "bytes": 11586,
+        "physical_lines": 205
+      },
+      "after": null
+    },
+    {
+      "path": "claude/skills/codex-lane/references/events.md",
+      "before": {
+        "bytes": 5974,
+        "physical_lines": 107
+      },
+      "after": null
+    },
+    {
+      "path": "claude/skills/codex-lane/references/failures.md",
+      "before": {
+        "bytes": 3601,
+        "physical_lines": 46
+      },
+      "after": null
+    },
+    {
+      "path": "claude/skills/codex-lane/references/install.md",
+      "before": {
+        "bytes": 1840,
+        "physical_lines": 60
+      },
+      "after": null
+    },
+    {
+      "path": "claude/skills/codex-lane/references/policy.md",
+      "before": {
+        "bytes": 4412,
+        "physical_lines": 82
+      },
+      "after": null
+    },
+    {
+      "path": "claude/skills/codex-lane/scripts/lane-preflight",
+      "before": {
+        "bytes": 3615,
+        "physical_lines": 111
+      },
+      "after": null
+    },
+    {
+      "path": "claude/skills/grok-lane/SKILL.md",
+      "before": {
+        "bytes": 3830,
+        "physical_lines": 79
+      },
+      "after": null
+    },
+    {
+      "path": "claude/skills/grok-lane/references/contract.md",
+      "before": {
+        "bytes": 1732,
+        "physical_lines": 24
+      },
+      "after": null
+    },
+    {
+      "path": "claude/skills/grok-lane/references/install.md",
+      "before": {
+        "bytes": 485,
+        "physical_lines": 17
+      },
+      "after": null
+    },
+    {
+      "path": "claude/skills/grok-lane/scripts/lane-preflight",
+      "before": {
+        "bytes": 1953,
+        "physical_lines": 58
+      },
+      "after": null
+    },
+    {
+      "path": "claude/skills/qwen-lane/SKILL.md",
+      "before": {
+        "bytes": 2689,
+        "physical_lines": 55
+      },
+      "after": null
+    },
+    {
       "path": "claude/skills/sessionbus/SKILL.md",
       "before": {
         "bytes": 4246,
         "physical_lines": 78
       },
       "after": {
-        "bytes": 2567,
+        "bytes": 2561,
         "physical_lines": 46
       }
     },
@@ -594,16 +630,16 @@
       "path": "claude/tools.mjs",
       "before": null,
       "after": {
-        "bytes": 825,
-        "physical_lines": 16
+        "bytes": 2376,
+        "physical_lines": 28
       }
     },
     {
       "path": "claude/tools.test.mjs",
       "before": null,
       "after": {
-        "bytes": 2007,
-        "physical_lines": 29
+        "bytes": 5305,
+        "physical_lines": 77
       }
     },
     {
@@ -706,6 +742,110 @@
       }
     },
     {
+      "path": "docs/designs/claude-0.5.0/held-lane-skills/README.md",
+      "before": null,
+      "after": {
+        "bytes": 473,
+        "physical_lines": 8
+      }
+    },
+    {
+      "path": "docs/designs/claude-0.5.0/held-lane-skills/claude-lane/SKILL.md",
+      "before": null,
+      "after": {
+        "bytes": 2770,
+        "physical_lines": 55
+      }
+    },
+    {
+      "path": "docs/designs/claude-0.5.0/held-lane-skills/codex-lane/SKILL.md",
+      "before": null,
+      "after": {
+        "bytes": 11586,
+        "physical_lines": 205
+      }
+    },
+    {
+      "path": "docs/designs/claude-0.5.0/held-lane-skills/codex-lane/references/events.md",
+      "before": null,
+      "after": {
+        "bytes": 5974,
+        "physical_lines": 107
+      }
+    },
+    {
+      "path": "docs/designs/claude-0.5.0/held-lane-skills/codex-lane/references/failures.md",
+      "before": null,
+      "after": {
+        "bytes": 3601,
+        "physical_lines": 46
+      }
+    },
+    {
+      "path": "docs/designs/claude-0.5.0/held-lane-skills/codex-lane/references/install.md",
+      "before": null,
+      "after": {
+        "bytes": 1840,
+        "physical_lines": 60
+      }
+    },
+    {
+      "path": "docs/designs/claude-0.5.0/held-lane-skills/codex-lane/references/policy.md",
+      "before": null,
+      "after": {
+        "bytes": 4412,
+        "physical_lines": 82
+      }
+    },
+    {
+      "path": "docs/designs/claude-0.5.0/held-lane-skills/codex-lane/scripts/lane-preflight",
+      "before": null,
+      "after": {
+        "bytes": 3615,
+        "physical_lines": 111
+      }
+    },
+    {
+      "path": "docs/designs/claude-0.5.0/held-lane-skills/grok-lane/SKILL.md",
+      "before": null,
+      "after": {
+        "bytes": 3830,
+        "physical_lines": 79
+      }
+    },
+    {
+      "path": "docs/designs/claude-0.5.0/held-lane-skills/grok-lane/references/contract.md",
+      "before": null,
+      "after": {
+        "bytes": 1732,
+        "physical_lines": 24
+      }
+    },
+    {
+      "path": "docs/designs/claude-0.5.0/held-lane-skills/grok-lane/references/install.md",
+      "before": null,
+      "after": {
+        "bytes": 485,
+        "physical_lines": 17
+      }
+    },
+    {
+      "path": "docs/designs/claude-0.5.0/held-lane-skills/grok-lane/scripts/lane-preflight",
+      "before": null,
+      "after": {
+        "bytes": 1953,
+        "physical_lines": 58
+      }
+    },
+    {
+      "path": "docs/designs/claude-0.5.0/held-lane-skills/qwen-lane/SKILL.md",
+      "before": null,
+      "after": {
+        "bytes": 2689,
+        "physical_lines": 55
+      }
+    },
+    {
       "path": "docs/products/claude.md",
       "before": {
         "bytes": 6212,
@@ -763,10 +903,10 @@
   "npm_pack": {
     "name": "@sessionbus/claude",
     "version": "0.5.0-interactive.0",
-    "size": 24341,
-    "unpackedSize": 71692,
-    "shasum": "7491a6dbee32becb6ff96053f211359bf1c9bfef",
-    "integrity": "sha512-5xMo5AemedBHYykeuabSjusYpykRtBxjLGEYfXiKDHWNO8omweMTQygxMh62Ygu6QTZM1ng+hf8sfJEpu7yGrw==",
+    "size": 10146,
+    "unpackedSize": 28815,
+    "shasum": "f3017afee7f52daabcae7d2418cb940f3d85c07d",
+    "integrity": "sha512-nFGjXj24QFnWg6Lia2RmRg0b+QbpE3e2Nwcvek3HPfKKXZeigpiITiXAIohC/8CFchQOT2NJQCKhV1BfTuUQxA==",
     "filename": "sessionbus-claude-0.5.0-interactive.0.tgz",
     "files": [
       {
@@ -781,12 +921,12 @@
       },
       {
         "path": "README.md",
-        "size": 6351,
+        "size": 6415,
         "mode": 420
       },
       {
         "path": "commands/doctor.md",
-        "size": 1537,
+        "size": 1538,
         "mode": 420
       },
       {
@@ -820,77 +960,17 @@
         "mode": 420
       },
       {
-        "path": "skills/claude-lane/SKILL.md",
-        "size": 2770,
-        "mode": 420
-      },
-      {
-        "path": "skills/codex-lane/references/events.md",
-        "size": 5974,
-        "mode": 420
-      },
-      {
-        "path": "skills/codex-lane/references/failures.md",
-        "size": 3601,
-        "mode": 420
-      },
-      {
-        "path": "skills/codex-lane/references/install.md",
-        "size": 1840,
-        "mode": 420
-      },
-      {
-        "path": "skills/codex-lane/references/policy.md",
-        "size": 4412,
-        "mode": 420
-      },
-      {
-        "path": "skills/codex-lane/scripts/lane-preflight",
-        "size": 3615,
-        "mode": 493
-      },
-      {
-        "path": "skills/codex-lane/SKILL.md",
-        "size": 11586,
-        "mode": 420
-      },
-      {
-        "path": "skills/grok-lane/references/contract.md",
-        "size": 1732,
-        "mode": 420
-      },
-      {
-        "path": "skills/grok-lane/references/install.md",
-        "size": 485,
-        "mode": 420
-      },
-      {
-        "path": "skills/grok-lane/scripts/lane-preflight",
-        "size": 1953,
-        "mode": 493
-      },
-      {
-        "path": "skills/grok-lane/SKILL.md",
-        "size": 3830,
-        "mode": 420
-      },
-      {
-        "path": "skills/qwen-lane/SKILL.md",
-        "size": 2689,
-        "mode": 420
-      },
-      {
         "path": "skills/sessionbus/SKILL.md",
-        "size": 2567,
+        "size": 2561,
         "mode": 420
       },
       {
         "path": "tools.mjs",
-        "size": 825,
+        "size": 2376,
         "mode": 420
       }
     ],
-    "entryCount": 24,
+    "entryCount": 12,
     "bundled": []
   },
   "production_dependencies": {
@@ -940,9 +1020,9 @@
     "kit_binding": "KIT-BINDING.json",
     "scope": "Includes installed kit and npm metadata; no dependency removal credited. Shared Go SDK retained and excluded from Node dependency subtotal."
   },
-  "final_content_digest_excluding_this_file": "53eeb27cd48ad24c6f43df8353a7add222034c13ace96ac93ba1191ee8b2e22e",
+  "final_content_digest_excluding_this_file": "1e90f7e38fc5ebc809cf769705721f89e556c9c76cd4db3b0353e24e58493497",
   "validation": {
-    "claude_tests": 28,
+    "claude_tests": 30,
     "opencode_tests": 31,
     "go_test": "pass",
     "go_race": "pass",
@@ -950,6 +1030,71 @@
     "golangci_lint": "0 issues",
     "actionlint": "pass",
     "codex_installer_transaction": "pass",
-    "pack_install_remove": "temporary local prefix with spaces; real npm bin and stdio entry; no native Claude/daemon execution"
+    "pack_install_remove": "Both packed and literal npm folder routes in temporary prefixes; exact active skill inventory, real bin/stdin entry, source retained on linked uninstall; no native Claude/daemon execution"
+  },
+  "moved_held_assets": {
+    "scope": "Twelve assets moved byte-exact from claude/skills at356a134, not deletion savings; included in repository totals",
+    "assets": [
+      {
+        "path": "docs/designs/claude-0.5.0/held-lane-skills/claude-lane/SKILL.md",
+        "bytes": 2770,
+        "physical_lines": 55
+      },
+      {
+        "path": "docs/designs/claude-0.5.0/held-lane-skills/codex-lane/SKILL.md",
+        "bytes": 11586,
+        "physical_lines": 205
+      },
+      {
+        "path": "docs/designs/claude-0.5.0/held-lane-skills/codex-lane/references/events.md",
+        "bytes": 5974,
+        "physical_lines": 107
+      },
+      {
+        "path": "docs/designs/claude-0.5.0/held-lane-skills/codex-lane/references/failures.md",
+        "bytes": 3601,
+        "physical_lines": 46
+      },
+      {
+        "path": "docs/designs/claude-0.5.0/held-lane-skills/codex-lane/references/install.md",
+        "bytes": 1840,
+        "physical_lines": 60
+      },
+      {
+        "path": "docs/designs/claude-0.5.0/held-lane-skills/codex-lane/references/policy.md",
+        "bytes": 4412,
+        "physical_lines": 82
+      },
+      {
+        "path": "docs/designs/claude-0.5.0/held-lane-skills/codex-lane/scripts/lane-preflight",
+        "bytes": 3615,
+        "physical_lines": 111
+      },
+      {
+        "path": "docs/designs/claude-0.5.0/held-lane-skills/grok-lane/SKILL.md",
+        "bytes": 3830,
+        "physical_lines": 79
+      },
+      {
+        "path": "docs/designs/claude-0.5.0/held-lane-skills/grok-lane/references/contract.md",
+        "bytes": 1732,
+        "physical_lines": 24
+      },
+      {
+        "path": "docs/designs/claude-0.5.0/held-lane-skills/grok-lane/references/install.md",
+        "bytes": 485,
+        "physical_lines": 17
+      },
+      {
+        "path": "docs/designs/claude-0.5.0/held-lane-skills/grok-lane/scripts/lane-preflight",
+        "bytes": 1953,
+        "physical_lines": 58
+      },
+      {
+        "path": "docs/designs/claude-0.5.0/held-lane-skills/qwen-lane/SKILL.md",
+        "bytes": 2689,
+        "physical_lines": 55
+      }
+    ]
   }
 }

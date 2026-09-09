@@ -21,6 +21,5 @@ expected; plugin installation or an MCP process alone is not publication.
 Report actual native hook/plugin or bus errors without readiness polling.
 
 Connection loss ends this integration instance. A written result proves local
-write completion only. The candidate does not supply Claude lane mode; older
-bundled lane preflight scripts are not candidate readiness checks. Installed
+write completion only. The candidate does not supply Claude lane mode; held lane scripts outside this plugin are not candidate readiness checks. Installed
 first-contact acceptance is separate from offline package tests.

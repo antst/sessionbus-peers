@@ -179,8 +179,8 @@ func TestSPDXAndLicenseCoverage(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, path := range []string{
-		"claude/skills/codex-lane/scripts/lane-preflight",
-		"claude/skills/grok-lane/scripts/lane-preflight",
+		"docs/designs/claude-0.5.0/held-lane-skills/codex-lane/scripts/lane-preflight",
+		"docs/designs/claude-0.5.0/held-lane-skills/grok-lane/scripts/lane-preflight",
 		"grok/scripts/native-entry", "scripts/codex-mcp", "scripts/test-codex-mcp",
 	} {
 		if firstOrSecondLine(read(t, path)) != "# SPDX-License-Identifier: MIT" {

@@ -97,6 +97,6 @@ session has its own lifetime; package removal is not a process-kill operation.
 Run `npm ci --prefix claude`, `npm test --prefix claude`, `npm pack ./claude`,
 and the repository Go checks. The package tests use local controlled transports
 and a tiny executable fixture, not a real Claude or daemon. Five runtime modules
-own launch, stdio dispatch, presence, native delivery and tool forwarding. The
-bundled legacy lane references are held guidance, not candidate runtime
+own launch, stdio dispatch, presence, native delivery and tool forwarding. Legacy lane guidance is retained outside the activated plugin at
+`docs/designs/claude-0.5.0/held-lane-skills/`; it is not candidate runtime
 acceptance or permission to use an old Go bridge.
