@@ -79,3 +79,9 @@ The inventory's proposed `probes/claude` ledger paths are mapped to
 implementation repository. These are documentation artifacts within its
 existing boundary; the root architecture allowlist is unchanged. The original
 b7a4fda handoff remains a sealed snapshot of the prior documentation layout.
+
+The retained Node published-EOF regression is also ported: actual Serve
+publishes through the public Connection, emits a Caller list request that
+remains unanswered, then stdin EOF settles that operation and Serve, closes
+the connection, suppresses a late MCP response and prevents later rehello.
+This is controlled transport evidence, not a new native EOF observation.

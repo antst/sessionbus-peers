@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	kit "github.com/antst/sessionbus/bus/sdk/go"
+	"github.com/antst/sessionbus/bus/sdk/go/protocol"
 )
 
 type mcpHarness struct {
@@ -77,6 +78,7 @@ type observedOwner struct {
 	*Owner
 	waitEntered  chan struct{}
 	waitReturned chan error
+	listReturned chan error
 	collected    chan struct{}
 	release      chan struct{}
 	once         sync.Once
@@ -87,6 +89,9 @@ func (o *observedOwner) Action(ctx context.Context, action string, args json.Raw
 		o.once.Do(func() { close(o.waitEntered) })
 	}
 	raw, err := o.Owner.Action(ctx, action, args)
+	if action == "list" && o.listReturned != nil {
+		o.listReturned <- err
+	}
 	if action == "wait" && o.waitReturned != nil {
 		o.waitReturned <- err
 	}
@@ -249,5 +254,55 @@ func TestMCPRejectsNullVersionAndMalformedFrames(t *testing.T) {
 		if _, err := o.BeginReport(json.RawMessage(raw)); err == nil {
 			t.Fatalf("accepted report %s", raw)
 		}
+	}
+}
+
+func TestPublishedMCPWithPendingCallerSettlesOnEOF(t *testing.T) {
+	o, wires := testOwner(t)
+	observed := &observedOwner{Owner: o, listReturned: make(chan error, 1)}
+	h := newMCP(t, observed)
+	h.send(t, map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": map[string]any{"name": HiddenTool, "arguments": map[string]string{"hook_event_name": "UserPromptSubmit", "session_id": "native-id", "session_title": "name"}}})
+	w := <-wires
+	hello := w.next(t)
+	if hello.Method != "session.hello" {
+		t.Fatal(hello.Method)
+	}
+	w.reply(t, hello, map[string]any{})
+	if string(h.next(t)["id"]) != "1" {
+		t.Fatal("publication response")
+	}
+	h.call(t, 2, "list", map[string]any{})
+	request := w.next(t)
+	if request.Method != "session.list" {
+		t.Fatal(request.Method)
+	}
+	// This real Caller request remains unanswered; EOF alone must settle it.
+	if err := h.input.Close(); err != nil {
+		t.Fatal(err)
+	}
+	<-h.done
+	if err := <-observed.listReturned; err == nil {
+		t.Fatal("pending request falsely succeeded")
+	}
+	for f := range h.frames {
+		t.Fatalf("response after EOF: %s", f["id"])
+	}
+	for f := range w.frames {
+		t.Fatalf("new wire frame after EOF: %s", f.Method)
+	}
+	late, err := protocol.ResultBytes(request.ID, request.Method, map[string]any{"sessions": []any{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = w.fd.Write(late); err == nil {
+		t.Fatal("EOF left public Connection open")
+	}
+	if _, err = o.BeginReport(json.RawMessage(`{"hook_event_name":"Stop","session_id":"later"}`)); err == nil {
+		t.Fatal("report revived ended owner")
+	}
+	select {
+	case <-wires:
+		t.Fatal("reconnected after EOF")
+	default:
 	}
 }

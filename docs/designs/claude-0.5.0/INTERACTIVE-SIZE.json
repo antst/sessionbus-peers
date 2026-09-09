@@ -96,8 +96,8 @@
   },
   "tests": {
     "files": 8,
-    "bytes": 33751,
-    "lines": 1119,
+    "bytes": 35538,
+    "lines": 1174,
     "members": [
       {
         "path": "cmd/claude-peer/main_test.go",
@@ -125,9 +125,9 @@
       },
       {
         "path": "wrappers/claude/interactive/mcp_test.go",
-        "bytes": 7912,
-        "lines": 253,
-        "sha256": "7d5d39dff03a4d64b3b1dce0b9bf3db98adf81f15c30624c059f11891ccaa66f"
+        "bytes": 9699,
+        "lines": 308,
+        "sha256": "2cf67326444dc04a43573e035504ff0dd9f68437ed8c83d0f137b6f03c3f57b5"
       },
       {
         "path": "wrappers/claude/interactive/owner_test.go",
@@ -419,8 +419,8 @@
   },
   "whole_repository_excluding_this_self_report": {
     "files": 169,
-    "bytes": 1148418,
-    "lines": 23272,
+    "bytes": 1150576,
+    "lines": 23333,
     "members": [
       {
         "path": ".claude-plugin/marketplace.json",
@@ -622,9 +622,9 @@
       },
       {
         "path": "docs/designs/claude-0.5.0/GO-MIGRATION.md",
-        "bytes": 4955,
-        "lines": 81,
-        "sha256": "04aa60294ef828d1d91e225c1ba2e1d1c0eed9a72ec2ba416fe6ced09af50d80"
+        "bytes": 5326,
+        "lines": 87,
+        "sha256": "d6ce91b55dcd5fb8369537341d8f8020f9efc02a01ea1f6e6761935d06e6beb5"
       },
       {
         "path": "docs/designs/claude-0.5.0/IMPLEMENTATION-BASE.md",
@@ -1144,9 +1144,9 @@
       },
       {
         "path": "wrappers/claude/interactive/mcp_test.go",
-        "bytes": 7912,
-        "lines": 253,
-        "sha256": "7d5d39dff03a4d64b3b1dce0b9bf3db98adf81f15c30624c059f11891ccaa66f"
+        "bytes": 9699,
+        "lines": 308,
+        "sha256": "2cf67326444dc04a43573e035504ff0dd9f68437ed8c83d0f137b6f03c3f57b5"
       },
       {
         "path": "wrappers/claude/interactive/owner.go",
@@ -1454,7 +1454,7 @@
   "acceptance": "Installed interactive rows completed with scoped independent reviews; final consolidated review pending. Lane acceptance unfinished. Numbers include archived/held sources rather than treating moves as removal.",
   "whole_repository_including_this_report": {
     "files": 170,
-    "bytes": 1197718,
-    "lines": 24732
+    "bytes": 1199876,
+    "lines": 24793
   }
 }
