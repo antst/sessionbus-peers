@@ -13,7 +13,6 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"slices"
 	"strings"
 	"testing"
 
@@ -97,25 +96,6 @@ func TestArgumentConflicts(t *testing.T) {
 		_, err := launchArguments(sessionkit.OpenRequest{Name: "leaf@local", Open: sessionkit.OpenOptions{Arguments: []string{test.argument}}}, fixtureID, "/tmp/lane.sock")
 		check(t, err != nil && err.Error() == test.want, "%s error = %v", test.argument, err)
 	}
-}
-
-func TestInteractivePlan(t *testing.T) {
-	plan, err := InteractivePlan([]string{"--model", "-g", "--group", "team", "--name", "reviewer", "--", "prompt"}, []string{"PATH=/bin", host.SessionIDEnv + "=stale"})
-	must(t, err)
-	check(t, reflect.DeepEqual(plan.Args[:4], []string{"--model", "-g", "--name", "reviewer"}), "arguments = %#v", plan.Args)
-	check(t, plan.Args[len(plan.Args)-2] == "--" && plan.Args[len(plan.Args)-1] == "prompt", "separator = %#v", plan.Args)
-	id := environmentValue(plan.Env, host.SessionIDEnv)
-	check(t, len(id) == 36 && environmentValue(plan.Env, host.NameEnv) == "reviewer", "identity = %q / %q", id, environmentValue(plan.Env, host.NameEnv))
-	check(t, environmentValue(plan.Env, host.GroupsEnv) == `["team"]`, "groups = %q", environmentValue(plan.Env, host.GroupsEnv))
-	check(t, environmentValue(plan.Env, host.SocketEnv) == sessionkit.Socket(), "socket = %q", environmentValue(plan.Env, host.SocketEnv))
-	check(t, slices.Contains(plan.Args, id), "minted session id absent: %#v", plan.Args)
-
-	plan, err = InteractivePlan([]string{"--resume", fixtureID, "--name=again"}, nil)
-	must(t, err)
-	check(t, environmentValue(plan.Env, host.SessionIDEnv) == "" && environmentValue(plan.Env, host.NameEnv) == "again", "resume identity = %#v", plan.Env)
-
-	_, err = InteractivePlan([]string{"--session-id="}, nil)
-	check(t, err != nil && err.Error() == "--session-id= requires a value", "empty id error = %v", err)
 }
 
 func TestHelloAndIdentity(t *testing.T) {
@@ -330,15 +310,6 @@ func TestLargeResultDrainsAfterChildExit(t *testing.T) {
 	must(t, err)
 	check(t, result.Outcome == "completed" && len(result.Result) == 300004 && strings.HasSuffix(result.Result, "tail"), "terminal = outcome %q, bytes %d", result.Outcome, len(result.Result))
 	must(t, p.Close(context.Background(), sessionkit.SessionCloseRequest{}))
-}
-
-func environmentValue(environment []string, name string) string {
-	for _, value := range environment {
-		if key, _, found := strings.Cut(value, "="); key == name && found {
-			return strings.TrimPrefix(value, name+"=")
-		}
-	}
-	return ""
 }
 
 func delivery(body string) sessionkit.DeliveryRequest {

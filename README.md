@@ -3,7 +3,7 @@
 This repository contains the Sessionbus wrappers, peer commands, plugins,
 skills, installers, and product facts. The daemon and public SDKs live in
 [`antst/sessionbus`](https://github.com/antst/sessionbus); this repository uses
-only the public Go SDK module.
+the public Go SDK and the pinned public JavaScript kit.
 
 ## Install 0.5.0 from source
 
@@ -20,21 +20,28 @@ instead.
 Install the product peers from this repository:
 
 ```sh
-git clone https://github.com/antst/sessionbus-peers.git && cd sessionbus-peers && go test -race ./... && GOBIN="$HOME/.local/bin" go install ./cmd/...
+git clone https://github.com/antst/sessionbus-peers.git && cd sessionbus-peers && go test -race ./... && GOBIN="$HOME/.local/bin" go install ./cmd/codex-peer ./cmd/grok-peer ./cmd/qwen-peer ./cmd/opencode-peer
 ```
 
-That command installs `claude-peer`, `codex-peer`, `grok-peer`, `qwen-peer`,
-and `opencode-peer` in `~/.local/bin`. The retained integrations resolve them
-as follows: Claude's `claude/.mcp.json` invokes `claude-peer` from `PATH`;
-Codex's `scripts/codex-mcp` is sourced and receives
-`$HOME/.local/bin/codex-peer` as its exact peer path; Grok's
-`grok/scripts/native-entry` defaults to `$HOME/.local/bin/grok-peer`; Qwen's
-`qwen/mcp.json` invokes `qwen-peer` from `PATH`; and Sessionbus launches
-`opencode-peer` from `PATH` for OpenCode lanes.
+That command installs `codex-peer`, `grok-peer`, `qwen-peer` and
+`opencode-peer` in `~/.local/bin`. The retained Go Claude lane source is held
+and is not installed under the competing `claude-peer` name.
+
+Claude's interactive candidate is the separate `@sessionbus/claude` Node
+package in [`claude/`](claude/README.md), version 0.5.0-interactive.0. It owns
+`claude-peer` and `sessionbus-claude-mcp`. Follow its README for the separately
+sequenced native installation and removal. This is an interactive-only
+implementation branch; installed first contact has not run and token mode is
+explicitly unavailable. Do not register it as the daemon's Claude lane command.
+
+Codex's `scripts/codex-mcp` receives `$HOME/.local/bin/codex-peer` as its
+exact path; Grok's native entry defaults to `$HOME/.local/bin/grok-peer`;
+Qwen's MCP manifest invokes `qwen-peer` from PATH; Sessionbus uses
+`opencode-peer` for the retained OpenCode lane source.
 
 Complete each product hookup using only the retained integration:
 
-- Claude: `claude plugin marketplace add https://github.com/antst/sessionbus-peers.git`, then `claude plugin install sessionbus@sessionbus`.
+- Claude: use the interactive candidate recipe and scoped status in [`claude/README.md`](claude/README.md).
 - Codex: source `scripts/codex-mcp`, then run `install_codex_mcp "$(command -v codex)" "$HOME/.local/bin/codex-peer"`.
 - OpenCode: install the pkg.pr.new preview rooted at `opencode/`, then run its `sessionbus-opencode-install` executable from `bin.mjs`.
 - Grok: install or register the `grok/` plugin directory.
@@ -59,7 +66,7 @@ GOWORK=off go test ./...
 To install the commands into a private prefix:
 
 ```sh
-GOBIN="$PWD/bin" GOWORK=off go install ./cmd/...
+GOBIN="$PWD/bin" GOWORK=off go install ./cmd/codex-peer ./cmd/grok-peer ./cmd/qwen-peer ./cmd/opencode-peer
 ```
 
 No binary release workflow is part of the initial split. The commands are
@@ -71,12 +78,13 @@ only as a [pkg.pr.new](https://pkg.pr.new/) preview in the initial repository;
 registry version must be published manually before npm trusted publishing can
 be configured in a later reviewed change.
 
-Development checks also require Node.js 24 for the OpenCode package and
+Development checks also require Node.js 24 for the Node packages and
 `golangci-lint` v2.12.2 for the repository lint gate.
 
 ## Repository boundaries
 
-- `wrappers/host` and `wrappers/mcp` are shared by every product wrapper.
+- `wrappers/host` and `wrappers/mcp` remain shared by the retained Go sources.
+- Claude interactive uses five Node modules and public Connection/Caller; it has no Go interactive backend.
 - `wrappers/<product>` and `cmd/<product>-peer` contain the Go adapters and
   commands.
 - `claude/`, `grok/`, `qwen/`, `opencode/`, and the retained plugin manifests

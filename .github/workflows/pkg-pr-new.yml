@@ -1,9 +1,15 @@
-name: Publish OpenCode package preview
+name: Package checks and scoped previews
 
 on:
   push:
     branches: [main, develop]
   pull_request:
+  workflow_dispatch:
+    inputs:
+      publish_claude:
+        description: Publish the Claude interactive preview after explicit release
+        type: boolean
+        default: false
 
 permissions: {}
 
@@ -43,3 +49,20 @@ jobs:
           }
           NODE
       - run: npx --yes pkg-pr-new publish ./opencode
+
+  claude-package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Verify Claude interactive package
+        working-directory: claude
+        run: |
+          npm ci --ignore-scripts
+          npm test
+          npm pack --dry-run --json
+      - name: Publish explicitly released Claude preview
+        if: github.event_name == 'workflow_dispatch' && inputs.publish_claude
+        run: npx --yes pkg-pr-new publish ./claude
