@@ -127,25 +127,33 @@ func TestToolArgumentsMustBeObject(t *testing.T) {
 }
 
 func TestServerUsesBackendCallerAfterPrepare(t *testing.T) {
-	started, release := make(chan struct{}), make(chan struct{})
+	var methods []string
 	backend := &preparedBackend{caller: sessionkit.NewCaller(func(_ context.Context, method string, _ any) (json.RawMessage, error) {
-		check(t, method == "turn.run", "method = %q", method)
-		close(started)
-		<-release
-		return json.RawMessage(`{"outcome":"completed","result":"done"}`), nil
+		methods = append(methods, method)
+		switch method {
+		case "turn.start":
+			return json.RawMessage(`{"session_id":"lane@local","run_id":"g/1"}`), nil
+		case "turn.status":
+			return json.RawMessage(`{"session_id":"lane@local","run_id":"g/1","state":"running"}`), nil
+		case "turn.wait":
+			return json.RawMessage(`{"session_id":"lane@local","run_id":"g/1","state":"done","result":{"outcome":"completed","result":"done"}}`), nil
+		}
+		return nil, errors.New("unexpected method")
 	})}
 	server := &Server{Backend: backend}
-	response, _ := serveOne(server, `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"sessionbus","_meta":{"threadId":"native"},"arguments":{"action":"start","arguments":{"session_id":"lane@local","input":"work"}}}}`)
-	encoded, _ := json.Marshal(response)
-	check(t, strings.Contains(string(encoded), `\"turn_id\":\"t-1\"`), "start = %s", encoded)
-	<-started
-	response, _ = serveOne(server, `{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"sessionbus","arguments":{"action":"status","arguments":{"turn_id":"t-1"}}}}`)
-	encoded, _ = json.Marshal(response)
-	check(t, strings.Contains(string(encoded), `\"state\":\"running\"`), "status = %s", encoded)
-	close(release)
-	response, _ = serveOne(server, `{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"sessionbus","arguments":{"action":"wait","arguments":{"turn_id":"t-1"}}}}`)
-	encoded, _ = json.Marshal(response)
-	check(t, strings.Contains(string(encoded), `\"state\":\"done\"`) && strings.Contains(string(encoded), `\"result\":\"done\"`) && reflect.DeepEqual(backend.meta, []string{`{"threadId":"native"}`, "", ""}), "wait = %s, meta = %#v", encoded, backend.meta)
+	for _, step := range []struct{ action, args, want string }{
+		{"start", `{"session_id":"lane@local","input":"work"}`, `"run_id":"g/1"`},
+		{"status", `{"session_id":"lane@local","run_id":"g/1"}`, `"state":"running"`},
+		{"wait", `{"session_id":"lane@local","run_id":"g/1"}`, `"state":"done"`},
+	} {
+		input := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"sessionbus","_meta":{"threadId":"native"},"arguments":{"action":"` + step.action + `","arguments":` + step.args + `}}}`
+		response, err := serveOne(server, input)
+		check(t, err == nil, "serve: %v", err)
+		encoded, _ := json.Marshal(response)
+		quoted, _ := json.Marshal(step.want)
+		check(t, strings.Contains(string(encoded), string(quoted[1:len(quoted)-1])), "response = %s", encoded)
+	}
+	check(t, reflect.DeepEqual(methods, []string{"turn.start", "turn.status", "turn.wait"}) && backend.prepared == 3, "methods/prepared = %v/%d", methods, backend.prepared)
 }
 
 func TestServerUsesStatelessActionBackend(t *testing.T) {

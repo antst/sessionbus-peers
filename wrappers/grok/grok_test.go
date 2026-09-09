@@ -268,16 +268,18 @@ func TestInterruptAndResume(t *testing.T) {
 	root := testsocket.Directory(t)
 	t.Setenv("GROK_TEST_RECORD", filepath.Join(root, "record"))
 	t.Setenv("GROK_TEST_RELEASE", filepath.Join(root, "never"))
-	_, connection, reader := startGrokWorker(t, root)
-	writeWorkerRequest(t, connection, 2, "turn.run", map[string]any{"session_id": testSessionID + "@local", "input": "hold"})
+	_, _, reader := startGrokWorker(t, root)
+	writeWorkerRequest(t, reader, 2, "turn.execute", map[string]any{"session_id": testSessionID + "@local", "run_id": "g/2", "input": "hold"})
+	check(t, readWorkerResponse(t, reader, 2).Error == nil, "execute admission failed")
 	waitFrame(t, os.Getenv("GROK_TEST_RECORD"), "session/prompt", 1)
-	writeWorkerRequest(t, connection, 3, "turn.interrupt", map[string]string{"session_id": testSessionID + "@local"})
+	writeWorkerRequest(t, reader, 3, "turn.interrupt", map[string]string{"session_id": testSessionID + "@local"})
 	var terminal sessionkit.TurnResult
-	must(t, json.Unmarshal(readWorkerResponse(t, reader, 2).Result, &terminal))
+	must(t, json.Unmarshal(readWorkerTerminal(t, reader, 2), &terminal))
 	check(t, terminal.Outcome == "interrupted", "interrupt terminal changed")
 	check(t, readWorkerResponse(t, reader, 3).Result != nil, "interrupt ack absent")
-	writeWorkerRequest(t, connection, 4, "session.close", map[string]string{"session_id": testSessionID + "@local"})
-	check(t, readWorkerResponse(t, reader, 4).Result != nil, "close response absent")
+	writeWorkerRequest(t, reader, 4, "session.close", map[string]string{"session_id": testSessionID + "@local"})
+	closeResult := readWorkerResponse(t, reader, 4)
+	check(t, closeResult.Result != nil, "close response absent: %+v", closeResult)
 	p := New(filepath.Join(root, "sessionbus.sock"), "resume-token")
 	p.SetCall(func(context.Context, string, any) (json.RawMessage, error) { return json.RawMessage(`{}`), nil })
 	_, err := p.Open(context.Background(), sessionkit.OpenRequest{Name: "lane@local", ResumeSessionID: testSessionID, Open: sessionkit.OpenOptions{Cwd: root}})
@@ -305,11 +307,11 @@ func TestResumeIdentityFailureRepliesBeforeCleanup(t *testing.T) {
 	go func() { _ = worker.Serve(context.Background()) }()
 	connection, err := listener.Accept()
 	must(t, err)
-	reader := &workerReader{reader: bufio.NewReader(connection), pending: map[int]workerResponse{}}
+	reader := &workerReader{connection: connection, requestIDs: map[int]int{}, ready: map[string]map[string]any{}, reader: bufio.NewReader(connection), pending: map[int]workerResponse{}}
 	readLine(t, reader.reader)
 	_, err = connection.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":{}}` + "\n"))
 	must(t, err)
-	writeWorkerRequest(t, connection, 1, "session.open", map[string]any{"name": "lane@local", "groups": []string{"group"}, "resume_session_id": testSessionID, "open": map[string]any{"cwd": root}})
+	writeWorkerRequest(t, reader, 1, "session.open", map[string]any{"name": "lane@local", "groups": []string{"group"}, "resume_session_id": testSessionID, "open": map[string]any{"cwd": root}})
 	response := readWorkerResponse(t, reader, 1)
 	check(t, strings.Contains(string(response.Error), `"message":"spawn_failed"`) && strings.Contains(string(response.Error), `Grok returned session identity`), "open error = %s", response.Error)
 	_ = connection.Close()
@@ -390,17 +392,17 @@ func TestCancelledCloseJoinsNativeProcesses(t *testing.T) {
 func TestKitRunTokenCrossings(t *testing.T) {
 	root, recordPath := testsocket.Directory(t), filepath.Join(t.TempDir(), "record")
 	t.Setenv("GROK_TEST_RECORD", recordPath)
-	p, connection, reader := startGrokWorker(t, root)
+	p, _, reader := startGrokWorker(t, root)
 	p.mu.Lock()
-	writeWorkerRequest(t, connection, 2, "turn.run", map[string]any{"session_id": testSessionID + "@local", "input": "plain"})
-	writeWorkerRequest(t, connection, 3, "turn.interrupt", map[string]string{"session_id": testSessionID + "@local"})
-	writeWorkerRequest(t, connection, 4, "turn.run", map[string]any{"session_id": testSessionID + "@local", "input": "second"})
+	writeWorkerRequest(t, reader, 2, "turn.execute", map[string]any{"session_id": testSessionID + "@local", "run_id": "g/2", "input": "plain"})
+	writeWorkerRequest(t, reader, 3, "turn.interrupt", map[string]string{"session_id": testSessionID + "@local"})
+	writeWorkerRequest(t, reader, 4, "turn.execute", map[string]any{"session_id": testSessionID + "@local", "run_id": "g/4", "input": "second"})
 	check(t, readWorkerResponse(t, reader, 4).Error != nil, "second run was not busy")
 	p.mu.Unlock()
-	check(t, readWorkerResponse(t, reader, 2).Result != nil, "interrupted terminal absent")
+	check(t, readWorkerTerminal(t, reader, 2) != nil, "interrupted terminal absent")
 	check(t, readWorkerResponse(t, reader, 3).Result != nil, "interrupt ack absent")
 	check(t, countFrames(records(t, recordPath), "session/prompt") == 0, "pre-write interrupt reached Grok")
-	writeWorkerRequest(t, connection, 5, "session.close", map[string]string{"session_id": testSessionID + "@local"})
+	writeWorkerRequest(t, reader, 5, "session.close", map[string]string{"session_id": testSessionID + "@local"})
 	check(t, readWorkerResponse(t, reader, 5).Result != nil, "close response absent")
 }
 
@@ -410,20 +412,21 @@ func TestDeliveryDoesNotHoldRunHandoff(t *testing.T) {
 	t.Setenv("GROK_TEST_RECORD", recordPath)
 	t.Setenv("GROK_TEST_RELEASE", filepath.Join(root, "never"))
 	t.Setenv("GROK_TEST_INTERJECT_BLOCK", interjectRelease)
-	_, connection, reader := startGrokWorker(t, root)
-	writeWorkerRequest(t, connection, 2, "turn.run", map[string]any{"session_id": testSessionID + "@local", "input": "hold"})
+	_, _, reader := startGrokWorker(t, root)
+	writeWorkerRequest(t, reader, 2, "turn.execute", map[string]any{"session_id": testSessionID + "@local", "run_id": "g/2", "input": "hold"})
+	check(t, readWorkerResponse(t, reader, 2).Error == nil, "execute admission failed")
 	waitFrame(t, recordPath, "session/prompt", 1)
-	writeWorkerRequest(t, connection, 3, "message.deliver", delivery("crossed delivery"))
+	writeWorkerRequest(t, reader, 3, "message.deliver", delivery("crossed delivery"))
 	waitFrame(t, recordPath, "_x.ai/interject", 1)
-	writeWorkerRequest(t, connection, 4, "turn.interrupt", map[string]string{"session_id": testSessionID + "@local"})
+	writeWorkerRequest(t, reader, 4, "turn.interrupt", map[string]string{"session_id": testSessionID + "@local"})
 	check(t, readWorkerResponse(t, reader, 4).Result != nil, "interrupt did not progress")
-	check(t, readWorkerResponse(t, reader, 2).Result != nil, "terminal did not progress")
+	check(t, readWorkerTerminal(t, reader, 2) != nil, "terminal did not progress")
 	must(t, os.WriteFile(interjectRelease, nil, 0o600))
 	response := readWorkerResponse(t, reader, 3)
 	var receipt sessionkit.DeliveryReceipt
 	must(t, json.Unmarshal(response.Result, &receipt))
 	check(t, receipt.Disposition == "queued_for_next_turn", "stale native token reported %q", receipt.Disposition)
-	writeWorkerRequest(t, connection, 5, "session.close", map[string]string{"session_id": testSessionID + "@local"})
+	writeWorkerRequest(t, reader, 5, "session.close", map[string]string{"session_id": testSessionID + "@local"})
 	check(t, readWorkerResponse(t, reader, 5).Result != nil, "close response absent")
 }
 
@@ -431,37 +434,40 @@ func TestIdleDeliveryJoinsOwnedPromptAndForeignChunksAreIgnored(t *testing.T) {
 	root, recordPath := testsocket.Directory(t), filepath.Join(t.TempDir(), "record")
 	t.Setenv("GROK_TEST_RECORD", recordPath)
 	t.Setenv("GROK_TEST_FOREIGN_CHUNK", "1")
-	_, connection, reader := startGrokWorker(t, root)
-	writeWorkerRequest(t, connection, 2, "message.deliver", delivery("idle-wire-token"))
+	_, _, reader := startGrokWorker(t, root)
+	writeWorkerRequest(t, reader, 2, "message.deliver", delivery("idle-wire-token"))
 	var receipt sessionkit.DeliveryReceipt
 	must(t, json.Unmarshal(readWorkerResponse(t, reader, 2).Result, &receipt))
 	check(t, receipt.Disposition == "queued_for_next_turn", "idle receipt = %#v", receipt)
 	check(t, countFrames(records(t, recordPath), "_x.ai/interject") == 0, "idle delivery used native interject")
-	writeWorkerRequest(t, connection, 3, "turn.run", map[string]any{"session_id": testSessionID + "@local", "input": "caller-input"})
+	writeWorkerRequest(t, reader, 3, "turn.execute", map[string]any{"session_id": testSessionID + "@local", "run_id": "g/3", "input": "caller-input"})
+	check(t, readWorkerResponse(t, reader, 3).Error == nil, "execute admission failed")
 	var terminal sessionkit.TurnResult
-	must(t, json.Unmarshal(readWorkerResponse(t, reader, 3).Result, &terminal))
+	must(t, json.Unmarshal(readWorkerTerminal(t, reader, 3), &terminal))
 	check(t, terminal.Outcome == "completed" && terminal.Result == "answer", "terminal = %#v", terminal)
 	prompt := string(findFrame(records(t, recordPath), "session/prompt"))
 	check(t, strings.Index(prompt, "idle-wire-token") >= 0 && strings.Index(prompt, "idle-wire-token") < strings.Index(prompt, "caller-input"), "owned prompt = %s", prompt)
-	writeWorkerRequest(t, connection, 4, "session.close", map[string]string{"session_id": testSessionID + "@local"})
-	check(t, readWorkerResponse(t, reader, 4).Result != nil, "close response absent")
+	writeWorkerRequest(t, reader, 4, "session.close", map[string]string{"session_id": testSessionID + "@local"})
+	closeResult := readWorkerResponse(t, reader, 4)
+	check(t, closeResult.Result != nil, "close response absent: %+v", closeResult)
 }
 
 func TestActiveDeliveryUsesInterject(t *testing.T) {
 	root, recordPath := testsocket.Directory(t), filepath.Join(t.TempDir(), "record")
 	t.Setenv("GROK_TEST_RECORD", recordPath)
 	t.Setenv("GROK_TEST_RELEASE", filepath.Join(root, "never"))
-	p, connection, reader := startGrokWorker(t, root)
-	writeWorkerRequest(t, connection, 2, "turn.run", map[string]any{"session_id": testSessionID + "@local", "input": "hold"})
+	p, _, reader := startGrokWorker(t, root)
+	writeWorkerRequest(t, reader, 2, "turn.execute", map[string]any{"session_id": testSessionID + "@local", "run_id": "g/2", "input": "hold"})
+	check(t, readWorkerResponse(t, reader, 2).Error == nil, "execute admission failed")
 	waitActive(t, p)
-	writeWorkerRequest(t, connection, 3, "message.deliver", delivery("active-wire-token"))
+	writeWorkerRequest(t, reader, 3, "message.deliver", delivery("active-wire-token"))
 	var receipt sessionkit.DeliveryReceipt
 	must(t, json.Unmarshal(readWorkerResponse(t, reader, 3).Result, &receipt))
 	check(t, receipt.Disposition == "injected" && countFrames(records(t, recordPath), "_x.ai/interject") == 1, "active receipt = %#v", receipt)
-	writeWorkerRequest(t, connection, 4, "turn.interrupt", map[string]string{"session_id": testSessionID + "@local"})
+	writeWorkerRequest(t, reader, 4, "turn.interrupt", map[string]string{"session_id": testSessionID + "@local"})
 	check(t, readWorkerResponse(t, reader, 4).Result != nil, "interrupt response absent")
-	check(t, readWorkerResponse(t, reader, 2).Result != nil, "terminal absent")
-	writeWorkerRequest(t, connection, 5, "session.close", map[string]string{"session_id": testSessionID + "@local"})
+	check(t, readWorkerTerminal(t, reader, 2) != nil, "terminal absent")
+	writeWorkerRequest(t, reader, 5, "session.close", map[string]string{"session_id": testSessionID + "@local"})
 	check(t, readWorkerResponse(t, reader, 5).Result != nil, "close response absent")
 }
 
@@ -469,26 +475,33 @@ func TestChildExitWaitsForRunDoneBeforeShutdown(t *testing.T) {
 	root := testsocket.Directory(t)
 	t.Setenv("GROK_TEST_OUTPUT_SIZE", "300000")
 	t.Setenv("GROK_TEST_EXIT_AFTER_PROMPT", "1")
-	p, connection, reader := startGrokWorker(t, root)
-	writeWorkerRequest(t, connection, 2, "turn.run", map[string]any{"session_id": testSessionID + "@local", "input": "plain"})
+	p, _, reader := startGrokWorker(t, root)
+	writeWorkerRequest(t, reader, 2, "turn.execute", map[string]any{"session_id": testSessionID + "@local", "run_id": "g/2", "input": "plain"})
+	check(t, readWorkerResponse(t, reader, 2).Error == nil, "execute admission failed")
 	<-p.child.Done()
-	response := readWorkerResponse(t, reader, 2)
-	var terminal sessionkit.TurnResult
-	must(t, json.Unmarshal(response.Result, &terminal))
-	check(t, terminal.Outcome == "completed" && len(terminal.Result) == 262144, "terminal before EOF = %s/%d", terminal.Outcome, len(terminal.Result))
+	ready := readWorkerReady(t, reader, 2)
+	check(t, ready["state"] == "unavailable" && ready["reason"] == "native result failed validation", "oversized result metadata before EOF = %v", ready)
+	// Worker retirement invalidates its cursor; output length is covered by
+	// the native reader tests, not by an old terminal-body RPC here.
 	_, err := reader.reader.ReadBytes('\n')
 	check(t, errors.Is(err, io.EOF), "worker did not shut down after terminal: %v", err)
 }
 
 type workerResponse struct {
+	Method string          `json:"method"`
+	Params json.RawMessage `json:"params"`
 	ID     int             `json:"id"`
 	Result json.RawMessage `json:"result"`
 	Error  json.RawMessage `json:"error"`
 }
 
 type workerReader struct {
-	reader  *bufio.Reader
-	pending map[int]workerResponse
+	connection net.Conn
+	nextID     int
+	requestIDs map[int]int
+	ready      map[string]map[string]any
+	reader     *bufio.Reader
+	pending    map[int]workerResponse
 }
 
 func startGrokWorker(t *testing.T, root string) (*Wrapper, net.Conn, *workerReader) {
@@ -504,21 +517,23 @@ func startGrokWorker(t *testing.T, root string) (*Wrapper, net.Conn, *workerRead
 	go func() { _ = worker.Serve(context.Background()) }()
 	connection, err := listener.Accept()
 	must(t, err)
-	reader := &workerReader{reader: bufio.NewReader(connection), pending: map[int]workerResponse{}}
+	reader := &workerReader{connection: connection, requestIDs: map[int]int{}, ready: map[string]map[string]any{}, reader: bufio.NewReader(connection), pending: map[int]workerResponse{}}
 	readLine(t, reader.reader)
 	_, err = connection.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":{}}` + "\n"))
 	must(t, err)
-	writeWorkerRequest(t, connection, 1, "session.open", map[string]any{"name": "parent/grok@local", "groups": []string{"group"}, "open": map[string]any{"cwd": root}})
+	writeWorkerRequest(t, reader, 1, "session.open", map[string]any{"name": "parent/grok@local", "groups": []string{"group"}, "open": map[string]any{"cwd": root}})
 	opened := readWorkerResponse(t, reader, 1)
 	check(t, opened.Result != nil, "open failed: %s", opened.Error)
 	t.Cleanup(func() { _ = connection.Close(); <-worker.Closed(); _ = listener.Close() })
 	return p, connection, reader
 }
 
-func writeWorkerRequest(t *testing.T, connection net.Conn, id int, method string, params any) {
-	body, err := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": id, "method": method, "params": params})
+func writeWorkerRequest(t *testing.T, reader *workerReader, id int, method string, params any) {
+	reader.nextID++
+	reader.requestIDs[reader.nextID] = id
+	body, err := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": reader.nextID, "method": method, "params": params})
 	must(t, err)
-	_, err = connection.Write(append(body, '\n'))
+	_, err = reader.connection.Write(append(body, '\n'))
 	must(t, err)
 }
 
@@ -530,11 +545,52 @@ func readWorkerResponse(t *testing.T, reader *workerReader, id int) workerRespon
 	for {
 		var response workerResponse
 		must(t, json.Unmarshal(readLine(t, reader.reader), &response))
+		if workerReady(t, reader, response) {
+			continue
+		}
+		response.ID = reader.requestIDs[response.ID]
 		if response.ID == id {
 			return response
 		}
 		reader.pending[response.ID] = response
 	}
+}
+
+func workerReady(t *testing.T, reader *workerReader, response workerResponse) bool {
+	if response.Method != "turn.ready" {
+		return false
+	}
+	var ready map[string]any
+	must(t, json.Unmarshal(response.Params, &ready))
+	reader.ready[ready["run_id"].(string)] = ready
+	body, err := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": response.ID, "result": map[string]any{}})
+	must(t, err)
+	_, err = reader.connection.Write(append(body, '\n'))
+	must(t, err)
+	return true
+}
+func readWorkerReady(t *testing.T, reader *workerReader, id int) map[string]any {
+	key := fmt.Sprintf("g/%d", id)
+	for reader.ready[key] == nil {
+		var response workerResponse
+		must(t, json.Unmarshal(readLine(t, reader.reader), &response))
+		if !workerReady(t, reader, response) {
+			response.ID = reader.requestIDs[response.ID]
+			reader.pending[response.ID] = response
+		}
+	}
+	return reader.ready[key]
+}
+func readWorkerTerminal(t *testing.T, reader *workerReader, id int) json.RawMessage {
+	readWorkerReady(t, reader, id)
+	writeWorkerRequest(t, reader, 1000+id, "turn.status", map[string]any{"session_id": testSessionID + "@local", "run_id": fmt.Sprintf("g/%d", id)})
+	response := readWorkerResponse(t, reader, 1000+id)
+	var status sessionkit.RunStatus
+	must(t, json.Unmarshal(response.Result, &status))
+	check(t, status.Result != nil, "missing result: %s", response.Result)
+	result, err := json.Marshal(status.Result)
+	must(t, err)
+	return result
 }
 
 func readLine(t *testing.T, reader *bufio.Reader) []byte {

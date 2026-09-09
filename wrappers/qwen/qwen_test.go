@@ -123,12 +123,21 @@ func TestAbnormalRunCarriesNothingIntoReopen(t *testing.T) {
 		t.Fatalf("open = %#v", response)
 	}
 	opened := response["result"].(map[string]any)
-	if encoder.Encode(map[string]any{"jsonrpc": "2.0", "id": 3, "method": "turn.run", "params": map[string]any{"session_id": opened["session_id"].(string) + "@local", "input": "die"}}) != nil || decoder.Decode(&response) != nil {
-		t.Fatal("turn.run")
+	if encoder.Encode(map[string]any{"jsonrpc": "2.0", "id": 3, "method": "turn.execute", "params": map[string]any{"run_id": "g/1", "session_id": opened["session_id"].(string) + "@local", "input": "die"}}) != nil || decoder.Decode(&response) != nil {
+		t.Fatal("turn.execute")
 	}
-	result := response["result"].(map[string]any)
-	if result["outcome"] != "failed" {
-		t.Fatalf("terminal = %#v", response)
+	// Execute responds with admission; abnormal native completion is now a
+	// separate metadata event before worker retirement, not a body response.
+	response = nil
+	if decoder.Decode(&response) != nil || response["method"] != "turn.ready" {
+		t.Fatal(response)
+	}
+	terminal := response["params"].(map[string]any)
+	if terminal["state"] != "unavailable" || terminal["outcome"] != nil {
+		t.Fatal(terminal)
+	}
+	if err := encoder.Encode(map[string]any{"jsonrpc": "2.0", "id": response["id"], "result": map[string]any{}}); err != nil {
+		t.Fatal(err)
 	}
 	<-worker.Closed()
 	for range 1000 {
@@ -226,7 +235,10 @@ func TestOpenResumeUsesCapturedACPShapesAndScrubsBusEnv(t *testing.T) {
 func TestRunMayDrainQueuedDeliveryAndRestoresUndrained(t *testing.T) {
 	p, productIn, productOut := newFixtureClient(t)
 	firstDone := make(chan sessionkit.TurnResult, 1)
-	go func() { result, _ := p.Run(context.Background(), &sessionkit.Run{}, "first"); firstDone <- result }()
+	go func() {
+		result, _ := p.Run(context.Background(), &sessionkit.Run{}, textSeed("first"))
+		firstDone <- result
+	}()
 	first := readRequest(t, productIn)
 	check(t, first.Method == "session/prompt", "request = %#v", first)
 	receipt, err := p.Deliver(context.Background(), delivery("MID"), nil)
@@ -243,7 +255,10 @@ func TestRunMayDrainQueuedDeliveryAndRestoresUndrained(t *testing.T) {
 	check(t, (<-firstDone).Result == "answer", "first result changed")
 
 	secondDone := make(chan sessionkit.TurnResult, 1)
-	go func() { result, _ := p.Run(context.Background(), &sessionkit.Run{}, "second"); secondDone <- result }()
+	go func() {
+		result, _ := p.Run(context.Background(), &sessionkit.Run{}, textSeed("second"))
+		secondDone <- result
+	}()
 	second := readRequest(t, productIn)
 	check(t, !bytes.Contains(second.Raw, []byte("MID")), "claimed message replayed: %s", second.Raw)
 	receipt, err = p.Deliver(context.Background(), delivery("UNDRAINED"), nil)
@@ -252,7 +267,10 @@ func TestRunMayDrainQueuedDeliveryAndRestoresUndrained(t *testing.T) {
 	writeResult(t, productOut, second.ID, `{"stopReason":"end_turn"}`)
 	<-secondDone
 	thirdDone := make(chan sessionkit.TurnResult, 1)
-	go func() { result, _ := p.Run(context.Background(), &sessionkit.Run{}, "third"); thirdDone <- result }()
+	go func() {
+		result, _ := p.Run(context.Background(), &sessionkit.Run{}, textSeed("third"))
+		thirdDone <- result
+	}()
 	third := readRequest(t, productIn)
 	check(t, bytes.Contains(third.Raw, []byte("UNDRAINED")), "undrained message lost: %s", third.Raw)
 	writeResult(t, productOut, third.ID, `{"stopReason":"end_turn"}`)
@@ -262,7 +280,7 @@ func TestRunMayDrainQueuedDeliveryAndRestoresUndrained(t *testing.T) {
 func TestDrainRequestIsHandledBeforeFollowingTerminal(t *testing.T) {
 	p, productIn, productOut := newFixtureClient(t)
 	done := make(chan sessionkit.TurnResult, 1)
-	go func() { result, _ := p.Run(context.Background(), &sessionkit.Run{}, "turn"); done <- result }()
+	go func() { result, _ := p.Run(context.Background(), &sessionkit.Run{}, textSeed("turn")); done <- result }()
 	prompt := readRequest(t, productIn)
 	receipt, err := p.Deliver(context.Background(), delivery("ORDERED"), nil)
 	must(t, err)
@@ -289,7 +307,7 @@ func TestDrainRequestIsHandledBeforeFollowingTerminal(t *testing.T) {
 	<-done
 
 	next := make(chan sessionkit.TurnResult, 1)
-	go func() { result, _ := p.Run(context.Background(), &sessionkit.Run{}, "next"); next <- result }()
+	go func() { result, _ := p.Run(context.Background(), &sessionkit.Run{}, textSeed("next")); next <- result }()
 	nextPrompt := readRequest(t, productIn)
 	check(t, !bytes.Contains(nextPrompt.Raw, []byte("ORDERED")), "claimed delivery replayed: %s", nextPrompt.Raw)
 	writeResult(t, productOut, nextPrompt.ID, `{"stopReason":"end_turn"}`)
@@ -306,7 +324,7 @@ func TestFailedPromptWriteRestoresQueuedDelivery(t *testing.T) {
 	t.Cleanup(func() { _ = productOut.Close(); <-p.client.done })
 	failed := make(chan error, 1)
 	go func() {
-		_, err := p.Run(context.Background(), &sessionkit.Run{}, "turn")
+		_, err := p.Run(context.Background(), &sessionkit.Run{}, textSeed("turn"))
 		failed <- err
 	}()
 	<-writer.entered
@@ -334,7 +352,7 @@ func TestFailedPromptWriteRestoresQueuedDelivery(t *testing.T) {
 func TestInterruptIgnoresCancelledBooleanAndUsesTerminal(t *testing.T) {
 	p, productIn, productOut := newFixtureClient(t)
 	done := make(chan sessionkit.TurnResult, 1)
-	go func() { result, _ := p.Run(context.Background(), &sessionkit.Run{}, "block"); done <- result }()
+	go func() { result, _ := p.Run(context.Background(), &sessionkit.Run{}, textSeed("block")); done <- result }()
 	prompt := readRequest(t, productIn)
 	p.mu.Lock()
 	native := p.active
@@ -355,7 +373,7 @@ func TestACPClientAnswersCapturedRequestsAndDrainsLargeExitFrame(t *testing.T) {
 	permission := readRequest(t, productIn)
 	check(t, string(permission.Raw) == `{"id":91,"jsonrpc":"2.0","result":{"outcome":{"outcome":"cancelled"}}}`, "permission = %s", permission.Raw)
 	done := make(chan sessionkit.TurnResult, 1)
-	go func() { result, _ := p.Run(context.Background(), &sessionkit.Run{}, "large"); done <- result }()
+	go func() { result, _ := p.Run(context.Background(), &sessionkit.Run{}, textSeed("large")); done <- result }()
 	prompt := readRequest(t, productIn)
 	large := strings.Repeat("x", 300000) + "tail"
 	writeFrame(t, productOut, fmt.Sprintf(`{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"%s","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":%q}}}}`, fixtureID, large))
@@ -448,3 +466,5 @@ func check(t *testing.T, ok bool, format string, values ...any) {
 		t.Fatalf(format, values...)
 	}
 }
+
+func textSeed(text string) sessionkit.RunInput { return sessionkit.RunInput{Text: &text} }

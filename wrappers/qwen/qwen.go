@@ -180,7 +180,18 @@ func (p *Wrapper) Open(ctx context.Context, request sessionkit.OpenRequest) (ses
 	return sessionkit.OpenResult{SessionID: id}, nil
 }
 
-func (p *Wrapper) Run(ctx context.Context, run *sessionkit.Run, input string) (sessionkit.TurnResult, error) {
+func (p *Wrapper) Run(ctx context.Context, run *sessionkit.Run, seed sessionkit.RunInput) (sessionkit.TurnResult, error) {
+	// This mechanical interface migration does not add native wake support.
+	if seed.Delivery != nil {
+		if err := run.ReportDelivery(sessionkit.DeliveryReceipt{Disposition: "rejected", Reason: "unsupported_delivery_seed"}, nil); err != nil {
+			return sessionkit.TurnResult{}, err
+		}
+		return sessionkit.TurnResult{}, errors.New("delivery-seeded runs are not supported by this product")
+	}
+	if seed.Text == nil {
+		return sessionkit.TurnResult{}, errors.New("missing explicit run input")
+	}
+	input := *seed.Text
 	p.mu.Lock()
 	p.run = run
 	go p.retireRun(run)

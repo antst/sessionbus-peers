@@ -6,6 +6,16 @@
 > commit recorded by the split archive manifest. Host evidence paths are
 > immutable external artifacts, not repository paths.
 
+## Shared lifecycle adaptation — pending installed acceptance
+
+The [shared lifecycle mapping](../designs/claude-0.5.0/shared-lifecycle.md)
+describes the current adaptation against compile-only SDK `a7c10044f3b4`.
+It replaces Caller-local destructive handles with shared non-consuming reads
+and explicit acknowledgment, and adds an independently selected idle-message
+run policy. This code has no new umka installation or native acceptance yet.
+The installed observations and dependency binding below describe their original
+revisions; they do not prove the new policy combinations or completion pointers.
+
 ## Current interactive candidate — 2026-09-09
 
 The interactive candidate is now one Go binary plus native plugin assets; it

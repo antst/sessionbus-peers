@@ -46,6 +46,7 @@ type controlResult struct {
 type nativeRun struct {
 	uuid, session string
 	admitted      func()
+	replayed      chan struct{}
 	echoed        bool
 	terminal      *nativeFrame
 	result        chan runResult
@@ -213,11 +214,32 @@ func userFrame(id, session, content string, query bool) any {
 	return map[string]any{"type": "user", "uuid": id, "session_id": session, "message": map[string]string{"role": "user", "content": content}, "parent_tool_use_id": nil, "shouldQuery": query}
 }
 func (s *stream) run(ctx context.Context, session, input string, admitted func()) (kit.TurnResult, error) {
+	return s.execute(ctx, session, input, admitted, nil)
+}
+
+// A waking delivery uses the ordinary native run and terminal correlation.
+// Its receipt is written by this callback goroutine, never by the native reader.
+func (s *stream) execute(ctx context.Context, session, input string, admitted func(), report func(kit.DeliveryReceipt, error) error) (kit.TurnResult, error) {
+	reportFailure := func(attempted bool, cause error) (kit.TurnResult, error) {
+		if report != nil {
+			receipt := kit.DeliveryReceipt{Disposition: "rejected", Reason: "not_submitted"}
+			var uncertain error
+			if attempted {
+				receipt = kit.DeliveryReceipt{}
+				uncertain = &kit.ProtocolError{Code: -32603, Data: json.RawMessage(`"uncertain_native_admission"`)}
+			}
+			if err := report(receipt, uncertain); err != nil {
+				s.stop(err)
+				return kit.TurnResult{}, err
+			}
+		}
+		return kit.TurnResult{}, cause
+	}
 	id, err := correlationID()
 	if err != nil {
-		return kit.TurnResult{}, err
+		return reportFailure(false, err)
 	}
-	turn := &nativeRun{uuid: id, session: session, admitted: admitted, result: make(chan runResult, 1)}
+	turn := &nativeRun{uuid: id, session: session, admitted: admitted, replayed: make(chan struct{}), result: make(chan runResult, 1)}
 	s.mu.Lock()
 	if s.closed != nil {
 		err = s.closed
@@ -231,15 +253,41 @@ func (s *stream) run(ctx context.Context, session, input string, admitted func()
 	}
 	s.mu.Unlock()
 	if err != nil {
-		return kit.TurnResult{}, err
+		return reportFailure(false, err)
 	}
-	if _, err = s.write(ctx, userFrame(id, session, input, true)); err != nil {
+	attempted, err := s.write(ctx, userFrame(id, session, input, true))
+	if err != nil {
 		s.mu.Lock()
 		if s.active == turn {
 			s.active = nil
 		}
 		s.mu.Unlock()
-		return kit.TurnResult{}, err
+		return reportFailure(attempted, err)
+	}
+	if report != nil {
+		select {
+		case <-turn.replayed:
+		case <-s.done:
+		case <-ctx.Done():
+		}
+		// A recorded native replay remains admission even when a terminal or
+		// cancellation follows it before the receipt write completes.
+		select {
+		case <-turn.replayed:
+			if err := report(kit.DeliveryReceipt{Disposition: "injected"}, nil); err != nil {
+				s.stop(err)
+				return kit.TurnResult{}, err
+			}
+		default:
+			err := ctx.Err()
+			if err == nil {
+				s.mu.Lock()
+				err = s.closed
+				s.mu.Unlock()
+			}
+			s.stop(err)
+			return reportFailure(true, err)
+		}
 	}
 	select {
 	case result := <-turn.result:
@@ -331,9 +379,10 @@ func (s *stream) read() {
 					}
 					a.done <- err
 				}
-				if t := s.active; t != nil && t.uuid == f.UUID && t.session == f.SessionID {
+				if t := s.active; t != nil && t.uuid == f.UUID && t.session == f.SessionID && !t.echoed {
 					t.echoed = true
 					t.admitted()
+					close(t.replayed)
 					s.finishLocked()
 				}
 			}

@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"sync"
 	"testing"
@@ -102,53 +103,63 @@ func (o *observedOwner) Action(ctx context.Context, action string, args json.Raw
 	return raw, err
 }
 
+func startMCPRun(t *testing.T, h *mcpHarness, w *wire) kit.RunRef {
+	t.Helper()
+	h.call(t, 1, "start", map[string]string{"session_id": "lane", "input": "one"})
+	request := w.next(t)
+	if request.Method != "turn.start" {
+		t.Fatal(request.Method)
+	}
+	ref := kit.RunRef{SessionID: "lane", RunID: "g/1"}
+	w.reply(t, request, ref)
+	var returned kit.RunRef
+	if json.Unmarshal(value(t, h.next(t)), &returned) != nil || returned != ref {
+		t.Fatal(returned)
+	}
+	return ref
+}
+
 func TestCancelledMCPWaitPreservesActualCallerResult(t *testing.T) {
 	for _, collector := range []string{"status", "wait"} {
 		t.Run(collector, func(t *testing.T) {
 			o, wires := testOwner(t)
 			w := published(t, o, wires)
-			observed := &observedOwner{Owner: o, waitEntered: make(chan struct{}), waitReturned: make(chan error, 2)}
+			observed := &observedOwner{Owner: o, waitReturned: make(chan error, 2)}
 			h := newMCP(t, observed)
-			h.call(t, 1, "start", map[string]string{"session_id": "lane", "input": "one"})
-			start := h.next(t)
-			var handle kit.StartResult
-			_ = json.Unmarshal(value(t, start), &handle)
-			if handle.TurnID == "" {
-				t.Fatal("missing handle")
+			ref := startMCPRun(t, h, w)
+			h.call(t, 2, "wait", ref)
+			abandoned := w.next(t)
+			if abandoned.Method != "turn.wait" {
+				t.Fatal(abandoned.Method)
 			}
-			run := w.next(t)
-			if run.Method != "turn.run" {
-				t.Fatal(run.Method)
-			}
-			h.call(t, 2, "wait", handle)
-			<-observed.waitEntered
 			h.cancel(t, 2)
 			if err := <-observed.waitReturned; !errors.Is(err, context.Canceled) {
 				t.Fatal(err)
 			}
-			w.reply(t, run, kit.TurnResult{Outcome: "completed", Result: "retained"})
-			h.call(t, 3, collector, handle)
-			f := h.next(t)
-			if string(f["id"]) != "3" {
-				t.Fatalf("cancelled reply escaped: %s", f["id"])
+			terminal := kit.RunStatus{SessionID: ref.SessionID, RunID: ref.RunID, State: "done", Result: &kit.TurnResult{Outcome: "completed", Result: "retained"}}
+			w.reply(t, abandoned, terminal)
+			// Collection now routes to the worker; no local handle is consumed.
+			for _, callID := range []int{3, 4} {
+				h.call(t, callID, collector, ref)
+				read := w.next(t)
+				if read.Method != "turn."+collector {
+					t.Fatal(read.Method)
+				}
+				w.reply(t, read, terminal)
+				f := h.next(t)
+				var status kit.RunStatus
+				if string(f["id"]) != fmt.Sprint(callID) || json.Unmarshal(value(t, f), &status) != nil || status.Result == nil || status.Result.Result != "retained" {
+					t.Fatal(f)
+				}
 			}
-			var status kit.TurnStatus
-			_ = json.Unmarshal(value(t, f), &status)
-			if status.State == "running" && collector == "status" {
-				// A non-consuming running status is legitimate if the public Caller
-				// has not settled its goroutine yet. One explicit wait collects it.
-				h.call(t, 5, "wait", handle)
-				_ = json.Unmarshal(value(t, h.next(t)), &status)
+			h.call(t, 5, "ack", ref)
+			ack := w.next(t)
+			if ack.Method != "turn.ack" {
+				t.Fatal(ack.Method)
 			}
-
-			if status.Result == nil || status.Result.Result != "retained" {
-				t.Fatalf("result %#v", status)
-			}
-			h.call(t, 4, "status", handle)
-			var failure map[string]any
-			_ = json.Unmarshal(value(t, h.next(t)), &failure)
-			if failure["error"] != "unknown_turn" {
-				t.Fatal(failure)
+			w.reply(t, ack, struct{}{})
+			if string(h.next(t)["id"]) != "5" {
+				t.Fatal("missing explicit ack result")
 			}
 		})
 	}
@@ -159,12 +170,10 @@ func TestFulfilledWaitKeepsResponseAfterLateCancellation(t *testing.T) {
 	w := published(t, o, wires)
 	observed := &observedOwner{Owner: o, collected: make(chan struct{}), release: make(chan struct{})}
 	h := newMCP(t, observed)
-	h.call(t, 1, "start", map[string]string{"session_id": "lane", "input": "one"})
-	var handle kit.StartResult
-	_ = json.Unmarshal(value(t, h.next(t)), &handle)
-	run := w.next(t)
-	h.call(t, 2, "wait", handle)
-	w.reply(t, run, kit.TurnResult{Outcome: "completed", Result: "won"})
+	ref := startMCPRun(t, h, w)
+	h.call(t, 2, "wait", ref)
+	read := w.next(t)
+	w.reply(t, read, kit.RunStatus{SessionID: ref.SessionID, RunID: ref.RunID, State: "done", Result: &kit.TurnResult{Outcome: "completed", Result: "won"}})
 	<-observed.collected
 	h.cancel(t, 2)
 	h.send(t, map[string]any{"jsonrpc": "2.0", "id": 9, "method": "ping"})
@@ -173,10 +182,10 @@ func TestFulfilledWaitKeepsResponseAfterLateCancellation(t *testing.T) {
 	}
 	close(observed.release)
 	f := h.next(t)
-	var result kit.TurnStatus
+	var result kit.RunStatus
 	_ = json.Unmarshal(value(t, f), &result)
 	if string(f["id"]) != "2" || result.Result == nil || result.Result.Result != "won" {
-		t.Fatal("fulfilled consuming result dropped")
+		t.Fatal("fulfilled result dropped")
 	}
 }
 
@@ -304,5 +313,26 @@ func TestPublishedMCPWithPendingCallerSettlesOnEOF(t *testing.T) {
 	case <-wires:
 		t.Fatal("reconnected after EOF")
 	default:
+	}
+}
+
+func TestSubmittedMCPAckKeepsResponseAfterCancellation(t *testing.T) {
+	o, wires := testOwner(t)
+	w := published(t, o, wires)
+	h := newMCP(t, o)
+	h.call(t, 1, "ack", kit.RunRef{SessionID: "lane", RunID: "g/1"})
+	ack := w.next(t)
+	if ack.Method != "turn.ack" {
+		t.Fatal(ack.Method)
+	}
+	h.cancel(t, 1)
+	h.send(t, map[string]any{"jsonrpc": "2.0", "id": 2, "method": "ping"})
+	if string(h.next(t)["id"]) != "2" {
+		t.Fatal("ack returned before its wire result")
+	}
+	w.reply(t, ack, struct{}{})
+	result := h.next(t)
+	if string(result["id"]) != "1" || string(value(t, result)) != "{}" {
+		t.Fatal("submitted acknowledgement lost its successful response")
 	}
 }

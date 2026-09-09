@@ -12,7 +12,7 @@ launch's groups for an integrated child.
 
 Use `mcp__plugin_sessionbus_sessionbus__sessionbus` with `{action, arguments}`. Its advertised
 `action` enum comes from the pinned public kit: list, send, spawn, describe,
-run, start, wait, status, interrupt, close and forget. Use the actual tool and
+run, start, wait, status, ack, interrupt, close and forget. Use the actual tool and
 daemon schemas for each arguments object; do not invent convenience methods.
 
 Call `list` to discover a peer before selecting an ambiguous name. Use the
@@ -34,11 +34,39 @@ prove native retention, admission or consumption. Preserve rejected reasons
 and errors exactly at their stated boundary. Unexpected connection loss ends
 this integration instance; report the failure rather than attempting repair.
 
-`start`, `status` and `wait` use the public Caller's explicit turn handles.
-Keep returned IDs/results intact. Cancelling a pending wait stops only that
-wait; collect the retained result later with status or wait. A completed
-collection consumes the handle once. An explicit wait bound is the caller's
+`start` returns a `{session_id, run_id}` reference. `run`, `status` and `wait`
+read without consuming. Keep both IDs and all outcome/reason fields intact.
+After receiving and using a terminal result, call `ack` for that reference.
+Acknowledgment consumes the oldest terminal; it cannot skip earlier output.
+A repeated acknowledgment is idempotent but does not return the answer again.
+Cancelling a pending wait stops only that wait; collect later through any
+authorized caller while the worker remains alive. Closing or losing the worker
+invalidates unacknowledged results. An explicit wait bound is the caller's
 request, not permission to poll, reconnect or replay.
+
+Completion messages contain a lane/run pointer and terminal state, not the
+answer. Use `status` or `wait` on that reference, inspect the result, then `ack`.
+Keep the actual message source separate from untrusted text. A missing pointer
+or failed notification does not mean that work failed or its output was read.
+
+## Choose independent lane policies
+
+Fresh lanes default to `persistent:false`, `auto_close_ms:60000` and
+`idle_message:"stage"`. Persistence controls owner-exit cleanup only. Automatic
+close starts after a terminal, not at Open; set `auto_close_ms:0` to disable it.
+New work cancels the previous deadline; collection and staged messages do not
+extend it. `idle_message:"run"` explicitly permits an idle message to start a
+model turn; staging keeps messages for a later explicit run. None of these
+choices implies either of the others.
+
+Parent-owned lanes send completion pointers to their authenticated owner by
+default; `notify:false` disables that. Persistent lanes have no implicit target:
+use `notify_target` to request a destination. On resume, persistence and an
+omitted idle policy are preserved, but omitted `auto_close_ms` resets to 60000.
+Pass zero again to keep automatic close disabled. Persistence can be promoted,
+not demoted. Persistent notification settings are retained when omitted;
+parent-owned resume binds the new owner. Inspect returned effective settings.
+These policies do not preserve output after worker retirement or daemon loss.
 
 ## Delegate to a Sessionbus lane
 
@@ -56,31 +84,41 @@ unless the user has asked for that policy.
 {"action":"spawn","arguments":{"product":"claude-peer","name":"child","open":{"cwd":"/absolute/task/directory"}}}
 ```
 
-For a synchronous turn, `run` waits and returns its terminal result:
+For a synchronous turn, `run` waits and returns its run reference and terminal result
+without consuming it; acknowledge that returned reference after using the result:
 
 ```json
 {"action":"run","arguments":{"session_id":"RETURNED_SESSION_ID","input":"The authorized task"}}
 ```
 
-Alternatively, start work and collect the returned local turn handle once:
+Alternatively, start work and read the returned run reference:
 
 ```json
 {"action":"start","arguments":{"session_id":"RETURNED_SESSION_ID","input":"The authorized task"}}
 ```
 
 ```json
-{"action":"wait","arguments":{"turn_id":"RETURNED_TURN_ID"}}
+{"action":"wait","arguments":{"session_id":"RETURNED_SESSION_ID","run_id":"RETURNED_RUN_ID"}}
 ```
 
 Read the collected outcome, native reason and result before reporting success.
-A completed `wait` or `status` consumes that handle; do not collect it twice.
+Then acknowledge the oldest terminal explicitly:
+
+```json
+{"action":"ack","arguments":{"session_id":"RETURNED_SESSION_ID","run_id":"RETURNED_RUN_ID"}}
+```
+
+To collect message-originated work without a completion pointer, omit `run_id`
+on `status`/`wait` to read the oldest unacknowledged record, then acknowledge
+its returned ID.
 Close the lane when its work is done, retaining its resume recipe by default:
 
 ```json
 {"action":"close","arguments":{"session_id":"RETURNED_SESSION_ID"}}
 ```
 
-To reopen that saved lane, use `spawn` with only its retained session ID.
+To reopen that saved lane, use `spawn` with its retained session ID and any
+explicit policy choices (pass `auto_close_ms:0` again to disable automatic close).
 Resume needs saved native history from a real turn; a zero-turn session is not
 a demonstrated resume source. Use the returned session ID for subsequent work.
 
@@ -93,8 +131,11 @@ No native session lookup, title matcher or alternate transport is needed.
 A lane owns one native session. Matching native replay during the same
 confirmed active run returns `injected`; idle staging returns
 `queued_for_next_turn`. Neither receipt promises model consumption. An
-unclassified run boundary remains uncertain. An idle message does not start a
-model turn; run explicitly to use staged context. Native default permissions may refuse tools that need approval.
+unclassified run boundary remains uncertain. Under the default stage policy an idle message does not start a
+model turn; run explicitly to use staged context. With explicit idle run policy,
+the same native query path creates one run and matched native replay admits the
+message; collect its separate terminal through the returned completion pointer
+or the oldest unacknowledged record. Native default permissions may refuse tools that need approval.
 Only an explicit caller request may select a permission mode or native
 `arguments` allow rule; do not add a broad grant after a refusal. Legacy lane
 guidance outside this plugin is not runtime authority.

@@ -38,18 +38,30 @@ func (*crossingBackend) Prepare(context.Context, json.RawMessage) error { return
 func (b *crossingBackend) Call(_ context.Context, method string, params any) (json.RawMessage, error) {
 	arguments, _ := json.Marshal(params)
 	b.calls <- method + ":" + string(arguments)
+	if method == "turn.start" {
+		close(b.started)
+		return json.RawMessage(`{"session_id":"lane@local","run_id":"g/1"}`), nil
+	}
 	if method == "turn.run" {
 		close(b.started)
+		<-b.release
+	}
+	if method == "turn.wait" {
 		<-b.release
 	}
 	if method == "session.close" {
 		return nil, &sessionkit.ProtocolError{Code: -32004, Message: "not_running"}
 	}
-	if method == "turn.run" {
+	if method == "turn.status" || method == "turn.wait" || method == "turn.run" {
 		if b.runErr != nil {
 			return nil, b.runErr
 		}
-		return json.RawMessage(`{"outcome":"completed","result":"done"}`), nil
+		select {
+		case <-b.release:
+			return json.RawMessage(`{"session_id":"lane@local","run_id":"g/1","state":"done","result":{"outcome":"completed","result":"done"}}`), nil
+		default:
+			return json.RawMessage(`{"session_id":"lane@local","run_id":"g/1","state":"running"}`), nil
+		}
 	}
 	return json.RawMessage(`{}`), nil
 }
@@ -59,7 +71,7 @@ func TestLaneBackendCrossingCallsAndErrors(t *testing.T) {
 	listener, err := net.Listen("unix", path)
 	check(t, err == nil, "listen: %v", err)
 	t.Cleanup(func() { _ = listener.Close() })
-	backend := &crossingBackend{started: make(chan struct{}), release: make(chan struct{}), calls: make(chan string, 2)}
+	backend := &crossingBackend{started: make(chan struct{}), release: make(chan struct{}), calls: make(chan string, 16)}
 	go func() { _ = ServeLane(context.Background(), listener, backend) }()
 	t.Setenv(LaneSocketEnv, path)
 	lane, err := NewLaneBackend()
@@ -67,7 +79,7 @@ func TestLaneBackendCrossingCallsAndErrors(t *testing.T) {
 	run := make(chan error, 1)
 	go func() {
 		result, callErr := lane.Action(context.Background(), "run", json.RawMessage(`{"session_id":"lane@local","input":"work"}`))
-		if string(result) != `{"outcome":"completed","result":"done"}` {
+		if string(result) != `{"session_id":"lane@local","run_id":"g/1","state":"done","result":{"outcome":"completed","result":"done"}}` {
 			callErr = errors.New("run result changed")
 		}
 		run <- callErr
@@ -95,51 +107,49 @@ func TestPrivateActionKeepsCallerInResidentServer(t *testing.T) {
 	listener, err := net.Listen("unix", path)
 	check(t, err == nil, "listen: %v", err)
 	defer listener.Close()
-	crossing := &crossingBackend{started: make(chan struct{}), release: make(chan struct{}), calls: make(chan string, 2)}
+	crossing := &crossingBackend{started: make(chan struct{}), release: make(chan struct{}), calls: make(chan string, 16)}
 	backend := &ownedBackend{crossingBackend: crossing, prepared: make(chan struct{}, 2)}
 	backend.caller = sessionkit.NewCaller(backend.Call)
-	started, err := backend.caller.Start(sessionkit.TurnRunRequest{SessionID: "lane@local", Input: "work"})
-	check(t, err == nil && started.TurnID == "t-1", "start = %#v / %v", started, err)
+	started, err := backend.caller.Start(context.Background(), sessionkit.TurnRunRequest{SessionID: "lane@local", Input: "work"})
+	check(t, err == nil && started.RunID == "g/1", "start = %#v / %v", started, err)
 	<-backend.started
 	go func() { _ = ServeLane(context.Background(), listener, backend) }()
 	first := &LaneBackend{path: path}
-	result, err := first.Action(context.Background(), "status", json.RawMessage(`{"turn_id":"t-1"}`))
-	check(t, err == nil && string(result) == `{"turn_id":"t-1","session_id":"lane@local","state":"running"}`, "status = %s / %v", result, err)
+	result, err := first.Action(context.Background(), "status", json.RawMessage(`{"session_id":"lane@local","run_id":"g/1"}`))
+	check(t, err == nil && string(result) == `{"session_id":"lane@local","run_id":"g/1","state":"running"}`, "status = %s / %v", result, err)
 	close(backend.release)
 	second := &LaneBackend{path: path}
-	result, err = second.Action(context.Background(), "wait", json.RawMessage(`{"turn_id":"t-1"}`))
-	check(t, err == nil && string(result) == `{"turn_id":"t-1","session_id":"lane@local","state":"done","result":{"outcome":"completed","result":"done"}}`, "wait = %s / %v", result, err)
+	result, err = second.Action(context.Background(), "wait", json.RawMessage(`{"session_id":"lane@local","run_id":"g/1"}`))
+	check(t, err == nil && string(result) == `{"session_id":"lane@local","run_id":"g/1","state":"done","result":{"outcome":"completed","result":"done"}}`, "wait = %s / %v", result, err)
 	<-backend.prepared
 	<-backend.prepared
 }
 
-func TestPrivateActionPreservesUnknownTurn(t *testing.T) {
+func TestPrivateActionPreservesWorkerCollectionError(t *testing.T) {
 	path := filepath.Join(testsocket.Directory(t), "lane.sock")
 	listener, err := net.Listen("unix", path)
 	check(t, err == nil, "listen: %v", err)
 	defer listener.Close()
-	crossing := &crossingBackend{started: make(chan struct{}), release: make(chan struct{}), calls: make(chan string, 1), runErr: errors.New("wire gone")}
+	crossing := &crossingBackend{started: make(chan struct{}), release: make(chan struct{}), calls: make(chan string, 16), runErr: &sessionkit.ProtocolError{Code: -32004, Message: "not_running"}}
 	backend := &ownedBackend{crossingBackend: crossing, prepared: make(chan struct{}, 2)}
 	backend.caller = sessionkit.NewCaller(backend.Call)
-	started, err := backend.caller.Start(sessionkit.TurnRunRequest{SessionID: "lane@local", Input: "work"})
+	_, err = backend.caller.Start(context.Background(), sessionkit.TurnRunRequest{SessionID: "lane@local", Input: "work"})
 	check(t, err == nil, "start: %v", err)
-	<-backend.started
 	go func() { _ = ServeLane(context.Background(), listener, backend) }()
 	close(backend.release)
-	first := &LaneBackend{path: path}
-	result, err := first.Action(context.Background(), "wait", json.RawMessage(`{"turn_id":"t-1"}`))
-	check(t, err == nil && string(result) == `{"turn_id":"t-1","session_id":"lane@local","state":"unavailable","reason":"result unavailable, lane resumable"}`, "wait = %s / %v", result, err)
-	second := &LaneBackend{path: path}
-	_, err = second.Action(context.Background(), "status", json.RawMessage(`{"turn_id":"`+started.TurnID+`"}`))
-	var failed *sessionkit.ProtocolError
-	check(t, errors.As(err, &failed) && failed.Code == -32603 && failed.Message == "unknown_turn", "status = %v", err)
+	for _, action := range []string{"wait", "status"} {
+		client := &LaneBackend{path: path}
+		_, err := client.Action(context.Background(), action, json.RawMessage(`{"session_id":"lane@local","run_id":"g/1"}`))
+		var failed *sessionkit.ProtocolError
+		check(t, errors.As(err, &failed) && failed.Code == -32004, "collection error = %v", err)
+	}
 }
 
 func TestServeLaneJoinsAdmittedActions(t *testing.T) {
 	path := filepath.Join(testsocket.Directory(t), "lane.sock")
 	listener, err := net.Listen("unix", path)
 	check(t, err == nil, "listen: %v", err)
-	backend := &crossingBackend{started: make(chan struct{}), release: make(chan struct{}), calls: make(chan string, 1)}
+	backend := &crossingBackend{started: make(chan struct{}), release: make(chan struct{}), calls: make(chan string, 16)}
 	served := make(chan error, 1)
 	go func() { served <- ServeLane(context.Background(), listener, backend) }()
 	client := &LaneBackend{path: path}

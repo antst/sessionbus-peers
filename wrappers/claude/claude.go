@@ -47,7 +47,7 @@ func New(root string) *Wrapper {
 func (p *Wrapper) SetCaller(c *kit.Caller) { p.caller = c }
 func (p *Wrapper) SetShutdown(f func())    { p.shutdown = f }
 func (*Wrapper) Hello(context.Context) (kit.HelloDescription, error) {
-	return kit.HelloDescription{Product: Product, ExtraArguments: []kit.ExtraArgument{}, SupportedOpenFields: []string{"cwd", "permission_mode", "model", "reasoning_effort", "arguments"}}, nil
+	return kit.HelloDescription{Product: Product, SupportsMessageRun: true, ExtraArguments: []kit.ExtraArgument{}, SupportedOpenFields: []string{"cwd", "permission_mode", "model", "reasoning_effort", "arguments"}}, nil
 }
 func (p *Wrapper) startLifetime(ctx context.Context) (func() bool, error) {
 	p.mu.Lock()
@@ -262,15 +262,33 @@ func (p *Wrapper) current() (*stream, string, error) {
 	}
 	return p.stream, p.identity, nil
 }
-func (p *Wrapper) Run(ctx context.Context, r *kit.Run, input string) (kit.TurnResult, error) {
+func (p *Wrapper) Run(ctx context.Context, r *kit.Run, input kit.RunInput) (kit.TurnResult, error) {
 	p.mu.Lock()
 	p.activeDone = r.Done()
 	p.mu.Unlock()
+	reject := func(cause error) (kit.TurnResult, error) {
+		if input.Delivery != nil {
+			if err := r.ReportDelivery(kit.DeliveryReceipt{Disposition: "rejected", Reason: "not_submitted"}, nil); err != nil {
+				return kit.TurnResult{}, err
+			}
+		}
+		return kit.TurnResult{}, cause
+	}
+	if (input.Text == nil) == (input.Delivery == nil) {
+		return reject(errors.New("expected exactly one run input"))
+	}
 	s, id, err := p.current()
 	if err != nil {
-		return kit.TurnResult{}, err
+		return reject(err)
 	}
-	return s.run(ctx, id, input, r.Admitted)
+	if input.Text != nil {
+		return s.run(ctx, id, *input.Text, r.Admitted)
+	}
+	body, err := deliveryInput(*input.Delivery)
+	if err != nil {
+		return reject(err)
+	}
+	return s.execute(ctx, id, body, r.Admitted, r.ReportDelivery)
 }
 func (p *Wrapper) Interrupt(ctx context.Context, _ *kit.Run) error {
 	s, _, err := p.current()
@@ -288,11 +306,17 @@ func (p *Wrapper) Deliver(ctx context.Context, r kit.DeliveryRequest, _ *kit.Run
 	if err != nil {
 		return kit.DeliveryReceipt{Disposition: "rejected", Reason: "native_unavailable"}, nil
 	}
-	body, err := json.Marshal(map[string]any{"from": r.From, "message": r.Body})
+	body, err := deliveryInput(r)
 	if err != nil {
 		return kit.DeliveryReceipt{}, err
 	}
-	return s.append(ctx, id, string(body))
+	return s.append(ctx, id, body)
+}
+
+// Staging, active delivery and waking runs retain the same source envelope.
+func deliveryInput(r kit.DeliveryRequest) (string, error) {
+	body, err := json.Marshal(map[string]any{"from": r.From, "message": r.Body})
+	return string(body), err
 }
 func (p *Wrapper) fail(err error) {
 	p.end(err, false)

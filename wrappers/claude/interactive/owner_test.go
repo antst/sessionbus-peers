@@ -236,7 +236,7 @@ func TestSupersessionAndUnexpectedLossAreTerminal(t *testing.T) {
 	}
 }
 
-func TestCancelledWireCallLateReplyEndsIntegration(t *testing.T) {
+func TestCancelledWireCallDrainsLateReplyAndKeepsIntegration(t *testing.T) {
 	o, wires := testOwner(t)
 	w := published(t, o, wires)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -251,8 +251,20 @@ func TestCancelledWireCallLateReplyEndsIntegration(t *testing.T) {
 	c := o.connection
 	o.mu.Unlock()
 	w.reply(t, f, json.RawMessage(`{"sessions":[]}`))
-	<-c.Done()
-	if _, err := o.BeginReport(json.RawMessage(`{"hook_event_name":"Stop","session_id":"native-id"}`)); err == nil {
-		t.Fatal("late unmatched response allowed re-publication")
+	// An ordered second request proves the canceled response drained without
+	// closing the published connection or writing into the canceled result.
+	go func() { _, err := o.Action(context.Background(), "list", json.RawMessage(`{}`)); done <- err }()
+	second := w.next(t)
+	if second.Method != "session.list" {
+		t.Fatal(second.Method)
+	}
+	w.reply(t, second, json.RawMessage(`{"sessions":[]}`))
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-c.Done():
+		t.Fatal("valid late response closed integration")
+	default:
 	}
 }

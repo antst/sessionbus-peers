@@ -170,12 +170,21 @@ func TestAbnormalRunCarriesNothingIntoReopen(t *testing.T) {
 	if encoder.Encode(map[string]any{"jsonrpc": "2.0", "id": 2, "method": "session.open", "params": map[string]any{"name": "reopen@local", "groups": []string{}, "open": map[string]any{"cwd": workspace}}}) != nil || decoder.Decode(&response) != nil || response["error"] != nil {
 		t.Fatalf("open = %#v", response)
 	}
-	if encoder.Encode(map[string]any{"jsonrpc": "2.0", "id": 3, "method": "turn.run", "params": map[string]any{"session_id": "thread-1@local", "input": "die"}}) != nil || decoder.Decode(&response) != nil {
-		t.Fatal("turn.run")
+	if encoder.Encode(map[string]any{"jsonrpc": "2.0", "id": 3, "method": "turn.execute", "params": map[string]any{"run_id": "g/1", "session_id": "thread-1@local", "input": "die"}}) != nil || decoder.Decode(&response) != nil {
+		t.Fatal("turn.execute")
 	}
-	result := response["result"].(map[string]any)
-	if result["outcome"] != "failed" {
-		t.Fatalf("terminal = %#v", response)
+	// Execute responds with admission; abnormal native completion is now a
+	// separate metadata event before worker retirement, not a body response.
+	response = nil
+	if decoder.Decode(&response) != nil || response["method"] != "turn.ready" {
+		t.Fatal(response)
+	}
+	terminal := response["params"].(map[string]any)
+	if terminal["state"] != "unavailable" || terminal["outcome"] != nil {
+		t.Fatal(terminal)
+	}
+	if err := encoder.Encode(map[string]any{"jsonrpc": "2.0", "id": response["id"], "result": map[string]any{}}); err != nil {
+		t.Fatal(err)
 	}
 	<-worker.Closed()
 	for range 1000 {
