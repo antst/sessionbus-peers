@@ -122,9 +122,12 @@ configuration and independent lanes have been checked at their recorded scope.
 A native Bash tool can have its own process group outside the worker group;
 the daemon’s group kill does not directly reach that tool. A measured hard
 worker kill left it alive, and the earlier forced close path also left a tool
-alive after an interrupted terminal. The corrected EOF close path must be
-verified separately; the idle-worker result is not full descendant cleanup. Remaining lifetime and
-combined regression rows are in progress; this is not yet full lane acceptance.
+alive after an interrupted terminal. With the corrected EOF close path, both
+the tool and its parent were absent after held interruption and after held
+close. This does not fix forced-death containment. Pending-wait cancellation,
+forwarder loss and interactive operation on the same build have also been
+checked; each result and its limits are in the product facts. Generic
+forced-death descendant cleanup remains open.
 
 ## Remove
 

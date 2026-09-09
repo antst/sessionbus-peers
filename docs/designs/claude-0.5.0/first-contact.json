@@ -1,6 +1,5 @@
 {
-  "scope": "Accepted historical Go interactive checklist plus current combined lane development; each row retains its stated limit, no full lane/descendant acceptance",
-  "reviewed_code_and_ci_head": "d4366646f5f465c5a3f8fe4121978ceacbe3921a",
+  "scope": "Historical accepted interactive checklist and current combined Go lane installed observations; per-row limits retained, forced-death descendant containment remains open",
   "native_version": "2.1.266",
   "rows": [
     {
@@ -136,6 +135,14 @@
       "sha256": "e9472805f2472dec5511937825a776251a13cf336ddf40c8b14ddf96cbfc4382"
     },
     {
+      "row": "lfc-cancellation",
+      "host": "umka-dev1",
+      "path": "/home/antst/sessionbus-evidence/claude-go-lane-runtime-20260909/raw/lfc-cancellation",
+      "manifest": "FINAL-SHA256SUMS",
+      "entries": 17,
+      "sha256": "fe724c838e021aafe1656d38984e4b069ba51bd66f71a2727b5d585426eaabf7"
+    },
+    {
       "row": "lfc-config",
       "host": "umka-dev1",
       "path": "/home/antst/sessionbus-evidence/claude-go-lane-runtime-20260909/raw/lfc-config",
@@ -184,6 +191,14 @@
       "sha256": "b1847101796b4b968f107152839ab1b6a0d20aaddcc595378bebc914ea741850"
     },
     {
+      "row": "lfc-graceful-r3",
+      "host": "umka-dev1",
+      "path": "/home/antst/sessionbus-evidence/claude-go-lane-runtime-20260909/raw/lfc-graceful-r3",
+      "manifest": "FINAL-SHA256SUMS",
+      "entries": 22,
+      "sha256": "ddeb895382d62c1bb5ef5ec348eec90b6b554a8a8f57dcb8112144cd861f4228"
+    },
+    {
       "row": "lfc-interrupt",
       "host": "umka-dev1",
       "path": "/home/antst/sessionbus-evidence/claude-go-lane-runtime-20260909/raw/lfc-interrupt",
@@ -199,5 +214,29 @@
       "entries": 6,
       "sha256": "12aeebda46cc4cd33f2e7650480303cea5c2ce9547282b39ac7977ef13e7ebc0"
     }
+  ],
+  "historical_interactive_reviewed_code_and_ci_head": "d4366646f5f465c5a3f8fe4121978ceacbe3921a",
+  "combined_interactive_rows": [
+    {
+      "row": "ordinary653",
+      "host": "umka-dev1",
+      "path": "/home/antst/sessionbus-evidence/claude-go-lane-interactive-20260909/raw/ordinary653",
+      "manifest": "FINAL-SHA256SUMS",
+      "entries": 25,
+      "sha256": "beca243e986c1a77a700e3574565d91e8036de52cc679786e232e75fe361bbe1"
+    },
+    {
+      "row": "integrated653",
+      "host": "umka-dev1",
+      "path": "/home/antst/sessionbus-evidence/claude-go-lane-interactive-20260909/raw/integrated653",
+      "manifest": "FINAL-SHA256SUMS",
+      "entries": 36,
+      "sha256": "0c98a453a16f96757e34278253757b7d1057427f846f69f38f42f23ab05b0119"
+    }
+  ],
+  "remaining_limits": [
+    "Forced worker death can leave native Bash descendants outside its process group; generic bus/platform containment unresolved.",
+    "Startup cancellation and run-boundary uncertainty have controlled real-Worker/compiled-child or stream tests, not separate installed native timing guarantees.",
+    "Native control response bodies and raw exit ordering are not independently retained in every installed row."
   ]
 }

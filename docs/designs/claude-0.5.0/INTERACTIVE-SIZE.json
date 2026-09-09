@@ -252,8 +252,8 @@
   },
   "active_assets": {
     "files": 6,
-    "bytes": 14342,
-    "lines": 308,
+    "bytes": 14509,
+    "lines": 311,
     "members": [
       {
         "path": "claude/.claude-plugin/plugin.json",
@@ -269,9 +269,9 @@
       },
       {
         "path": "claude/README.md",
-        "bytes": 7510,
-        "lines": 147,
-        "sha256": "16b97868fbf6e2bcc74c7c76fd76bfa05e7b138d1b28ec3fd304f20271249613"
+        "bytes": 7677,
+        "lines": 150,
+        "sha256": "ca3e63a301081528b052d5e754354bba8b213ba8154e49b3484cb5cd3aa717e3"
       },
       {
         "path": "claude/commands/doctor.md",
@@ -520,8 +520,8 @@
   },
   "whole_repository_excluding_this_self_report": {
     "files": 176,
-    "bytes": 1224798,
-    "lines": 24921,
+    "bytes": 1229750,
+    "lines": 24979,
     "members": [
       {
         "path": ".claude-plugin/marketplace.json",
@@ -573,9 +573,9 @@
       },
       {
         "path": "README.md",
-        "bytes": 4715,
-        "lines": 100,
-        "sha256": "93908e77dec27833bd97c16aacbf2d5d920bbdf4705b7822371af02c091d28e0"
+        "bytes": 4861,
+        "lines": 102,
+        "sha256": "26e5d94548c1e18bfc55895d0c119e01c64180fecaaede74caeb83578358d4fd"
       },
       {
         "path": "architecture_test.go",
@@ -597,9 +597,9 @@
       },
       {
         "path": "claude/README.md",
-        "bytes": 7510,
-        "lines": 147,
-        "sha256": "16b97868fbf6e2bcc74c7c76fd76bfa05e7b138d1b28ec3fd304f20271249613"
+        "bytes": 7677,
+        "lines": 150,
+        "sha256": "ca3e63a301081528b052d5e754354bba8b213ba8154e49b3484cb5cd3aa717e3"
       },
       {
         "path": "claude/commands/doctor.md",
@@ -771,9 +771,9 @@
       },
       {
         "path": "docs/designs/claude-0.5.0/first-contact.json",
-        "bytes": 7776,
-        "lines": 203,
-        "sha256": "4e9d229037f91381f1338e431860a5365e1333085640901bd9f51e1720f46755"
+        "bytes": 9550,
+        "lines": 242,
+        "sha256": "feb03cfbc4c53398db7cc77245c5707e7af9ef2ec89d224b4b0d096589611ce7"
       },
       {
         "path": "docs/designs/claude-0.5.0/held-lane-skills/README.md",
@@ -855,9 +855,9 @@
       },
       {
         "path": "docs/designs/claude-0.5.0/interactive-candidate.md",
-        "bytes": 12910,
-        "lines": 121,
-        "sha256": "320ccfb0aa666196d13fa2a2ad078e0e13c828c625471b71afaacfa0c9b994aa"
+        "bytes": 14252,
+        "lines": 129,
+        "sha256": "a67469bfec8450d1efca73e9f3a0068dc7775a24a1baf3d44c0860c125e9b38d"
       },
       {
         "path": "docs/designs/claude-0.5.0/node-reference/.claude-plugin/plugin.json",
@@ -981,9 +981,9 @@
       },
       {
         "path": "docs/products/claude.md",
-        "bytes": 18686,
-        "lines": 133,
-        "sha256": "8b32cde24b27239f4b7231d2087ca105cc554b7d6d8a1c21e42a04e2a23fba49"
+        "bytes": 20209,
+        "lines": 139,
+        "sha256": "a6753eec4951243179a6851042dfe508ae449a5750f3e37e5af375a848837fe9"
       },
       {
         "path": "docs/products/codex.md",
@@ -1594,11 +1594,11 @@
     "native_claude_rss_kib": 247584,
     "note": "One checkpoint on76b921b after first prompt+idle message, not peak/steady-state/full-host memory; no comparable Node baseline measured."
   },
-  "acceptance": "Combined Claude development candidate; interactive accepted at previous source, same-install regression and remaining lane rows in progress. Active-tool hard-death gap and prior normal-close counterexample explicit. Source/archive counts include both modes, all tests and held/history files. Historical memory checkpoint is not current lane memory.",
+  "acceptance": "Combined Claude candidate; installed open/tools/delivery/interrupt/normal-close/cancellation/forwarder and same-build interactive rows sealed. Hard-death descendant containment remains open. Source/archive counts include both modes, all tests and held/history files. Artifact is the actually tested installed653b41e build; final documentation changes are measured as current source, not falsely attributed to that archive. Historical memory checkpoint is not current lane memory.",
   "scope": "whole combined Claude Go artifact; filename retained for existing links, no interactive-only exclusion",
   "whole_repository_including_this_report": {
     "files": 177,
-    "bytes": 1278468,
-    "lines": 26525
+    "bytes": 1283551,
+    "lines": 26583
   }
 }

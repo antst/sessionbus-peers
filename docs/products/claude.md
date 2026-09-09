@@ -76,6 +76,10 @@ observations; it does not relabel older receipts or extend cleanup credit.
 | Hard worker kill leaves a native tool and its parent alive outside the worker group | 145cf92 / lfc-active-death | Pending run gets daemon -32002, no native terminal; operator release and exact endpoint removal are separate cleanup. |
 | Interrupt ends the held tool; following session.close returns success while its held tool/parent survive | 145cf92 / lfc-graceful | Interrupted terminal is not descendant-cleanup acknowledgment. lfc-graceful-cleanup records operator release; later tool release record is supplementary. |
 | Invalid argv/cwd fail Open; concurrent distinct lanes and exact saved-ID resume succeed; connected-ID resume returns AlreadyConnected | 7f40b24 / lfc-config | Zero model input. Same repeated model values establish argv order only; failed-start diagnostics/reaping not captured. Closing one leaves the others connected. |
+| Corrected EOF close: separate held interrupt and held close each end the observed tool and parent | 653b41e / lfc-graceful-r3 | Both exact PIDs absent at checkpoints after the operation; no independent before-close-result cleanup or native exit/signal ordering capture. No operator release. The preceding r2 socket-length harness failure remains separate. |
+| Cancelling Caller wait leaves its handle collectible after explicit interruption | 653b41e / lfc-cancellation | Cancelled wait on t-1, later collection yields interrupted/aborted_streaming; status after collection fails. Caller API cancellation, not a native MCP cancellation notification. |
+| Killing the installed MCP forwarder during the following run disconnects the lane and settles the result | 653b41e / lfc-cancellation | Public Worker returns failed EOF, not a native terminal; five identified PIDs and endpoint absent afterward. No native exit-status/reaping credit. |
+| Ordinary Claude stays unintegrated; same-build interactive public list and idle delivery still work | 653b41e / ordinary653, integrated653 in claude-go-lane-interactive-20260909/raw | Actual list and exact replies; idle receipt written only; native quit0/reaped and identified PID absence. No quit-hook/EOF causal attribution. |
 
 The [stamped receipt correction](../designs/claude-0.5.0/LANE-DELIVERY-AMENDMENT.md)
 requires exact message UUID/session replay: `injected` during the same confirmed
@@ -90,9 +94,11 @@ The [graceful-close correction](../designs/claude-0.5.0/LANE-GRACEFUL-CLOSE.md)
 separates native lifetime from the completed Open context. Normal close ends
 stdin, drains native output/reports and waits for actual exit; cancellation or
 unexpected loss aborts. Controlled tests include the real Worker cancellation
-order and an actual compiled child fixture. Installed interrupted-tool cleanup
-on this correction remains to be measured. Generic containment after forced
-death remains a bus/platform ownership gap, not a wrapper PID registry.
+order and an actual compiled child fixture. The corrected installed row above
+observes tool/parent absence after each completed operation. Generic containment
+after forced death remains a bus/platform ownership gap, not a wrapper PID registry.
+Startup cancellation is covered by controlled actual-Worker/compiled-child tests;
+no separate installed native startup-cancellation row is claimed.
 
 ## Historical split archive (unchanged citations)
 
@@ -130,4 +136,4 @@ AP01 on Claude2.1.266/bus b1d7adb, signed evidence293ebf3 at `/home/antst/sessio
 
 The stamped [activation amendment](../designs/claude-0.5.0/ACTIVATION-AMENDMENT.md) historically selected npm-only per-launch whole-plugin loading. The Go migration preserves that native activation behavior and replaces npm with the bundled archive. The launcher prefixes exact allow then plugin-dir before verbatim native argv; only its final group suffix is consumed. One public bin, native-root MCP path, three hidden hooks and the bundled skill are included. Production multi-action tool has no read-only annotation. Plain unconfigured nested Claude remains ordinary; earlier globally installed FP05 evidence does not prove inherited flags.
 
-Offline package/transport tests establish implementation behavior separately from the installed Go observations above. Native EOF remains a facts limit, and lane acceptance remains unfinished.
+Offline package/transport tests establish implementation behavior separately from the installed Go observations above. Exact native EOF/exit ordering remains source/test evidence where not separately captured at runtime; generic forced-death descendant containment remains open.

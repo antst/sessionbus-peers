@@ -74,11 +74,11 @@ trace of every file opened at execution. SOURCE-V2's projector filename error
 is retained alongside its corrected manifest and note; no product rerun or
 retroactive seal rewrite occurred. Earlier rows remain immutable.
 
-The current binary is 3,162,274 bytes plus 12,348 asset/README/license bytes;
+The historical accepted interactive binary was 3,162,274 bytes plus 12,348 asset/README/license bytes;
 archive1,349,048 bytes. One Go MCP checkpoint measured5,356KiB RSS, not peak or
 a measured Node comparison. Full source, tests, held assets and Node reference
 are counted in [INTERACTIVE-SIZE.json](INTERACTIVE-SIZE.json).
-Lane L02/OB03 and end-to-end lane implementation remain unfinished.
+Lane L02/OB03 were unfinished at that historical snapshot; the current scoped results follow.
 
 ## Current combined lane development
 
@@ -105,7 +105,11 @@ Exact per-row manifest hashes are appended to [first-contact.json](first-contact
 | Config/resume/isolation | lfc-config | Invalid argv/cwd fail Open; simultaneous distinct lanes and real saved-ID resume; connected same-ID AlreadyConnected; closing one leaves others connected. Identical repeated model flags prove order, not precedence. |
 | Forced active death | lfc-active-death | Worker/native/MCP group dies; tool and parent survive. Pending call gets no-terminal error. Operator release is separate. Generic containment remains open. |
 | Normal close counterexample | lfc-graceful and cleanup supplements | Interrupt alone ends tool; subsequent close returns success but leaves tool/parent. Preserved source/seal; operator release ends survivors. |
-| Corrected graceful lifetime | lfc-graceful-r2 | One prompt reaches exact Bash command but fixture socket110 bytes fails AF_UNIX path too long; no held-tool or interrupt credit. Idle EOF close succeeds. Corrected short-path repetition is in progress. |
+| Graceful harness partial | lfc-graceful-r2 | One prompt reaches exact Bash command but fixture socket110 bytes fails AF_UNIX path too long; no held-tool or interrupt credit. Idle EOF close succeeds. |
+| Corrected graceful lifetime | lfc-graceful-r3 | Two prompts: separate held interrupt and held close yield interrupted terminals; exact tool/parent absence after each operation. No operator release. No independent before-close-response or raw native exit/signal ordering proof. |
+| Pending wait cancellation | lfc-cancellation | Actual Caller.WaitContext cancellation leaves t-1 collectible after native interrupt; collected interrupted/aborted_streaming. Subsequent status fails after collection. |
+| Installed forwarder loss | lfc-cancellation | Next run followed by exact Go MCP SIGKILL settles failed EOF through public Worker; lane disconnected, five PIDs and endpoint absent. No native terminal or exit-status/reaping claim. |
+| Combined interactive regression | ordinary653, integrated653 under claude-go-lane-interactive-20260909/raw | Same installed binary; ordinary zero-input no peer. Integrated public list/exact reply, idle written/exact reply, quit0/reaped and three identified PIDs absent. |
 
 LGO01–LGO06 source findings are closed by independently reviewed commits: shared
 report placeholder semantics, actual Worker hello schema, drain/Run.Done
@@ -113,8 +117,12 @@ ordering, title gate, cancellation/write retirement and replay-time receipt
 classification. The graceful correction separates native lifetime from completed
 Open cancellation, keeps stdout/reports until native exit, and aborts cancelled
 close or unexpected failure. Real Worker and compiled-child regressions pass.
-Installed graceful tool cleanup and the remaining cancellation/forwarder and
-combined interactive rows must still finish before full lane acceptance.
+Installed graceful, cancellation/forwarder and combined interactive rows are
+sealed at the scopes above. Startup cancellation remains controlled actual-Worker
+and compiled-child evidence, without a separate installed native cancellation
+row. Run-boundary uncertainty is covered by controlled stream tests rather than
+a timing-dependent native race claim. Hard-death descendant containment remains
+a separate generic bus/platform gap; no full descendant-cleanup acceptance is claimed.
 
 The whole combined footprint remains in [INTERACTIVE-SIZE.json](INTERACTIVE-SIZE.json);
 its name is historical. It counts both modes, tests, active assets, linked
