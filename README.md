@@ -22,7 +22,8 @@ Each command installs only that peer and its plugin into your normal user
 installation under `~/.local`; it does not install the native vendor product,
 daemon or hub. Use your normal login shell with `~/.local/bin` on PATH. Linux
 and macOS, amd64 and arm64 archives are provided. No Go or npm is needed on the
-target. OpenCode's native JavaScript plugin additionally requires Node.js; its
+target. OpenCode's native JavaScript plugin additionally requires Node.js
+(recommended: Node 24 LTS, at least 24.15, or Node 26+); its
 locked production dependencies are bundled. The other installers use Go binaries
 and native plugin management commands. Grok/Qwen install their native plugin
 globally; Claude/Codex retain their documented managed-launch activation.
