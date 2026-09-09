@@ -44,7 +44,7 @@ func Environment(values []string) map[string]string {
 
 func LaunchPlan(args []string, env map[string]string, cwd, root string, uid int) ([]string, []string, error) {
 	if env["SESSIONBUS_LAUNCH_TOKEN"] != "" {
-		return nil, nil, errors.New("Claude lane mode is unavailable in this interactive candidate")
+		return nil, nil, errors.New("interactive entry cannot consume a lane launch token")
 	}
 	groups := []string{}
 	if len(args) >= 2 && args[len(args)-2] == "-g" {

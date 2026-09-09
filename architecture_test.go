@@ -31,7 +31,7 @@ const (
 
 func TestRepositoryBoundary(t *testing.T) {
 	allowed := map[string]bool{
-		".claude-plugin": true, ".forgejo": true, ".git": true,
+		".forgejo": true, ".git": true,
 		".github": true, ".gitignore": true,
 		".golangci.yml": true, "LICENSE": true, "README.md": true,
 		"architecture_test.go": true, "claude": true, "cmd": true,
@@ -225,7 +225,7 @@ func TestOpenCodePackageBoundary(t *testing.T) {
 }
 
 func TestRepositoryURLsAndRemovedPaths(t *testing.T) {
-	for _, root := range []string{".claude-plugin", "claude", "grok", "opencode", "qwen", "scripts", "wrappers/README.md"} {
+	for _, root := range []string{"claude", "grok", "opencode", "qwen", "scripts", "wrappers/README.md"} {
 		if err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
 			if err != nil {
 				return err
@@ -285,30 +285,23 @@ func TestRetainedManifestCommandReachability(t *testing.T) {
 	if target := openCode.Bin["sessionbus-opencode-install"]; target != "bin.mjs" || !regular(t, filepath.Join("opencode", target)) {
 		t.Errorf("OpenCode bin target is unresolved: %q", target)
 	}
-	var marketplace struct {
-		Name  string `json:"name"`
-		Owner struct {
-			Name string `json:"name"`
-		} `json:"owner"`
-		Plugins []struct {
-			Name   string `json:"name"`
-			Source string `json:"source"`
-			Author struct {
-				Name string `json:"name"`
-			} `json:"author"`
-		} `json:"plugins"`
+	if _, err := os.Stat(".claude-plugin"); !os.IsNotExist(err) {
+		t.Fatal("obsolete repository marketplace must not provide an alternate Claude install route")
 	}
-	if err := json.Unmarshal(read(t, ".claude-plugin/marketplace.json"), &marketplace); err != nil {
+	var plugin struct {
+		Name        string `json:"name"`
+		Version     string `json:"version"`
+		Description string `json:"description"`
+	}
+	if err := json.Unmarshal(read(t, "claude/.claude-plugin/plugin.json"), &plugin); err != nil {
 		t.Fatal(err)
 	}
-	if marketplace.Name != "sessionbus" || marketplace.Owner.Name != "Sessionbus contributors" || len(marketplace.Plugins) != 1 || marketplace.Plugins[0].Name != "sessionbus" || marketplace.Plugins[0].Author.Name != "Sessionbus contributors" || marketplace.Plugins[0].Source != "./claude" {
-		t.Errorf("Claude marketplace identity is invalid: %#v", marketplace)
+	if plugin.Name != "sessionbus" || plugin.Version != "0.5.0" || !strings.Contains(plugin.Description, "Claude lanes") {
+		t.Errorf("Claude native plugin metadata is inconsistent with both modes: %#v", plugin)
 	}
-	if containsFormerBrand(read(t, ".claude-plugin/marketplace.json")) {
-		t.Error("Claude marketplace retains the former brand")
-	}
-	if info, err := os.Stat("claude"); err != nil || !info.IsDir() {
-		t.Errorf("Claude marketplace source is unresolved: %v", err)
+	pack := read(t, "scripts/package-claude")
+	if !bytes.Contains(pack, []byte("cp -R claude/.claude-plugin")) {
+		t.Error("Claude archive must include the product-local native plugin metadata")
 	}
 }
 

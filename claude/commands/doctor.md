@@ -1,8 +1,8 @@
 ---
-description: Explain the Claude interactive candidate's installed package, native plugin and Sessionbus diagnostics
+description: Explain the installed Claude peer, lane and Sessionbus diagnostics
 ---
 
-Check the actual candidate installation using the README and native diagnostics.
+Check the actual installation using the README and native diagnostics.
 Do not run an automatic repair, probe loop, login change, installer or service
 restart. No diagnostic command is embedded in this document.
 
@@ -20,5 +20,9 @@ expected; plugin installation or an MCP process alone is not publication.
 Report actual native hook/plugin or bus errors without readiness polling.
 
 Connection loss ends this integration instance. A written result proves local
-write completion only. The candidate does not supply Claude lane mode; held lane scripts outside this plugin are not candidate readiness checks. Installed
+write completion only. The same installed binary supplies Claude lanes. Use the public tool’s
+`describe` action with `{"product":"claude-peer"}` to inspect supported open
+fields; `list` alone does not prove a lane lifecycle. Follow the bundled
+Sessionbus skill for authorized spawn, run or start/wait, close and resume.
+Held scripts outside this plugin are historical references, not readiness checks. Installed
 first-contact acceptance is separate from offline package tests.

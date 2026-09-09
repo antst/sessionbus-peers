@@ -155,7 +155,7 @@ func Serve(owner MCPOwner, input io.ReadCloser, output io.Writer) error {
 				failure(id, -32602, "Invalid initialize parameters")
 				continue
 			}
-			respond(id, map[string]any{"protocolVersion": version, "capabilities": map[string]any{"tools": map[string]any{}}, "serverInfo": map[string]string{"name": "sessionbus", "version": "0.5.0-interactive.0"}})
+			respond(id, map[string]any{"protocolVersion": version, "capabilities": map[string]any{"tools": map[string]any{}}, "serverInfo": map[string]string{"name": "sessionbus", "version": "0.5.0"}})
 		case "ping":
 			respond(id, map[string]any{})
 		case "tools/list":

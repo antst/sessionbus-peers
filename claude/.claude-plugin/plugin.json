@@ -1,7 +1,7 @@
 {
   "name": "sessionbus",
-  "version": "0.5.0-interactive.0",
-  "description": "Explicit Claude peer sessions and Sessionbus communication; Claude lane mode is unavailable in this candidate.",
+  "version": "0.5.0",
+  "description": "Claude peer sessions, Claude lanes and Sessionbus communication through one Go integration.",
   "author": {
     "name": "Sessionbus contributors"
   },

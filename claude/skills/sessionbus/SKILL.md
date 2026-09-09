@@ -1,6 +1,6 @@
 ---
 name: sessionbus
-description: Discover and message Sessionbus peers through the single sessionbus tool and forward supported daemon caller actions.
+description: Discover and message Sessionbus peers, and create, run, collect, close and resume Sessionbus lanes through the single tool.
 ---
 
 # Sessionbus
@@ -38,11 +38,57 @@ this integration instance; report the failure rather than attempting repair.
 Keep returned IDs/results intact. Cancelling a pending wait stops only that
 wait; collect the retained result later with status or wait. A completed
 collection consumes the handle once. An explicit wait bound is the caller's
-request, not permission to poll, reconnect or replay. Caller forwarding to a
-daemon-supported product uses the same public actions. For a Claude lane,
-spawn with product `claude-peer`, a child name and an `open` object; pass the
-returned session ID to run/start/send/interrupt/close. Resume uses the exact
-returned session ID. No native session lookup or title matcher is needed.
+request, not permission to poll, reconnect or replay.
+
+## Delegate to a Sessionbus lane
+
+Use this same public tool, not Bash, a shell launcher, Claude's Agent tool or
+native teams. Choose the product with `spawn.arguments.product`; use `describe`
+with that product to obtain its supported open fields. The examples below use
+`claude-peer` to delegate to a Claude lane. Each example is one tool input. Substitute the actual
+returned IDs; the capitalized placeholders are not literal IDs.
+
+Create a fresh Claude lane with a child name and an explicit open object.
+Choose the working directory for the task; do not change native permissions
+unless the user has asked for that policy.
+
+```json
+{"action":"spawn","arguments":{"product":"claude-peer","name":"child","open":{"cwd":"/absolute/task/directory"}}}
+```
+
+For a synchronous turn, `run` waits and returns its terminal result:
+
+```json
+{"action":"run","arguments":{"session_id":"RETURNED_SESSION_ID","input":"The authorized task"}}
+```
+
+Alternatively, start work and collect the returned local turn handle once:
+
+```json
+{"action":"start","arguments":{"session_id":"RETURNED_SESSION_ID","input":"The authorized task"}}
+```
+
+```json
+{"action":"wait","arguments":{"turn_id":"RETURNED_TURN_ID"}}
+```
+
+Read the collected outcome, native reason and result before reporting success.
+A completed `wait` or `status` consumes that handle; do not collect it twice.
+Close the lane when its work is done, retaining its resume recipe by default:
+
+```json
+{"action":"close","arguments":{"session_id":"RETURNED_SESSION_ID"}}
+```
+
+To reopen that saved lane, use `spawn` with only its retained session ID.
+Resume needs saved native history from a real turn; a zero-turn session is not
+a demonstrated resume source. Use the returned session ID for subsequent work.
+
+```json
+{"action":"spawn","arguments":{"resume_session_id":"RETURNED_SESSION_ID"}}
+```
+
+No native session lookup, title matcher or alternate transport is needed.
 
 A lane owns one native session. Matching native replay during the same
 confirmed active run returns `injected`; idle staging returns

@@ -44,7 +44,7 @@ func missing(value string) bool {
 
 func NewOwner(env map[string]string) (*Owner, error) {
 	if env["SESSIONBUS_LAUNCH_TOKEN"] != "" {
-		return nil, errors.New("Claude lane mode is unavailable in this interactive candidate")
+		return nil, errors.New("interactive entry cannot consume a lane launch token")
 	}
 	groups := []string{}
 	if raw := env["SESSIONBUS_GROUPS"]; raw != "" {
