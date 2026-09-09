@@ -1,5 +1,11 @@
 # Codex product facts
 
+> Historical source note: citations to pre-split Sessionbus paths resolve in
+> the Forgejo `ai/sessionbus` repository through its `legacy-*` branches.
+> Citations to product source resolve in the external repository and full
+> commit recorded by the split archive manifest. Host evidence paths are
+> immutable external artifacts, not repository paths.
+
 ## Current Go candidate, 2026-09-09
 
 Current installation and policies are described in `codex/README.md` and
@@ -46,12 +52,6 @@ lane checkpoint includes the entire broker integration, not just the WebSocket
 dependency. Build/member hashes are in `dev1-combined-entry/BUILD.json`.
 
 ## Retained earlier native and integration evidence
-
-> Historical source note: citations to pre-split Sessionbus paths resolve in
-> the Forgejo `ai/sessionbus` repository through its `legacy-*` branches.
-> Citations to product source resolve in the external repository and full
-> commit recorded by the split archive manifest. Host evidence paths are
-> immutable external artifacts, not repository paths.
 
 - `codex app-server --stdio` accepts newline-delimited JSON-RPC requests and emits response objects without a `jsonrpc` member. — verified: 0.153.4 — source: `/home/antst/agentbus-evidence/codex-p3-20260906T074029Z/P3-appserver.jsonl`
 - An App Server client initializes with `initialize`, then sends the `initialized` notification. — verified: 0.153.4 — source: `/home/antst/agentbus-evidence/codex-p3-20260906T074029Z/P3-appserver.jsonl`

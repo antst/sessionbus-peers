@@ -39,7 +39,7 @@ individual results and limits are in the product facts. The reviewed
 Node implementation and regressions remain a behavioral reference under
 `docs/designs/claude-0.5.0/node-reference`, outside the installed plugin.
 
-Codex uses `scripts/package-codex` and the permanent installer in
+`codex-peer` uses `scripts/package-codex` and the permanent installer in
 [`codex/README.md`](codex/README.md). One Go binary supplies the launcher,
 interactive broker, lane worker and private MCP entry. Native plugin
 registration is disabled for ordinary Codex and activated per managed launch.
