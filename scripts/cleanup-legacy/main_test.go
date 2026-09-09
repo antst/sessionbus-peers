@@ -194,3 +194,44 @@ func TestNativeMCPRemovalIsOwnershipCheckedAndExact(t *testing.T) {
 		t.Fatal("name alone authorized removal")
 	}
 }
+
+func TestGrokCleanupUsesNativeInstalledRepository(t *testing.T) {
+	c := fixture(t)
+	path := filepath.Join(c.home, ".grok/installed-plugins/grok-123/.grok-plugin/plugin.json")
+	put(t, path, `{"name":"agent-sessions"}`)
+	bin := filepath.Join(c.home, ".local/bin/grok")
+	put(t, bin, "")
+	if err := os.Chmod(bin, 0700); err != nil {
+		t.Fatal(err)
+	}
+	removed := false
+	c.run = func(_ string, args ...string) ([]byte, error) {
+		if strings.Join(args, " ") == "plugin list --json" {
+			if removed {
+				return []byte(`[]`), nil
+			}
+			return json.Marshal([]map[string]string{{"name": "agent-sessions", "status": "installed", "path": filepath.Dir(filepath.Dir(path))}})
+		}
+		if strings.Join(args, " ") != "plugin uninstall agent-sessions --keep-data" {
+			t.Fatalf("unexpected mutation %v", args)
+		}
+		removed = true
+		return nil, nil
+	}
+	if err := c.grok(); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.execute(true); err != nil {
+		t.Fatal(err)
+	}
+	if !removed {
+		t.Fatal("legacy native repository missed")
+	}
+	c.actions = nil
+	if err := c.grok(); err != nil {
+		t.Fatal(err)
+	}
+	if len(c.actions) != 0 {
+		t.Fatal("repeat cleanup not empty")
+	}
+}

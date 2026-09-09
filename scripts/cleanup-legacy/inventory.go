@@ -284,19 +284,8 @@ func (c *cleaner) otherProducts() error {
 		}
 		c.native(bin, []string{"extensions", "uninstall", "agent-sessions"}, filepath.Join(c.home, ".qwen/extensions/extension-enablement.json"), filepath.Join(c.home, ".qwen/extensions/extension-preferences.json"))
 	}
-	root = filepath.Join(c.home, ".grok/plugins/agent-sessions")
-	if exists(root) {
-		if err := c.configPath(filepath.Join(root, ".grok-plugin/plugin.json")); err != nil {
-			return err
-		}
-		if !namedManifest(filepath.Join(root, ".grok-plugin/plugin.json")) {
-			return fmt.Errorf("unrecognized Grok plugin: %s", root)
-		}
-		bin := c.product("grok")
-		if bin == "" {
-			return fmt.Errorf("legacy Grok plugin exists but grok is unavailable")
-		}
-		c.native(bin, []string{"plugin", "uninstall", "agent-sessions", "--keep-data"})
+	if err := c.grok(); err != nil {
+		return err
 	}
 	for _, dir := range []string{"plugins", "plugin"} {
 		p := filepath.Join(c.config, "opencode", dir, "agent-sessions.js")
@@ -407,6 +396,44 @@ func (c *cleaner) serviceExecutable(name string) error {
 	}
 	if !oldGoBinary(path) {
 		return fmt.Errorf("effective executable is not a recognized legacy Go binary: %s", path)
+	}
+	return nil
+}
+
+func (c *cleaner) grok() error {
+	old := filepath.Join(c.home, ".grok/plugins/agent-sessions")
+	installed := filepath.Join(c.home, ".grok/installed-plugins")
+	if !exists(old) && !exists(installed) {
+		return nil
+	}
+	bin := c.product("grok")
+	if bin == "" {
+		return fmt.Errorf("Grok plugin inventory exists but grok is unavailable")
+	}
+	raw, err := c.run(bin, "plugin", "list", "--json")
+	if err != nil {
+		return err
+	}
+	var entries []struct {
+		Name   string `json:"name"`
+		Status string `json:"status"`
+		Path   string `json:"path"`
+	}
+	if err := json.Unmarshal(raw, &entries); err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if entry.Name != "agent-sessions" || entry.Status != "installed" {
+			continue
+		}
+		manifest := filepath.Join(entry.Path, ".grok-plugin/plugin.json")
+		if err := c.configPath(manifest); err != nil {
+			return err
+		}
+		if !namedManifest(manifest) {
+			return fmt.Errorf("unrecognized Grok plugin manifest: %s", manifest)
+		}
+		c.native(bin, []string{"plugin", "uninstall", "agent-sessions", "--keep-data"}, manifest)
 	}
 	return nil
 }

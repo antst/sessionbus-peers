@@ -22,7 +22,10 @@ ln -sfn "$root/$product-peer" "$HOME/.local/bin/$product-peer"
 export PATH="$HOME/.local/bin:$PATH"
 case "$product" in
  grok)
-  if [ -d "$HOME/.grok/plugins/sessionbus" ]; then grok plugin uninstall sessionbus --keep-data; fi
+  installed=$(grok plugin list --json)
+  if printf '%s\n' "$installed" | grep -Eq '"name"[[:space:]]*:[[:space:]]*"sessionbus"'; then
+   grok plugin uninstall sessionbus --keep-data
+  fi
   grok plugin install "$root/plugin" --trust
   ;;
  qwen)
