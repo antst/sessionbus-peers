@@ -5,9 +5,11 @@ package main
 import (
 	"debug/buildinfo"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 )
@@ -125,7 +127,7 @@ func (c *cleaner) scan() error {
 		}
 	}
 	c.notes = append(c.notes, "Sessionbus installations/services, native products, transcripts, source/evidence, and old unified state/config")
-	return nil
+	return errors.Join(c.problems...)
 }
 
 func (c *cleaner) codex() error {
@@ -219,11 +221,12 @@ func (c *cleaner) claude() error {
 		if p.Scope != "user" {
 			return fmt.Errorf("legacy Claude plugin registered at %s scope; remove that scope first", p.Scope)
 		}
+	}
+	if len(plugins[legacyPlugin]) > 0 {
 		if bin == "" {
 			return fmt.Errorf("Claude plugin is installed but native claude is unavailable")
 		}
 		c.native(bin, []string{"plugin", "uninstall", "--scope", "user", "--keep-data", legacyPlugin}, installed, markets, settings)
-		break
 	}
 	d, err = readObject(markets)
 	if err != nil {
@@ -267,6 +270,9 @@ func (c *cleaner) claude() error {
 func (c *cleaner) otherProducts() error {
 	root := filepath.Join(c.home, ".qwen/extensions/agent-sessions")
 	if exists(root) {
+		if err := c.configPath(filepath.Join(root, "plugin.json")); err != nil {
+			return err
+		}
 		if !namedManifest(filepath.Join(root, "plugin.json")) && !namedManifest(filepath.Join(root, "qwen-extension.json")) {
 			return fmt.Errorf("unrecognized Qwen extension: %s", root)
 		}
@@ -280,6 +286,9 @@ func (c *cleaner) otherProducts() error {
 	}
 	root = filepath.Join(c.home, ".grok/plugins/agent-sessions")
 	if exists(root) {
+		if err := c.configPath(filepath.Join(root, ".grok-plugin/plugin.json")); err != nil {
+			return err
+		}
 		if !namedManifest(filepath.Join(root, ".grok-plugin/plugin.json")) {
 			return fmt.Errorf("unrecognized Grok plugin: %s", root)
 		}
@@ -322,12 +331,8 @@ func (c *cleaner) services() error {
 		if !exists(path) {
 			continue
 		}
-		b, err := os.ReadFile(path)
-		if err != nil {
+		if err := c.serviceExecutable(name); err != nil {
 			return err
-		}
-		if !strings.Contains(string(b), "/agent-sessions") && !strings.Contains(string(b), "/agentbus") {
-			return fmt.Errorf("unrecognized legacy-named service: %s", path)
 		}
 		state, err := c.run("systemctl", "--user", "show", name+".service", "--property=ActiveState", "--value")
 		if err != nil {
@@ -336,7 +341,20 @@ func (c *cleaner) services() error {
 		if strings.TrimSpace(string(state)) != "inactive" && strings.TrimSpace(string(state)) != "failed" {
 			return fmt.Errorf("legacy service %s is %s; finish its sessions and stop it explicitly first", name, strings.TrimSpace(string(state)))
 		}
-		c.native("systemctl", []string{"--user", "disable", name + ".service"})
+		c.actions = append(c.actions, action{Description: "disable inactive legacy service " + name, do: func() error {
+			if err := c.serviceExecutable(name); err != nil {
+				return err
+			}
+			state, err := c.run("systemctl", "--user", "show", name+".service", "--property=ActiveState", "--value")
+			if err != nil {
+				return err
+			}
+			if value := strings.TrimSpace(string(state)); value != "inactive" && value != "failed" {
+				return fmt.Errorf("service became active: %s", name)
+			}
+			_, err = c.run("systemctl", "--user", "disable", name+".service")
+			return err
+		}})
 		if err := c.move(path, "inactive legacy service"); err != nil {
 			return err
 		}
@@ -365,6 +383,30 @@ func noLiveExecutable(root string) error {
 		if within(path, root) {
 			return fmt.Errorf("legacy process %s still uses %s; finish it before cleanup", e.Name(), path)
 		}
+	}
+	return nil
+}
+
+// Ask the manager for the effective command, including drop-ins. A comment,
+// unit name, or obsolete base ExecStart cannot authorize removal.
+func (c *cleaner) serviceExecutable(name string) error {
+	output, err := c.run("systemctl", "--user", "show", name+".service", "--property=ExecStart", "--value")
+	if err != nil {
+		return err
+	}
+	matches := regexp.MustCompile(`(?:^|[ {])path=([^ ;]+) ;`).FindAllStringSubmatch(string(output), -1)
+	if len(matches) != 1 {
+		return fmt.Errorf("cannot identify single effective executable for %s", name)
+	}
+	path, err := filepath.EvalSymlinks(matches[0][1])
+	if err != nil {
+		return err
+	}
+	if err := c.safeParent(path); err != nil {
+		return err
+	}
+	if !oldGoBinary(path) {
+		return fmt.Errorf("effective executable is not a recognized legacy Go binary: %s", path)
 	}
 	return nil
 }

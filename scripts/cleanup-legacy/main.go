@@ -27,6 +27,7 @@ type cleaner struct {
 	home, config, backup string
 	actions              []action
 	notes                []string
+	problems             []error
 	run                  func(string, ...string) ([]byte, error)
 	out                  io.Writer
 }
@@ -78,6 +79,9 @@ func main() {
 }
 
 func (c *cleaner) execute(apply bool) error {
+	if err := errors.Join(c.problems...); err != nil {
+		return err
+	}
 	for _, note := range c.notes {
 		fmt.Fprintln(c.out, "KEEP:", note)
 	}
@@ -203,6 +207,9 @@ func readObject(path string) (map[string]json.RawMessage, error) {
 }
 
 func (c *cleaner) snapshot(path string) error {
+	if err := c.configPath(path); err != nil {
+		return err
+	}
 	b, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
 		return nil
@@ -225,6 +232,9 @@ func (c *cleaner) snapshot(path string) error {
 }
 
 func (c *cleaner) removeKey(path, object, key string) error {
+	if err := c.configPath(path); err != nil {
+		return err
+	}
 	d, err := readObject(path)
 	if err != nil {
 		return err
@@ -306,8 +316,16 @@ func (c *cleaner) removeKey(path, object, key string) error {
 func writeAll(w io.Writer, b []byte) error { _, err := w.Write(b); return err }
 
 func (c *cleaner) native(bin string, args []string, configs ...string) {
+	for _, path := range configs {
+		if err := c.configPath(path); err != nil {
+			c.problems = append(c.problems, err)
+		}
+	}
 	c.actions = append(c.actions, action{Description: bin + " " + strings.Join(args, " "), do: func() error {
 		for _, path := range configs {
+			if err := c.configPath(path); err != nil {
+				return err
+			}
 			if err := c.snapshot(path); err != nil {
 				return err
 			}
@@ -319,6 +337,17 @@ func (c *cleaner) native(bin string, args []string, configs ...string) {
 		fmt.Fprint(c.out, string(b))
 		return nil
 	}})
+}
+
+func (c *cleaner) configPath(path string) error {
+	if !exists(path) {
+		return c.safeParent(path)
+	}
+	real, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return err
+	}
+	return c.safeParent(real)
 }
 
 func (c *cleaner) product(name string) string {
