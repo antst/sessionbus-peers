@@ -1,5 +1,7 @@
 # Sessionbus product peers
 
+Every change in this repository is bound by [CONSTITUTION.md](CONSTITUTION.md).
+
 This repository contains the Sessionbus wrappers, peer commands, plugins,
 skills, installers, and product facts. The daemon and public SDKs live in
 [`antst/sessionbus`](https://github.com/antst/sessionbus); this repository uses
