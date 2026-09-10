@@ -105,3 +105,14 @@ func serveBus(listener net.Listener, requests chan<- map[string]any) {
 		_, _ = fmt.Fprintf(connection, `{"jsonrpc":"2.0","id":%v,"result":%s}`+"\n", request["id"], result)
 	}
 }
+
+func TestPrivateEntryRejectsArgumentsAndMissingEndpoint(t *testing.T) {
+	t.Setenv(host.TokenEnv, "inherited-lane-token")
+	t.Setenv(qwen.LaneEndpointEnv, "")
+	if err := runEntry(context.Background(), qwen.PrivateAlias, []string{"mcp"}); err == nil || err.Error() != "private MCP entry accepts no arguments" {
+		t.Fatalf("private arguments: %v", err)
+	}
+	if err := runEntry(context.Background(), qwen.PrivateAlias, nil); err == nil || err.Error() != "Qwen lane MCP endpoint is missing" {
+		t.Fatalf("private missing endpoint: %v", err)
+	}
+}

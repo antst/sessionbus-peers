@@ -30,6 +30,7 @@ case "$product" in
   grok plugin install "$root/plugin" --trust
   ;;
  qwen)
+  ln -sfn qwen-peer "$root/qwen-peer-mcp"
   if [ -d "$HOME/.qwen/extensions/sessionbus" ]; then qwen extensions uninstall sessionbus; fi
   qwen extensions install "$root/plugin" --consent --scope user
   ;;

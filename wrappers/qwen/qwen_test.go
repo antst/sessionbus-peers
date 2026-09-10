@@ -30,7 +30,24 @@ func TestMain(m *testing.M) {
 		fakeChild()
 		os.Exit(0)
 	}
-	os.Exit(m.Run())
+	alias := filepath.Join(filepath.Dir(os.Args[0]), PrivateAlias)
+	ownsAlias := true
+	if err := os.Symlink(filepath.Base(os.Args[0]), alias); err != nil {
+		if !os.IsExist(err) {
+			panic(err)
+		}
+		// Controlled test subprocesses share this executable directory. Reuse
+		// only the verified same-binary alias; only its creator removes it.
+		if _, err := InstalledMCPExecutable(); err != nil {
+			panic(err)
+		}
+		ownsAlias = false
+	}
+	code := m.Run()
+	if ownsAlias {
+		_ = os.Remove(alias)
+	}
+	os.Exit(code)
 }
 
 func fakeChild() {
@@ -64,6 +81,9 @@ func fakeChild() {
 		case "initialize":
 			result = map[string]any{"protocolVersion": 1, "agentInfo": map[string]string{"name": "qwen-code"}, "agentCapabilities": map[string]bool{"loadSession": true}}
 		case "session/resume":
+			if !fakeAbsoluteMCP(request.Params.MCP) {
+				return
+			}
 			if os.Getenv("QWEN_TEST_NO_MCP") != "1" && !fakeMCP(request.Params.MCP) {
 				return
 			}
@@ -73,6 +93,9 @@ func fakeChild() {
 			}
 			result = map[string]any{"sessionId": os.Getenv("QWEN_TEST_RESUME_ID"), "modes": map[string]string{"currentModeId": "yolo"}}
 		case "session/new":
+			if !fakeAbsoluteMCP(request.Params.MCP) {
+				return
+			}
 			if os.Getenv("QWEN_TEST_NO_MCP") != "1" && !fakeMCP(request.Params.MCP) {
 				return
 			}
@@ -312,6 +335,18 @@ func check(t *testing.T, ok bool, format string, values ...any) {
 
 // Native-child fixture performs a real MCP initialize on the exact configured
 // endpoint. It does not inject a ready bit or call the owner directly.
+func fakeAbsoluteMCP(servers []any) bool {
+	if len(servers) != 1 {
+		return false
+	}
+	server, ok := servers[0].(map[string]any)
+	if !ok {
+		return false
+	}
+	command, ok := server["command"].(string)
+	return ok && filepath.IsAbs(command) && filepath.Base(command) == PrivateAlias
+}
+
 func fakeMCP(servers []any) bool {
 	if len(servers) != 1 {
 		return false

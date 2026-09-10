@@ -85,6 +85,10 @@ func (p *Wrapper) Open(ctx context.Context, request sessionkit.OpenRequest) (res
 	if p.caller == nil {
 		return result, errors.New("Sessionbus lane Caller is unavailable")
 	}
+	mcpExecutable, err := InstalledMCPExecutable()
+	if err != nil {
+		return result, err
+	}
 	key, err := sessionID("")
 	if err != nil {
 		return result, err
@@ -153,7 +157,7 @@ func (p *Wrapper) Open(ctx context.Context, request sessionkit.OpenRequest) (res
 	if init.ProtocolVersion != 1 || init.AgentInfo.Name != "qwen-code" {
 		return result, errors.New("Qwen ACP initialize returned the wrong product")
 	}
-	params := map[string]any{"cwd": cwd, "mcpServers": []any{laneMCPServer(endpoint.Path)}}
+	params := map[string]any{"cwd": cwd, "mcpServers": []any{laneMCPServer(endpoint.Path, mcpExecutable)}}
 	method := "session/new"
 	if request.ResumeSessionID != "" {
 		if !init.AgentCapabilities.LoadSession {
@@ -217,8 +221,8 @@ func (p *Wrapper) Open(ctx context.Context, request sessionkit.OpenRequest) (res
 	p.opened = true
 	return sessionkit.OpenResult{SessionID: id}, nil
 }
-func laneMCPServer(path string) map[string]any {
-	return map[string]any{"name": "sessionbus", "command": PrivateAlias, "args": []string{}, "env": []any{map[string]string{"name": LaneEndpointEnv, "value": path}}}
+func laneMCPServer(path, executable string) map[string]any {
+	return map[string]any{"name": "sessionbus", "command": executable, "args": []string{}, "env": []any{map[string]string{"name": LaneEndpointEnv, "value": path}}}
 }
 func (p *Wrapper) lost(err error) {
 	p.mu.Lock()

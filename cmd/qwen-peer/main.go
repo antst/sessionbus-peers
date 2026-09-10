@@ -4,13 +4,13 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 
 	"github.com/antst/sessionbus-peers/wrappers/host"
@@ -22,10 +22,24 @@ import (
 func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
-	if err := run(ctx, os.Args[1:]); err != nil {
+	if err := runEntry(ctx, filepath.Base(os.Args[0]), os.Args[1:]); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+}
+
+func runEntry(ctx context.Context, basename string, arguments []string) error {
+	if basename == qwen.PrivateAlias {
+		if len(arguments) != 0 {
+			return errors.New("private MCP entry accepts no arguments")
+		}
+		endpoint := os.Getenv(qwen.LaneEndpointEnv)
+		if endpoint == "" {
+			return errors.New("Qwen lane MCP endpoint is missing")
+		}
+		return qwen.ForwardLaneMCP(ctx, endpoint, os.Stdin, os.Stdout)
+	}
+	return run(ctx, arguments)
 }
 
 func run(ctx context.Context, arguments []string) error {
@@ -49,11 +63,7 @@ func run(ctx context.Context, arguments []string) error {
 	product := qwen.New(os.Getenv(host.SocketEnv))
 	worker := sessionkit.NewWorker(product)
 	product.SetShutdown(worker.Shutdown)
-	product.SetCall(func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-		var result json.RawMessage
-		err := worker.Call(ctx, method, params, &result)
-		return result, err
-	})
+	product.SetCaller(worker.Caller())
 	return worker.Serve(ctx)
 }
 
