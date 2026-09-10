@@ -75,7 +75,7 @@ func TestInteractiveMCPAbsentAndNativeBoundary(t *testing.T) {
 
 func TestInteractiveMCPConflictsInvalidAndBounds(t *testing.T) {
 	for _, args := range [][]string{
-		{"--mcp-config"}, {"--mcp-config", "--"}, {"--mcp-config="},
+		{"--mcp-config"}, {"--mcp-config", "--"},
 		{"--mcp-config", "{}", "--mcp-config={}"},
 		{"--mcp-config", `{"sessionbus":{}}`},
 		{"--mcp-config", `{"mcpServers":{"sessionbus":{"disabled":true}}}`},

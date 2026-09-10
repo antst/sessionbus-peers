@@ -9,6 +9,8 @@ import (
 	"io"
 	"os"
 	"strings"
+
+	"golang.org/x/sys/unix"
 )
 
 // Bound both retained caller input and the resulting single argv entry. This
@@ -45,7 +47,7 @@ func composeInteractiveMCP(args []string, managed json.RawMessage) ([]string, er
 	config := map[string]json.RawMessage{}
 	servers := config
 	wrapped := false
-	if position >= 0 {
+	if position >= 0 && value != "" {
 		data, err := readInteractiveMCPConfig(value)
 		if err != nil {
 			return nil, err
@@ -118,9 +120,13 @@ func readInteractiveMCPConfig(value string) ([]byte, error) {
 		if !info.Mode().IsRegular() {
 			return nil, errors.New("--mcp-config file must be regular")
 		}
-		f, err := os.Open(value)
+		f, err := os.OpenFile(value, os.O_RDONLY|unix.O_NONBLOCK, 0)
 		if err != nil {
 			return nil, fmt.Errorf("read --mcp-config: %w", err)
+		}
+		opened, statErr := f.Stat()
+		if statErr != nil || !opened.Mode().IsRegular() {
+			return nil, errors.Join(errors.New("opened --mcp-config file must be regular"), statErr, f.Close())
 		}
 		data, readErr := io.ReadAll(io.LimitReader(f, maxInteractiveMCPConfig+1))
 		err = errors.Join(readErr, f.Close())
@@ -163,7 +169,7 @@ func stripMCPComments(data []byte) []byte {
 		start := i
 		i += 2
 		for i < len(data) {
-			if !block && (data[i] == '\n' || data[i] == '\r') {
+			if !block && data[i] == '\n' {
 				break
 			}
 			if block && data[i] == '*' && i+1 < len(data) && data[i+1] == '/' {
