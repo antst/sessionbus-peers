@@ -32,17 +32,15 @@ func TestSessionbusNativeReportsAreExplicitAndHidden(t *testing.T) {
 					return nil, nil
 				}}
 			}
-			input := `{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
-{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"identity","arguments":{"native":true}}}
-`
-			var output bytes.Buffer
-			if err := ServeSessionbus(owner, io.NopCloser(strings.NewReader(input)), &output, report); err != nil {
+			input, writer := io.Pipe()
+			output, reader := io.Pipe()
+			done := make(chan error, 1)
+			go func() { done <- ServeSessionbus(owner, input, reader, report) }()
+			t.Cleanup(func() { _ = writer.Close(); _ = output.Close() })
+			encoder, decoder := json.NewEncoder(writer), json.NewDecoder(output)
+			if err := encoder.Encode(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/list"}); err != nil {
 				t.Fatal(err)
 			}
-			if !owner.ended || called != enabled {
-				t.Fatalf("ended=%v called=%v", owner.ended, called)
-			}
-			decoder := json.NewDecoder(&output)
 			var listing struct {
 				Result struct{ Tools []struct{ Name string } }
 			}
@@ -51,6 +49,9 @@ func TestSessionbusNativeReportsAreExplicitAndHidden(t *testing.T) {
 			}
 			if len(listing.Result.Tools) != 1 || listing.Result.Tools[0].Name != "sessionbus" {
 				t.Fatalf("tools=%+v", listing)
+			}
+			if err := encoder.Encode(map[string]any{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": map[string]any{"name": "identity", "arguments": map[string]bool{"native": true}}}); err != nil {
+				t.Fatal(err)
 			}
 			var reply struct {
 				Error  *struct{ Code int }
@@ -62,6 +63,14 @@ func TestSessionbusNativeReportsAreExplicitAndHidden(t *testing.T) {
 			if enabled && reply.Error != nil || !enabled && (reply.Error == nil || reply.Error.Code != -32602) {
 				t.Fatalf("reply=%+v", reply)
 			}
+			_ = writer.Close()
+			if err := <-done; err != nil {
+				t.Fatal(err)
+			}
+			if !owner.ended || called != enabled {
+				t.Fatalf("ended=%v called=%v", owner.ended, called)
+			}
+
 		})
 	}
 }

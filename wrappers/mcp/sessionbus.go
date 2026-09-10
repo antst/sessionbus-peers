@@ -13,6 +13,7 @@ import (
 	"sync"
 
 	kit "github.com/antst/sessionbus/bus/sdk/go"
+	"github.com/antst/sessionbus/bus/sdk/go/protocol"
 )
 
 // SessionbusOwner owns public calls and their connection lifetime.
@@ -65,7 +66,9 @@ func toolResult(value json.RawMessage, err error) any {
 }
 
 // Serve keeps native reports, cancellation and EOF independent of pending public
-// calls. Only in-flight public request IDs are retained; results live in Caller.
+// calls. Public request IDs live only until their action settles; responses are
+// connection-scoped and are discarded on EOF. Serving owns input and closable
+// output; nonclosable blocking output is unsupported.
 func ServeSessionbus(owner SessionbusOwner, input io.ReadCloser, output io.Writer, report ReportHandler) error {
 	return serveSessionbus(owner, input, output, report, true)
 }
@@ -82,8 +85,41 @@ func (inactiveOwner) Action(context.Context, string, json.RawMessage) (json.RawM
 	return nil, errors.New("Sessionbus integration is inactive")
 }
 func (inactiveOwner) End() {}
-func serveSessionbus(owner SessionbusOwner, input io.ReadCloser, output io.Writer, report ReportHandler, enabled bool) error {
 
+// These bound payload bytes, not Go object overhead. Nothing is preallocated
+// to these byte limits. Encoding is serialized, with one additional response
+// buffer: raw '<' in a valid bus result expands sixfold in MCP's JSON string.
+const (
+	maxMCPInputFrame    = 2 * protocol.MaxFrameBytes
+	maxMCPResponseFrame = 8 * protocol.MaxFrameBytes
+	maxMCPResponseWork  = 256
+	maxMCPRetainedBytes = 32 * protocol.MaxFrameBytes
+)
+
+func readMCPFrame(reader *bufio.Reader) ([]byte, error) {
+	var frame []byte
+	for {
+		if len(frame) == maxMCPInputFrame {
+			if _, err := reader.Peek(1); err != nil {
+				return frame, err
+			}
+			return nil, errors.New("MCP input frame exceeds limit")
+		}
+		part, err := reader.ReadSlice('\n')
+		if len(part) > maxMCPInputFrame-len(frame) {
+			return nil, errors.New("MCP input frame exceeds limit")
+		}
+		frame = append(frame, part...)
+		if !errors.Is(err, bufio.ErrBufferFull) {
+			return frame, err
+		}
+	}
+}
+
+// Serving owns input and any closable output. Closing real pipes/sockets
+// interrupts blocked writes; arbitrary nonclosable blocking Writers are not
+// supported. EOF tears down ownership, without a queued-response drain promise.
+func serveSessionbus(owner SessionbusOwner, input io.ReadCloser, output io.Writer, report ReportHandler, enabled bool) error {
 	if report.Begin != nil && (strings.TrimSpace(report.Name) == "" || report.Name == "sessionbus") {
 		return errors.New("hidden report name must be nonempty and distinct from sessionbus")
 	}
@@ -92,16 +128,71 @@ func serveSessionbus(owner SessionbusOwner, input io.ReadCloser, output io.Write
 	var state, writes sync.Mutex
 	var workers sync.WaitGroup
 	pending := map[string]context.CancelFunc{}
+	var workCount, retained int
 	var once sync.Once
-	stop := func() { once.Do(func() { cancel(); owner.End(); _ = input.Close() }) }
+	stop := func() {
+		once.Do(func() {
+			state.Lock()
+			cancel()
+			state.Unlock()
+			_ = input.Close()
+			if closer, ok := output.(io.Closer); ok {
+				_ = closer.Close()
+			}
+			owner.End()
+		})
+	}
 	defer stop()
-	write := func(frame any) {
-		writes.Lock()
-		defer writes.Unlock()
+	reserve := func(size int) *int {
+		state.Lock()
 		if ctx.Err() != nil {
-			return
+			state.Unlock()
+			return nil
+		}
+		if workCount == maxMCPResponseWork || size > maxMCPRetainedBytes-retained {
+			state.Unlock()
+			stop()
+			return nil
+		}
+		workCount++
+		retained += size
+		workers.Add(1)
+		state.Unlock()
+		return &size
+	}
+	charge := func(work *int, size int) bool {
+		state.Lock()
+		if ctx.Err() != nil {
+			state.Unlock()
+			return false
+		}
+		if size > maxMCPRetainedBytes-retained {
+			state.Unlock()
+			stop()
+			return false
+		}
+		retained += size
+		*work += size
+		state.Unlock()
+		return true
+	}
+	launch := func(work *int, fn func()) {
+		go func() {
+			defer workers.Done()
+			defer func() { state.Lock(); workCount--; retained -= *work; state.Unlock() }()
+			fn()
+		}()
+	}
+	write := func(frame any) bool {
+		writes.Lock()
+		if ctx.Err() != nil {
+			writes.Unlock()
+			return false
 		}
 		body, err := json.Marshal(frame)
+		if err == nil && len(body)+1 > maxMCPResponseFrame {
+			err = errors.New("MCP response frame exceeds limit")
+		}
 		if err == nil {
 			body = append(body, '\n')
 			var n int
@@ -110,9 +201,12 @@ func serveSessionbus(owner SessionbusOwner, input io.ReadCloser, output io.Write
 				err = io.ErrShortWrite
 			}
 		}
+		writes.Unlock()
 		if err != nil {
 			stop()
+			return false
 		}
+		return true
 	}
 	failure := func(id json.RawMessage, code int, message string) {
 		if len(id) == 0 {
@@ -120,25 +214,55 @@ func serveSessionbus(owner SessionbusOwner, input io.ReadCloser, output io.Write
 		}
 		write(map[string]any{"jsonrpc": "2.0", "id": id, "error": map[string]any{"code": code, "message": message}})
 	}
-	respond := func(id json.RawMessage, value any) {
-		write(map[string]any{"jsonrpc": "2.0", "id": id, "result": value})
+	respond := func(id json.RawMessage, value any) bool {
+		return write(map[string]any{"jsonrpc": "2.0", "id": id, "result": value})
+	}
+	failAsync := func(id json.RawMessage, code int, message string, size int) {
+		if work := reserve(size); work != nil {
+			launch(work, func() { failure(id, code, message) })
+		}
+	}
+	toolReply := func(work *int, id json.RawMessage, value json.RawMessage, err error) {
+		// Reserve returned data before it can wait behind another response write.
+		// Conservative double charging covers the raw result and its text copy;
+		// error JSON can escape each source byte sixfold before the text copy.
+		size := len(value)
+		if err != nil {
+			size = len(err.Error())
+			var rpcError *kit.ProtocolError
+			if errors.As(err, &rpcError) {
+				size += len(rpcError.Data)
+			}
+			if size > protocol.MaxFrameBytes {
+				stop()
+				return
+			}
+			size = 6*size + 128
+		} else if size > protocol.MaxFrameBytes {
+			stop()
+			return
+		}
+		if !charge(work, 2*size) {
+			return
+		}
+		respond(id, toolResult(value, err))
 	}
 	reader := bufio.NewReader(input)
 	for ctx.Err() == nil {
-		line, readErr := reader.ReadBytes('\n')
+		line, readErr := readMCPFrame(reader)
 		if len(line) == 0 {
 			break
 		}
 		var frame map[string]json.RawMessage
 		if !json.Valid(line) {
-			failure(nil, -32700, "Parse error")
+			failAsync(nil, -32700, "Parse error", len(line))
 			if readErr != nil {
 				break
 			}
 			continue
 		}
 		if json.Unmarshal(line, &frame) != nil || frame == nil {
-			failure(nil, -32600, "Invalid Request")
+			failAsync(nil, -32600, "Invalid Request", len(line))
 			continue
 		}
 		id, hasID := frame["id"]
@@ -148,7 +272,7 @@ func serveSessionbus(owner SessionbusOwner, input io.ReadCloser, output io.Write
 			if !validID {
 				id = nil
 			}
-			failure(id, -32600, "Invalid Request")
+			failAsync(id, -32600, "Invalid Request", len(line))
 			continue
 		}
 		var params map[string]json.RawMessage
@@ -170,83 +294,96 @@ func serveSessionbus(owner SessionbusOwner, input io.ReadCloser, output io.Write
 			}
 			continue
 		}
+		work := reserve(len(line))
+		if work == nil {
+			break
+		}
 		if paramsErr != nil || params == nil {
-			failure(id, -32602, "Invalid parameters")
+			launch(work, func() { failure(id, -32602, "Invalid parameters") })
 			continue
 		}
 		switch method {
 		case "initialize":
 			var version string
 			if string(params["protocolVersion"]) == "null" || json.Unmarshal(params["protocolVersion"], &version) != nil {
-				failure(id, -32602, "Invalid initialize parameters")
+				launch(work, func() { failure(id, -32602, "Invalid initialize parameters") })
 				continue
 			}
-			capabilities := map[string]any{}
-			if enabled {
-				capabilities["tools"] = map[string]any{}
-			}
-			respond(id, map[string]any{"protocolVersion": version, "capabilities": capabilities, "serverInfo": map[string]string{"name": "sessionbus", "version": "0.5.0"}})
-			if ready, ok := owner.(interface{ Initialized() }); ok && ctx.Err() == nil {
-				ready.Initialized()
-			}
+			launch(work, func() {
+				capabilities := map[string]any{}
+				if enabled {
+					capabilities["tools"] = map[string]any{}
+				}
+				if respond(id, map[string]any{"protocolVersion": version, "capabilities": capabilities, "serverInfo": map[string]string{"name": "sessionbus", "version": "0.5.0"}}) {
+					// Serialize callback admission with stop, not with physical writes.
+					state.Lock()
+					if ready, ok := owner.(interface{ Initialized() }); ok && ctx.Err() == nil {
+						ready.Initialized()
+					}
+					state.Unlock()
+				}
+			})
 		case "ping":
-			respond(id, map[string]any{})
+			launch(work, func() { respond(id, map[string]any{}) })
 		case "tools/list":
-			tools := []any{}
-			if enabled {
-				tools = append(tools, Tool())
-			}
-			respond(id, map[string]any{"tools": tools})
+			launch(work, func() {
+				tools := []any{}
+				if enabled {
+					tools = append(tools, Tool())
+				}
+				respond(id, map[string]any{"tools": tools})
+			})
 		case "tools/call":
 			if !enabled {
-				failure(id, -32602, "Sessionbus integration is inactive")
+				launch(work, func() { failure(id, -32602, "Sessionbus integration is inactive") })
 				continue
 			}
 			var name string
 			if json.Unmarshal(params["name"], &name) != nil || name != "sessionbus" && (report.Begin == nil || name != report.Name) {
-				failure(id, -32602, "Unknown tool")
+				launch(work, func() { failure(id, -32602, "Unknown tool") })
 				continue
 			}
 			state.Lock()
 			_, duplicate := pending[key]
 			state.Unlock()
 			if duplicate {
-				failure(id, -32600, "Request ID already in flight")
+				launch(work, func() { failure(id, -32600, "Request ID already in flight") })
 				continue
 			}
 			if report.Begin != nil && name == report.Name {
+				// Admission stays reader-ordered; only completion and output may wait.
 				done, err := report.Begin(params["arguments"])
-				if err != nil || done == nil {
-					respond(id, toolResult(nil, err))
-					continue
-				}
-				workers.Add(1)
-				go func() { defer workers.Done(); respond(id, toolResult(nil, <-done)) }()
+				launch(work, func() {
+					if err == nil && done != nil {
+						select {
+						case err = <-done:
+						case <-ctx.Done():
+							return
+						}
+					}
+					toolReply(work, id, nil, err)
+				})
 			} else {
 				callCtx, abort := context.WithCancel(ctx)
 				state.Lock()
 				pending[key] = abort
 				state.Unlock()
-				workers.Add(1)
-				go func() {
-					defer workers.Done()
+				launch(work, func() {
 					defer abort()
-					var value json.RawMessage
-					var err error
 					actionOwner := sessionbusCallOwner{SessionbusOwner: owner, meta: params["_meta"]}
-					value, err = CallTool(callCtx, actionOwner, params["arguments"])
+					value, err := CallTool(callCtx, actionOwner, params["arguments"])
 					state.Lock()
 					delete(pending, key)
 					state.Unlock()
-					// Completion wins: never suppress a fulfilled consuming result.
+					// Completion wins request cancellation while the transport lives.
 					if err != nil && callCtx.Err() != nil && errors.Is(err, callCtx.Err()) {
 						return
 					}
-					respond(id, toolResult(value, err))
-				}()
+					toolReply(work, id, value, err)
+				})
 			}
 		default:
-			failure(id, -32601, "Method not found")
+			launch(work, func() { failure(id, -32601, "Method not found") })
 		}
 		if readErr != nil {
 			break

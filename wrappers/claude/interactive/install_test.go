@@ -209,10 +209,36 @@ func main(){if os.Getenv("GO_TEST_NATIVE_MODE")=="exit"{os.Exit(37)};if os.Geten
 
 	cmd = exec.Command(private)
 	cmd.Env = append(cmd.Env, "PATH="+nativeDir)
-	cmd.Stdin = strings.NewReader("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2025-03-26\"}}\n{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\"}\n")
-	response, err := cmd.CombinedOutput()
-	if err != nil || !bytes.Contains(response, []byte(`"name":"sessionbus"`)) {
-		t.Fatalf("private MCP %v %s", err, response)
+	mcpInput, err := cmd.StdinPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	mcpOutput, err := cmd.StdoutPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var mcpStderr bytes.Buffer
+	cmd.Stderr = &mcpStderr
+	if err = cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = mcpInput.Close(); _ = cmd.Process.Kill() })
+	encoder, decoder := json.NewEncoder(mcpInput), json.NewDecoder(mcpOutput)
+	for i, method := range []string{"initialize", "tools/list"} {
+		if err = encoder.Encode(map[string]any{"jsonrpc": "2.0", "id": i + 1, "method": method, "params": map[string]string{"protocolVersion": "2025-03-26"}}); err != nil {
+			t.Fatal(err)
+		}
+		var response json.RawMessage
+		if err = decoder.Decode(&response); err != nil {
+			t.Fatalf("private MCP %v %s", err, mcpStderr.String())
+		}
+		if !bytes.Contains(response, []byte(`"name":"sessionbus"`)) {
+			t.Fatalf("private MCP response %s", response)
+		}
+	}
+	_ = mcpInput.Close()
+	if err = cmd.Wait(); err != nil {
+		t.Fatalf("private MCP %v %s", err, mcpStderr.String())
 	}
 	if err = os.Remove(pub); err != nil {
 		t.Fatal(err)
