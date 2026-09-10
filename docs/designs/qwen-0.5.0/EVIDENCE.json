@@ -1,0 +1,26 @@
+{
+  "runtime_commit": "68e04075155a0072c6121a84a4a4f5bbc5d4e175",
+  "source_build_record": "/home/antst/qwen-architecture-20260910/implementation/initial-name-dev1/BUILD.json",
+  "source_build_sha256": "00a7710db675e428767d9a98295f04a5d56c59aaa965918824f6571712a37eb5",
+  "manifests": [
+    {
+      "root": "/home/antst/qwen-architecture-20260910/installed-interactive-68e0407",
+      "manifest": "SHA256SUMS",
+      "sha256": "8141466aa9f5e6225879aacb862f0c7749e6919f958f65c673f2845bf0935f53",
+      "entries": 140
+    },
+    {
+      "root": "/home/antst/qwen-architecture-20260910/installed-b047ce0",
+      "manifest": "SHA256SUMS",
+      "sha256": "f0a5bd1f3730d3f479325f07301a55c423023bd7c8b970970ccb0b21981b2593",
+      "entries": 47
+    },
+    {
+      "root": "/home/antst/qwen-architecture-20260910/installed-b047-lifecycle",
+      "manifest": "SHA256SUMS",
+      "sha256": "3c3bd1bd609398276fd3fc5918fad129331dfe55f3513ee4c6e91d226761fdcb",
+      "entries": 40
+    }
+  ],
+  "note": "External raw native histories/configuration are not published here. Manifest counts are payload entries, not independent successful test cases. Earlier failures and native 0.23.0 versus 0.23.2 scopes remain explicit."
+}

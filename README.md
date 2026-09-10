@@ -100,9 +100,10 @@ The global native plugin starts an inert, zero-tool helper for ordinary Grok;
 managed launches activate it using the exact private native leader.
 Qwen uses `scripts/package-product qwen ./dist` and the same permanent archive
 installer in [`qwen/README.md`](qwen/README.md). Its lane private alias resolves
-the installed sibling binary; the retained global MCP activation and accepted
-interactive session-switch limitation are documented there. The package has one
-generic skill. Sessionbus uses `opencode-peer` for the retained OpenCode lane source.
+the installed sibling `qwen-peer-mcp` binary. The extension contains one generic
+skill and no ordinary MCP server. Managed interactive launches supply native MCP
+configuration; lanes supply it per session. The accepted interactive session-switch
+limitation is documented there. Sessionbus uses `opencode-peer` for the retained OpenCode lane source.
 
 Complete each product hookup using only the retained integration:
 

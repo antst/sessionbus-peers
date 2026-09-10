@@ -112,7 +112,10 @@ native `custom_title` confirmation. Existing historical title text cannot confir
 this new rename. Later native title changes, including clearing a name, update
 the same bus connection. An empty per-launch exclusive claim prevents restarted
 or overlapping helpers from creating another owner or repeating the rename;
-a failed owner requires a fresh launch. The claim contains no session metadata.
+a failed owner requires a fresh launch. This includes a native updater that
+restarts Qwen within the same launcher: exit that replacement and start a new
+`qwen-peer` process. Integration is not transferred to the replacement helper.
+The claim contains no session metadata.
 
 The launcher owns its native child, unique temporary input file and native event
 FIFO until native exit. One claimed helper reads the initial native event and
@@ -150,6 +153,10 @@ native ToolSearch plus public list, staged delivery, seeded wake, active pull,
 interrupt, repeated collection/acknowledgment and healthy following runs.
 Receipt limits and later process-absence evidence are retained separately;
 these observations are not an interactive or all-policy acceptance claim.
-The interactive/skill-only source has controlled archive, literal reinstall and
-compiled-entry checks; it has not yet replaced the real installation or received
-new native interactive/ordinary-isolation acceptance credit.
+The same permanent installation now has native interactive identity/name/groups,
+public ToolSearch/list, parent/child completion-pointer collection, inbound
+observation, fresh-process title resume and ordinary skill-only checks. Native
+0.23.0 executed the model rows; native auto-update moved later zero-model
+resume/ordinary/lifetime checks to 0.23.2. See the
+[acceptance ledger](../docs/designs/qwen-0.5.0/ACCEPTANCE.md) for exact evidence
+and limits, including updater relaunch and abrupt cleanup.
