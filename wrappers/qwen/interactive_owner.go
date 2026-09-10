@@ -56,6 +56,13 @@ func newInteractiveOwner(ctx context.Context, env []string, parentPID int) (*int
 	if len(raw) > maxInteractiveMCPConfig || json.Unmarshal([]byte(raw), &launch) != nil || launch.PID <= 1 || launch.Start == "" || !filepath.IsAbs(launch.Directory) || !filepath.IsAbs(launch.Socket) {
 		return nil, errors.New("Qwen managed launch binding is missing or invalid")
 	}
+	if launch.Name != "" {
+		name, err := nativeInitialName(launch.Name)
+		if err != nil {
+			return nil, err
+		}
+		launch.Name = name
+	}
 	id := environmentValue(env, nativeSessionEnv)
 	if !qwenSessionID.MatchString(id) {
 		return nil, errors.New("native QWEN_CODE_SESSION_ID is missing or invalid")
@@ -235,7 +242,7 @@ func (b *interactiveOwner) observe() (retErr error) {
 				// Existing history does not confirm this launch's rename. Submit
 				// once only after current-launch registry and watcher ordering.
 				title.observed = false
-				if err = b.append(b.ctx, "/rename "+b.launch.Name); err != nil {
+				if err = b.append(b.ctx, "/rename -- "+b.launch.Name); err != nil {
 					return err
 				}
 				renamed = true

@@ -141,7 +141,7 @@ func TestInteractiveOwnerClaimAllowsOnlyOneAttempt(t *testing.T) {
 	check(t, len(claim) == 0, "claim stored native metadata")
 	input, e := os.ReadFile(filepath.Join(first.launch.Directory, "input.jsonl"))
 	must(t, e)
-	check(t, strings.Count(string(input), "/rename chosen") <= 1, "rename replayed")
+	check(t, strings.Count(string(input), "/rename -- chosen") <= 1, "rename replayed")
 }
 
 func TestInteractiveWatcherDistinguishesLauncherDeath(t *testing.T) {

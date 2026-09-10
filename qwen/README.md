@@ -98,7 +98,16 @@ and PID-namespace tokens; macOS native records have null tokens, so live sysctl
 process identity and a registry timestamp after that process start qualify the
 weaker native record. Tools remain cancelable while binding is pending.
 
-Initial `-n` is appended once after that gate, then published only after matching
+Native camel-case aliases of the managed input/output, recording and MCP-config
+options have the same reserved/composition rules as their dashed spellings.
+Recording-disable aliases are rejected; caller configuration is still composed
+into one argument at its original position.
+
+Initial `-n` uses literal `/rename -- <name>` so flag-like names cannot select
+auto-rename. Names use native whitespace normalization (runs become one space)
+and the native 200 UTF-16-code-unit limit; empty, multiline, invalid UTF-8 and
+NUL-containing names are rejected before launch. The rename is appended once
+after that gate, then published only after matching
 native `custom_title` confirmation. Existing historical title text cannot confirm
 this new rename. Later native title changes, including clearing a name, update
 the same bus connection. An empty per-launch exclusive claim prevents restarted

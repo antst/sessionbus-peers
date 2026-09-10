@@ -28,7 +28,7 @@ func composeInteractiveMCP(args []string, managed json.RawMessage) ([]string, er
 			break
 		}
 		key, raw, hasValue := strings.Cut(args[i], "=")
-		if key != "--mcp-config" {
+		if key != "--mcp-config" && key != "--mcpConfig" {
 			continue
 		}
 		if position != -1 {
@@ -36,7 +36,7 @@ func composeInteractiveMCP(args []string, managed json.RawMessage) ([]string, er
 		}
 		position, attached = i, hasValue
 		if !hasValue {
-			if i+1 == len(args) || args[i+1] == "--" || strings.HasPrefix(args[i+1], "--mcp-config") {
+			if i+1 == len(args) || args[i+1] == "--" || strings.HasPrefix(args[i+1], "--mcp-config") || strings.HasPrefix(args[i+1], "--mcpConfig") {
 				return nil, errors.New("--mcp-config requires one value")
 			}
 			i++
@@ -98,7 +98,8 @@ func composeInteractiveMCP(args []string, managed json.RawMessage) ([]string, er
 	}
 	result := append([]string(nil), args...)
 	if attached {
-		result[position] = "--mcp-config=" + string(body)
+		key, _, _ := strings.Cut(result[position], "=")
+		result[position] = key + "=" + string(body)
 	} else {
 		result[position+1] = string(body)
 	}

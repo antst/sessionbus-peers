@@ -85,8 +85,8 @@ func waitFileCondition(t *testing.T, watch *interactiveWatch, condition func() b
 }
 
 func TestInteractiveOwnerNativeGateRenameAndLiveBlankTitle(t *testing.T) {
-	b, history, publishRegistry := ownerFixture(t, "chosen")
-	appendFixtureJSON(t, history, titleRecord("chosen"))
+	b, history, publishRegistry := ownerFixture(t, "\ufefftwo  \twords\u00a0")
+	appendFixtureJSON(t, history, titleRecord("two words"))
 	listener, e := net.Listen("unix", b.launch.Socket)
 	must(t, e)
 	defer listener.Close()
@@ -143,17 +143,17 @@ func TestInteractiveOwnerNativeGateRenameAndLiveBlankTitle(t *testing.T) {
 	publishRegistry()
 	waitFileCondition(t, watch, func() bool {
 		data, err := os.ReadFile(filepath.Join(b.launch.Directory, "input.jsonl"))
-		return err == nil && strings.Contains(string(data), "/rename chosen")
+		return err == nil && strings.Contains(string(data), "/rename -- two words")
 	})
 	select {
 	case identity := <-hellos:
 		t.Fatalf("old history falsely confirmed rename: %+v", identity)
 	default:
 	}
-	appendFixtureJSON(t, history, titleRecord("chosen"))
+	appendFixtureJSON(t, history, titleRecord("two words"))
 	select {
 	case identity := <-hellos:
-		check(t, identity.SessionID == fixtureID && identity.Name == "chosen" && reflect.DeepEqual(identity.Groups, []string{"a", "b"}), "hello=%+v", identity)
+		check(t, identity.SessionID == fixtureID && identity.Name == "two words" && reflect.DeepEqual(identity.Groups, []string{"a", "b"}), "hello=%+v", identity)
 	case <-time.After(5 * time.Second):
 		t.Fatal("confirmed title was not published")
 	}
@@ -172,7 +172,7 @@ func TestInteractiveOwnerNativeGateRenameAndLiveBlankTitle(t *testing.T) {
 	}
 	input, e = os.ReadFile(filepath.Join(b.launch.Directory, "input.jsonl"))
 	must(t, e)
-	check(t, strings.Count(string(input), "/rename chosen") == 1, "rename repeated or helper removed launcher input")
+	check(t, strings.Count(string(input), "/rename -- two words") == 1, "rename repeated or helper removed launcher input")
 }
 
 func TestNativeRecordsKeepPartialAndFreezeInitialIdentity(t *testing.T) {

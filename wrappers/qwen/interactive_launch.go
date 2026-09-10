@@ -51,16 +51,19 @@ func InteractivePlan(arguments, environment []string) (host.ExecPlan, error) {
 					groups = append(groups, strings.Split(value, ",")...)
 				}
 			} else {
-				if strings.TrimSpace(value) == "" || strings.ContainsAny(value, "\r\n") {
-					return host.ExecPlan{}, errors.New("Qwen initial name must be nonempty and single-line")
+				var err error
+				name, err = nativeInitialName(value)
+				if err != nil {
+					return host.ExecPlan{}, err
 				}
-				name = strings.TrimSpace(value)
 			}
-		case "--input-file", "--json-file", "--json-fd":
+		case "--input-file", "--inputFile", "--json-file", "--jsonFile", "--json-fd", "--jsonFd":
 			return host.ExecPlan{}, fmt.Errorf("qwen-peer owns %s for native launch observation", key)
-		case "-p", "--prompt", "--input-format":
+		case "-p", "--prompt", "--input-format", "--inputFormat":
 			return host.ExecPlan{}, fmt.Errorf("%s selects headless input; use a Qwen lane", key)
-		case "--chat-recording":
+		case "--no-chat-recording", "--no-chatRecording":
+			return host.ExecPlan{}, errors.New("qwen-peer requires native chat recording for title confirmation")
+		case "--chat-recording", "--chatRecording":
 			if attached && value != "true" || !attached && i+1 < len(arguments) && arguments[i+1] == "false" {
 				return host.ExecPlan{}, errors.New("qwen-peer requires native chat recording for title confirmation")
 			}

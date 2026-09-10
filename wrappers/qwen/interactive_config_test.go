@@ -14,30 +14,32 @@ var testManagedMCP = json.RawMessage(`{"command":"/owned/qwen-peer-mcp","env":{"
 
 func TestInteractiveMCPCompositionKeepsNativePositionAndRawFields(t *testing.T) {
 	caller := `{"mcpServers":{"other":{"command":"native","args":["--","quoted\\value"],"future":{"large":9007199254740993,"fraction":1.2300,"nested":[false,null]}},"array":[]},"unknownOuter":{"keep":true}}`
-	for _, attached := range []bool{false, true} {
-		args := []string{"--resume", "native title", "--mcp-config", caller, "--future", "opaque", "--", "--mcp-config", "literal"}
-		valueIndex := 3
-		if attached {
-			args = append([]string{"--resume", "native title", "--mcp-config=" + caller}, args[4:]...)
-			valueIndex = 2
+	for _, flag := range []string{"--mcp-config", "--mcpConfig"} {
+		for _, attached := range []bool{false, true} {
+			args := []string{"--resume", "native title", flag, caller, "--future", "opaque", "--", flag, "literal"}
+			valueIndex := 3
+			if attached {
+				args = append([]string{"--resume", "native title", flag + "=" + caller}, args[4:]...)
+				valueIndex = 2
+			}
+			before := append([]string(nil), args...)
+			got, err := composeInteractiveMCP(args, testManagedMCP)
+			must(t, err)
+			check(t, reflect.DeepEqual(args, before), "mutated caller argv")
+			body := got[valueIndex]
+			if attached {
+				body = strings.TrimPrefix(body, flag+"=")
+			}
+			var decoded map[string]json.RawMessage
+			must(t, json.Unmarshal([]byte(body), &decoded))
+			var servers map[string]json.RawMessage
+			must(t, json.Unmarshal(decoded["mcpServers"], &servers))
+			check(t, string(decoded["unknownOuter"]) == `{"keep":true}`, "outer field changed: %s", body)
+			check(t, strings.Contains(string(servers["other"]), `9007199254740993`) && strings.Contains(string(servers["other"]), `1.2300`), "numeric tokens rewritten: %s", body)
+			check(t, string(servers["array"]) == "[]" && string(servers["sessionbus"]) == string(testManagedMCP), "server fields changed: %s", body)
+			got[valueIndex] = before[valueIndex]
+			check(t, reflect.DeepEqual(got, before), "other native args changed: %#v", got)
 		}
-		before := append([]string(nil), args...)
-		got, err := composeInteractiveMCP(args, testManagedMCP)
-		must(t, err)
-		check(t, reflect.DeepEqual(args, before), "mutated caller argv")
-		body := got[valueIndex]
-		if attached {
-			body = strings.TrimPrefix(body, "--mcp-config=")
-		}
-		var decoded map[string]json.RawMessage
-		must(t, json.Unmarshal([]byte(body), &decoded))
-		var servers map[string]json.RawMessage
-		must(t, json.Unmarshal(decoded["mcpServers"], &servers))
-		check(t, string(decoded["unknownOuter"]) == `{"keep":true}`, "outer field changed: %s", body)
-		check(t, strings.Contains(string(servers["other"]), `9007199254740993`) && strings.Contains(string(servers["other"]), `1.2300`), "numeric tokens rewritten: %s", body)
-		check(t, string(servers["array"]) == "[]" && string(servers["sessionbus"]) == string(testManagedMCP), "server fields changed: %s", body)
-		got[valueIndex] = before[valueIndex]
-		check(t, reflect.DeepEqual(got, before), "other native args changed: %#v", got)
 	}
 }
 
@@ -76,6 +78,12 @@ func TestInteractiveMCPAbsentAndNativeBoundary(t *testing.T) {
 func TestInteractiveMCPConflictsInvalidAndBounds(t *testing.T) {
 	for _, args := range [][]string{
 		{"--mcp-config"}, {"--mcp-config", "--"},
+		{"--mcpConfig"}, {"--mcpConfig", "--"},
+		{"--mcpConfig", "{}", "--mcp-config={}"},
+		{"--mcp-config={}", "--mcpConfig", "{}"},
+		{"--mcpConfig", "--mcp-config={}"},
+		{"--mcp-config", "--mcpConfig={}"},
+		{"--mcpConfig", `{"sessionbus":{}}`},
 		{"--mcp-config", "{}", "--mcp-config={}"},
 		{"--mcp-config", `{"sessionbus":{}}`},
 		{"--mcp-config", `{"mcpServers":{"sessionbus":{"disabled":true}}}`},
