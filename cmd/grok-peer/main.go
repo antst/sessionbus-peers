@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 
 	"github.com/antst/sessionbus-peers/wrappers/grok"
@@ -31,7 +32,7 @@ func main() {
 		case <-ctx.Done():
 		}
 	}()
-	if err := run(ctx, os.Args[1:]); err != nil {
+	if err := runEntry(ctx, filepath.Base(os.Args[0]), os.Args[1:]); err != nil {
 		cancel(nil)
 		var exited *exec.ExitError
 		if errors.As(err, &exited) {
@@ -51,11 +52,18 @@ type signalCause struct{ signal os.Signal }
 func (s signalCause) Error() string           { return s.signal.String() }
 func (s signalCause) CaughtSignal() os.Signal { return s.signal }
 
+func runEntry(ctx context.Context, basename string, arguments []string) error {
+	if basename == grok.PrivateAlias {
+		if len(arguments) != 0 {
+			return errors.New("private MCP entry accepts no arguments")
+		}
+		return runMCP(ctx)
+	}
+	return run(ctx, arguments)
+}
+
 func run(ctx context.Context, arguments []string) error {
 	if !host.LaneMode() {
-		if len(arguments) == 1 && arguments[0] == "mcp" {
-			return runMCP(ctx)
-		}
 		plan, err := grok.InteractivePlan(arguments, os.Environ())
 		if err != nil {
 			return err

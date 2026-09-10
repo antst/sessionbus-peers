@@ -273,7 +273,7 @@ func TestRetainedManifestCommandReachability(t *testing.T) {
 		t.Errorf("Grok manifest entry is absent or not executable: %v", err)
 	}
 	entry := read(t, "grok/scripts/native-entry")
-	if !bytes.Contains(entry, []byte("/.local/bin/grok-peer")) || !bytes.Contains(entry, []byte("exec \"$peer_binary\" mcp")) {
+	if !bytes.Contains(entry, []byte("/.local/libexec/sessionbus/grok/grok-peer-mcp")) || !bytes.Contains(entry, []byte("exec \"$peer_binary\"")) {
 		t.Error("Grok manifest entry does not resolve to the installed grok-peer binary")
 	}
 	var openCode struct {

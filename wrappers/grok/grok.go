@@ -23,6 +23,7 @@ import (
 )
 
 const Product = "grok-peer"
+const PrivateAlias = "grok-peer-mcp"
 
 const grokReadyInterval = 25 * time.Millisecond
 
@@ -204,7 +205,11 @@ func (p *Wrapper) commitOpen(ctx context.Context, stopStartup func() bool) error
 }
 
 func (p *Wrapper) openSession(ctx context.Context, primary *acpClient, request sessionkit.OpenRequest, laneSocket string) error {
-	params := map[string]any{"cwd": request.Open.Cwd, "mcpServers": []any{mcpServer(laneSocket)}}
+	server, err := mcpServer(laneSocket)
+	if err != nil {
+		return err
+	}
+	params := map[string]any{"cwd": request.Open.Cwd, "mcpServers": []any{server}}
 	if request.Open.PermissionMode != "" {
 		params["_meta"] = map[string]bool{"yoloMode": request.Open.PermissionMode == "bypassPermissions"}
 	}
@@ -239,7 +244,7 @@ func (p *Wrapper) openSession(ctx context.Context, primary *acpClient, request s
 
 	p.mu.Lock()
 	p.sessionID = identity
-	err := p.endpoint.validateSession(identity)
+	err = p.endpoint.validateSession(identity)
 	p.mu.Unlock()
 	if err != nil {
 		return err
@@ -745,8 +750,12 @@ func startNative(cmd *exec.Cmd) (*nativeProcess, error) {
 	return process, nil
 }
 
-func mcpServer(socket string) map[string]any {
-	return map[string]any{"name": "sessionbus", "command": Product, "args": []string{"mcp"}, "env": []map[string]string{{"name": mcp.LaneSocketEnv, "value": socket}}}
+func mcpServer(socket string) (map[string]any, error) {
+	executable, err := os.Executable()
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"name": "sessionbus", "command": filepath.Join(filepath.Dir(executable), PrivateAlias), "args": []string{}, "env": []map[string]string{{"name": mcp.LaneSocketEnv, "value": socket}}}, nil
 }
 
 func leaderSocket(socket, key string) string {
