@@ -21,15 +21,23 @@ type nativeEventStream struct {
 // native Qwen has not yet opened its supported FIFO output. Cancellation owns
 // the close; actual native/launcher lifetime comes from the OS process watcher.
 func openNativeEvents(ctx context.Context, path string, fail func(error)) (*nativeEventStream, error) {
-	f, err := os.OpenFile(path, os.O_RDWR|unix.O_NONBLOCK, 0)
+	// Go excludes FIFOs opened through os.OpenFile from Darwin's poller:
+	// kqueue can miss the final writer's close (Go issue 24164). This reader
+	// deliberately keeps its own writer open, never uses writer EOF as a
+	// lifetime signal, and owns cancellation through Close. Register this
+	// nonblocking descriptor explicitly so data readiness and Close can wake
+	// the reader on both platforms. No extra descriptor or timer is added.
+	fd, err := unix.Open(path, unix.O_RDWR|unix.O_NONBLOCK|unix.O_CLOEXEC, 0)
 	if err != nil {
 		return nil, err
 	}
-	info, err := f.Stat()
-	if err != nil || info.Mode()&os.ModeNamedPipe == 0 {
-		_ = f.Close()
+	var info unix.Stat_t
+	err = unix.Fstat(fd, &info)
+	if err != nil || info.Mode&unix.S_IFMT != unix.S_IFIFO {
+		_ = unix.Close(fd)
 		return nil, errors.Join(errors.New("native event output must be the launch FIFO"), err)
 	}
+	f := os.NewFile(uintptr(fd), path)
 	if err = f.SetReadDeadline(time.Time{}); err != nil {
 		_ = f.Close()
 		return nil, err

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -40,6 +41,28 @@ func TestNativeFIFOReaderBeforeWriterAndJoinedCancellation(t *testing.T) {
 		t.Fatal("writer close falsely ended native lifetime")
 	default:
 	}
+	// A replacement native writer must still deliver data after the previous
+	// writer closes. More than a pipe buffer must drain before Write returns;
+	// no timer or writer-EOF event is used as a readiness/lifetime signal.
+	fd, e := unix.Open(path, unix.O_WRONLY|unix.O_NONBLOCK|unix.O_CLOEXEC, 0)
+	must(t, e)
+	writer = os.NewFile(uintptr(fd), path)
+	defer writer.Close()
+	must(t, writer.SetWriteDeadline(time.Time{}))
+	written := make(chan error, 1)
+	go func() {
+		_, err := writer.WriteString(strings.Repeat("x", 128<<10) + "\n")
+		written <- err
+	}()
+	select {
+	case err := <-written:
+		must(t, err)
+	case err := <-failed:
+		t.Fatal(err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("replacement FIFO writer did not drain")
+	}
+	must(t, writer.Close())
 	cancel()
 	stream.close()
 	select {
