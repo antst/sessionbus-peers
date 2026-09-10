@@ -37,11 +37,23 @@ case "$2" in
  *) exit 4;;
 esac
 `)
+	root := filepath.Join(home, ".local/libexec/sessionbus/grok")
+	put(filepath.Join(root, "plugin/skills/obsolete/SKILL.md"), "old")
+	put(filepath.Join(home, "unrelated"), "keep")
 	for i := 0; i < 2; i++ {
 		c := exec.Command("sh", filepath.Join(src, "install"))
 		c.Env = append(os.Environ(), "HOME="+home, "PATH="+bin+":"+os.Getenv("PATH"))
 		if out, err := c.CombinedOutput(); err != nil {
 			t.Fatalf("install %d: %v %s", i, err, out)
+		}
+		if target, err := os.Readlink(filepath.Join(root, "grok-peer-mcp")); err != nil || target != "grok-peer" {
+			t.Fatalf("private alias %q: %v", target, err)
+		}
+		if _, err := os.Stat(filepath.Join(root, "plugin/skills/obsolete/SKILL.md")); !os.IsNotExist(err) {
+			t.Fatalf("obsolete payload survived: %v", err)
+		}
+		if data, err := os.ReadFile(filepath.Join(home, "unrelated")); err != nil || string(data) != "keep" {
+			t.Fatalf("unrelated data changed: %q %v", data, err)
 		}
 	}
 }

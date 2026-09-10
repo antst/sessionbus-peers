@@ -91,6 +91,7 @@ func fakeGrok() {
 	encoder := json.NewEncoder(os.Stdout)
 	reply := func(value any) { write.Lock(); _ = encoder.Encode(value); write.Unlock() }
 	scanner := bufio.NewScanner(os.Stdin)
+	scanner.Buffer(make([]byte, 4096), maxACPFrame)
 	for scanner.Scan() {
 		var request map[string]any
 		_ = json.Unmarshal(scanner.Bytes(), &request)
@@ -112,6 +113,34 @@ func fakeGrok() {
 			if loaded, ok := params["sessionId"].(string); ok {
 				session = loaded
 			}
+			if servers, ok := params["mcpServers"].([]any); ok && len(servers) > 0 {
+				server, _ := servers[0].(map[string]any)
+				env, _ := server["env"].([]any)
+				var endpoint string
+				for _, raw := range env {
+					entry, _ := raw.(map[string]any)
+					if entry["name"] == "SESSIONBUS_LANE_SOCKET" {
+						endpoint, _ = entry["value"].(string)
+					}
+				}
+				if endpoint != "" {
+					c, e := net.Dial("unix", endpoint)
+					if e != nil {
+						os.Exit(4)
+					}
+					defer c.Close()
+					enc, dec := json.NewEncoder(c), json.NewDecoder(c)
+					_ = enc.Encode(nativeHelperIdentity{session, option(arguments, "--leader-socket")})
+					var ack map[string]any
+					if dec.Decode(&ack) != nil {
+						os.Exit(5)
+					}
+					_ = enc.Encode(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": map[string]any{"protocolVersion": "2025-06-18"}})
+					if dec.Decode(&ack) != nil {
+						os.Exit(6)
+					}
+				}
+			}
 			if method == "session/load" {
 				session = first(os.Getenv("GROK_TEST_LOAD_ID"), session)
 				reply(map[string]any{"jsonrpc": "2.0", "id": id, "result": map[string]any{"models": map[string]any{}, "_meta": map[string]any{"sessionId": session, "x.ai/sessionDetail": map[string]string{"sessionId": session}}}})
@@ -119,6 +148,13 @@ func fakeGrok() {
 				reply(map[string]any{"jsonrpc": "2.0", "id": id, "result": map[string]any{"sessionId": session, "models": map[string]any{}}})
 			}
 		case "_x.ai/session/rename":
+			if path := os.Getenv("GROK_TEST_RENAME_BLOCK"); path != "" {
+				<-fileReady(path)
+			}
+			if os.Getenv("GROK_TEST_RENAME_ERROR") != "" {
+				reply(map[string]any{"jsonrpc": "2.0", "id": id, "error": map[string]any{"code": -32603, "message": "rename refused"}})
+				continue
+			}
 			title, _ = params["title"].(string)
 			reply(map[string]any{"jsonrpc": "2.0", "id": id, "result": map[string]any{"success": true}})
 		case "_x.ai/sessions/list":
@@ -135,7 +171,8 @@ func fakeGrok() {
 			if os.Getenv("GROK_TEST_ROSTER_DELAY") != "" {
 				titleIndex--
 			}
-			if titleIndex >= 0 && titleIndex < len(titles) && titles[titleIndex] != "" {
+			_, explicitTitles := os.LookupEnv("GROK_TEST_TITLES")
+			if explicitTitles && titleIndex >= 0 && titleIndex < len(titles) {
 				title = titles[titleIndex]
 			}
 			session := first(os.Getenv("GROK_TEST_SESSION_ID"), testSessionID)
@@ -164,6 +201,13 @@ func fakeGrok() {
 				session, _ := params["sessionId"].(string)
 				promptID := fmt.Sprintf("prompt-%v", id)
 				prompt := fmt.Sprint(params["prompt"])
+				values, _ := params["prompt"].([]any)
+				text := ""
+				if len(values) > 0 {
+					v, _ := values[0].(map[string]any)
+					text, _ = v["text"].(string)
+				}
+				reply(map[string]any{"jsonrpc": "2.0", "method": "_x.ai/queue/changed", "params": map[string]any{"sessionId": session, "runningPromptId": promptID, "runningText": text, "runningKind": "prompt"}})
 				stop := "end_turn"
 				if strings.Contains(prompt, "hold") {
 					select {
@@ -180,6 +224,7 @@ func fakeGrok() {
 					reply(map[string]any{"jsonrpc": "2.0", "method": "session/update", "params": map[string]any{"sessionId": session, "update": map[string]any{"sessionUpdate": "agent_message_chunk", "content": map[string]string{"type": "text", "text": "foreign"}}, "_meta": map[string]string{"promptId": "foreign-prompt"}}})
 				}
 				reply(map[string]any{"jsonrpc": "2.0", "method": "session/update", "params": map[string]any{"sessionId": session, "update": map[string]any{"sessionUpdate": "agent_message_chunk", "content": map[string]string{"type": "text", "text": answer}}, "_meta": map[string]string{"promptId": promptID}}})
+				reply(map[string]any{"jsonrpc": "2.0", "method": "_x.ai/session_notification", "params": map[string]any{"sessionId": session, "update": map[string]any{"sessionUpdate": "turn_completed", "prompt_id": promptID, "stop_reason": stop}}})
 				reply(map[string]any{"jsonrpc": "2.0", "id": id, "result": map[string]any{"stopReason": stop, "_meta": map[string]string{"promptId": promptID}}})
 				if os.Getenv("GROK_TEST_EXIT_AFTER_PROMPT") != "" {
 					os.Exit(0)
@@ -247,8 +292,9 @@ func TestFreshLaneNativeLifecycle(t *testing.T) {
 	request := sessionkit.OpenRequest{Name: "parent/grok@local", Groups: []string{"group"}, Open: sessionkit.OpenOptions{Cwd: root, PermissionMode: "bypassPermissions", Model: "grok-4.6", ReasoningEffort: "low", Arguments: []string{"--disable-web-search"}}}
 	opened, err := p.Open(context.Background(), request)
 	must(t, err)
+	defer p.Close(context.Background(), sessionkit.SessionCloseRequest{})
 	check(t, opened.SessionID == testSessionID, "session id = %q", opened.SessionID)
-	check(t, exists(filepath.Join(root, "locks", "grok", testSessionID)), "renamed lock absent")
+	check(t, !exists(filepath.Join(root, "locks")), "adapter session lock recreated")
 	frames := records(t, recordPath)
 	check(t, containsStart(frames, "--permission-mode", "bypassPermissions", "--reasoning-effort", "low", "-m", "grok-4.6", "--disable-web-search"), "typed argv not preserved")
 	check(t, containsStart(frames, "--relay-on-demand") && !containsStart(frames, "--no-exit-on-disconnect"), "leader argv did not preserve relay-on-demand")
@@ -288,7 +334,7 @@ func TestInterruptAndResume(t *testing.T) {
 	load := findFrame(frames, "session/load")
 	check(t, strings.Contains(string(load), `"sessionId":"`+testSessionID+`"`), "resume load = %s", load)
 	check(t, !containsStart(frames, "--resume", testSessionID), "resume was selected in both argv and session/load")
-	check(t, containsStart(frames, "--permission-mode", "default", "--allow", "MCPTool(sessionbus__*)"), "default leader MCP allow absent")
+	check(t, !containsStart(frames, "--allow", "MCPTool(sessionbus__*)"), "implicit native MCP grant")
 	must(t, p.Close(context.Background(), sessionkit.SessionCloseRequest{}))
 }
 
@@ -314,14 +360,22 @@ func TestResumeIdentityFailureRepliesBeforeCleanup(t *testing.T) {
 	writeWorkerRequest(t, reader, 1, "session.open", map[string]any{"name": "lane@local", "groups": []string{"group"}, "resume_session_id": testSessionID, "open": map[string]any{"cwd": root}})
 	response := readWorkerResponse(t, reader, 1)
 	check(t, strings.Contains(string(response.Error), `"message":"spawn_failed"`) && strings.Contains(string(response.Error), `Grok returned session identity`), "open error = %s", response.Error)
+	check(t, strings.Contains(string(response.Error), "signal: killed"), "Open dropped cleanup diagnostic: %s", response.Error)
 	_ = connection.Close()
 	<-worker.Closed()
 	p.mu.Lock()
-	primary, child, leader := p.primary, p.child, p.leader
+	child, leader := p.child, p.leader
 	p.mu.Unlock()
-	primary.close()
-	_ = child.Close(context.Background(), func(context.Context) error { return nil })
-	stopAux(leader)
+	select {
+	case <-child.Done():
+	default:
+		t.Fatal("failed Open child not reaped")
+	}
+	select {
+	case <-leader.done:
+	default:
+		t.Fatal("failed Open leader not reaped")
+	}
 	_ = listener.Close()
 }
 
@@ -406,32 +460,6 @@ func TestKitRunTokenCrossings(t *testing.T) {
 	check(t, readWorkerResponse(t, reader, 5).Result != nil, "close response absent")
 }
 
-func TestDeliveryDoesNotHoldRunHandoff(t *testing.T) {
-	root, recordPath := testsocket.Directory(t), filepath.Join(t.TempDir(), "record")
-	interjectRelease := filepath.Join(root, "interject-release")
-	t.Setenv("GROK_TEST_RECORD", recordPath)
-	t.Setenv("GROK_TEST_RELEASE", filepath.Join(root, "never"))
-	t.Setenv("GROK_TEST_INTERJECT_BLOCK", interjectRelease)
-	p, _, reader := startGrokWorker(t, root)
-	writeWorkerRequest(t, reader, 2, "turn.execute", map[string]any{"session_id": testSessionID + "@local", "run_id": "g/1", "input": "hold"})
-	check(t, readWorkerResponse(t, reader, 2).Error == nil, "execute admission failed")
-	waitFrame(t, recordPath, "session/prompt", 1)
-	// Child decoding may precede the parent's completed-write admission.
-	waitActive(t, p)
-	writeWorkerRequest(t, reader, 3, "message.deliver", delivery("crossed delivery"))
-	waitFrame(t, recordPath, "_x.ai/interject", 1)
-	writeWorkerRequest(t, reader, 4, "turn.interrupt", map[string]string{"session_id": testSessionID + "@local"})
-	check(t, readWorkerResponse(t, reader, 4).Result != nil, "interrupt did not progress")
-	check(t, readWorkerTerminal(t, reader, 2) != nil, "terminal did not progress")
-	must(t, os.WriteFile(interjectRelease, nil, 0o600))
-	response := readWorkerResponse(t, reader, 3)
-	var receipt sessionkit.DeliveryReceipt
-	must(t, json.Unmarshal(response.Result, &receipt))
-	check(t, receipt.Disposition == "queued_for_next_turn", "stale native token reported %q", receipt.Disposition)
-	writeWorkerRequest(t, reader, 5, "session.close", map[string]string{"session_id": testSessionID + "@local"})
-	check(t, readWorkerResponse(t, reader, 5).Result != nil, "close response absent")
-}
-
 func TestIdleDeliveryJoinsOwnedPromptAndForeignChunksAreIgnored(t *testing.T) {
 	root, recordPath := testsocket.Directory(t), filepath.Join(t.TempDir(), "record")
 	t.Setenv("GROK_TEST_RECORD", recordPath)
@@ -452,25 +480,6 @@ func TestIdleDeliveryJoinsOwnedPromptAndForeignChunksAreIgnored(t *testing.T) {
 	writeWorkerRequest(t, reader, 4, "session.close", map[string]string{"session_id": testSessionID + "@local"})
 	closeResult := readWorkerResponse(t, reader, 4)
 	check(t, closeResult.Result != nil, "close response absent: %+v", closeResult)
-}
-
-func TestActiveDeliveryUsesInterject(t *testing.T) {
-	root, recordPath := testsocket.Directory(t), filepath.Join(t.TempDir(), "record")
-	t.Setenv("GROK_TEST_RECORD", recordPath)
-	t.Setenv("GROK_TEST_RELEASE", filepath.Join(root, "never"))
-	p, _, reader := startGrokWorker(t, root)
-	writeWorkerRequest(t, reader, 2, "turn.execute", map[string]any{"session_id": testSessionID + "@local", "run_id": "g/1", "input": "hold"})
-	check(t, readWorkerResponse(t, reader, 2).Error == nil, "execute admission failed")
-	waitActive(t, p)
-	writeWorkerRequest(t, reader, 3, "message.deliver", delivery("active-wire-token"))
-	var receipt sessionkit.DeliveryReceipt
-	must(t, json.Unmarshal(readWorkerResponse(t, reader, 3).Result, &receipt))
-	check(t, receipt.Disposition == "injected" && countFrames(records(t, recordPath), "_x.ai/interject") == 1, "active receipt = %#v", receipt)
-	writeWorkerRequest(t, reader, 4, "turn.interrupt", map[string]string{"session_id": testSessionID + "@local"})
-	check(t, readWorkerResponse(t, reader, 4).Result != nil, "interrupt response absent")
-	check(t, readWorkerTerminal(t, reader, 2) != nil, "terminal absent")
-	writeWorkerRequest(t, reader, 5, "session.close", map[string]string{"session_id": testSessionID + "@local"})
-	check(t, readWorkerResponse(t, reader, 5).Result != nil, "close response absent")
 }
 
 func TestChildExitWaitsForRunDoneBeforeShutdown(t *testing.T) {
@@ -572,7 +581,9 @@ func workerReady(t *testing.T, reader *workerReader, response workerResponse) bo
 	return true
 }
 func readWorkerReady(t *testing.T, reader *workerReader, id int) map[string]any {
-	key := "g/1" // Each fixture admits one run; request IDs are independent.
+	return readWorkerReadyID(t, reader, "g/1")
+}
+func readWorkerReadyID(t *testing.T, reader *workerReader, key string) map[string]any {
 	for reader.ready[key] == nil {
 		var response workerResponse
 		must(t, json.Unmarshal(readLine(t, reader.reader), &response))
@@ -622,21 +633,6 @@ func waitFrame(t *testing.T, path, method string, count int) {
 		time.Sleep(time.Millisecond)
 	}
 	t.Fatalf("did not observe %s", method)
-}
-
-func waitActive(t *testing.T, p *Wrapper) {
-	t.Helper()
-	deadline := time.Now().Add(3 * time.Second)
-	for time.Now().Before(deadline) {
-		p.mu.Lock()
-		active := p.active != nil
-		p.mu.Unlock()
-		if active {
-			return
-		}
-		time.Sleep(time.Millisecond)
-	}
-	t.Fatal("native prompt did not become active")
 }
 
 func records(t *testing.T, path string) []json.RawMessage {
@@ -729,3 +725,74 @@ func check(t *testing.T, ok bool, format string, args ...any) {
 }
 
 var _ = syscall.SIGTERM
+
+func TestUnsubmittedOversizedCombinedPromptPreservesStaging(t *testing.T) {
+	root := testsocket.Directory(t)
+	recordPath := filepath.Join(t.TempDir(), "record")
+	t.Setenv("GROK_TEST_RECORD", recordPath)
+	_, _, reader := startGrokWorker(t, root)
+	for i := 0; i < 5; i++ {
+		d := delivery(strings.Repeat("\\", 100000))
+		d.MessageID = fmt.Sprintf("stage-%d", i)
+		writeWorkerRequest(t, reader, 10+i, "message.deliver", d)
+		check(t, readWorkerResponse(t, reader, 10+i).Error == nil, "stage refused")
+	}
+	writeWorkerRequest(t, reader, 20, "turn.execute", map[string]any{"session_id": testSessionID + "@local", "run_id": "g/1", "input": strings.Repeat("\\", 40000)})
+	check(t, readWorkerResponse(t, reader, 20).Error == nil, "worker rejected input")
+	check(t, readWorkerReadyID(t, reader, "g/1")["state"] == "unavailable", "oversized combined prompt not refused")
+	check(t, countFrames(records(t, recordPath), "session/prompt") == 0, "oversized prompt was submitted")
+	writeWorkerRequest(t, reader, 21, "turn.execute", map[string]any{"session_id": testSessionID + "@local", "run_id": "g/2", "input": "small"})
+	check(t, readWorkerResponse(t, reader, 21).Error == nil, "small run refused")
+	ready := readWorkerReadyID(t, reader, "g/2")
+	check(t, ready["state"] == "done", "small run did not complete: %#v", ready)
+	frames := records(t, recordPath)
+	check(t, countFrames(frames, "session/prompt") == 1, "unexpected prompt count")
+	prompt := string(findFrame(frames, "session/prompt"))
+	for i := 0; i < 5; i++ {
+		check(t, strings.Count(prompt, fmt.Sprintf("stage-%d", i)) == 1, "staged identity missing or duplicated")
+	}
+	writeWorkerRequest(t, reader, 22, "session.close", map[string]string{"session_id": testSessionID + "@local"})
+	check(t, readWorkerResponse(t, reader, 22).Error == nil, "close failed")
+}
+
+func TestCompletedWorkerRunIsRetiredAtNextAdmission(t *testing.T) {
+	for _, mode := range []string{"direct", "stage", "seed"} {
+		t.Run(mode, func(t *testing.T) {
+			recordPath := filepath.Join(t.TempDir(), "record")
+			t.Setenv("GROK_TEST_RECORD", recordPath)
+			p, _, reader := startGrokWorker(t, testsocket.Directory(t))
+			writeWorkerRequest(t, reader, 10, "turn.execute", map[string]any{"session_id": testSessionID + "@local", "run_id": "g/1", "input": "first"})
+			check(t, readWorkerResponse(t, reader, 10).Error == nil, "first run refused")
+			check(t, readWorkerReadyID(t, reader, "g/1")["state"] == "done", "first run incomplete")
+			p.mu.Lock()
+			previous := p.run
+			p.mu.Unlock()
+			check(t, previous != nil, "completed owner was not retained for synchronous admission")
+			<-previous.Done() // Real Worker publication, no synthetic Run/private SDK fields.
+			if mode == "stage" {
+				writeWorkerRequest(t, reader, 11, "message.deliver", delivery("after-completed-run"))
+				response := readWorkerResponse(t, reader, 11)
+				check(t, response.Error == nil && strings.Contains(string(response.Result), "queued_for_next_turn"), "completed owner prevented stage: %s %s", response.Error, response.Result)
+				check(t, countFrames(records(t, recordPath), "_x.ai/interject") == 0, "idle stage called native interject")
+			}
+			if mode == "seed" {
+				d := delivery("second-seeded")
+				d.RunID = "g/2"
+				writeWorkerRequest(t, reader, 12, "message.deliver", d)
+				response := readWorkerResponse(t, reader, 12)
+				check(t, response.Error == nil && strings.Contains(string(response.Result), "injected"), "seeded run refused: %s %s", response.Error, response.Result)
+			} else {
+				writeWorkerRequest(t, reader, 12, "turn.execute", map[string]any{"session_id": testSessionID + "@local", "run_id": "g/2", "input": "second"})
+				check(t, readWorkerResponse(t, reader, 12).Error == nil, "second run refused")
+			}
+			ready := readWorkerReadyID(t, reader, "g/2")
+			check(t, ready["state"] == "done", "second run failed: %#v", ready)
+			p.mu.Lock()
+			replacement := p.run
+			p.mu.Unlock()
+			check(t, replacement != nil && replacement != previous, "old completion cleared replacement owner")
+			writeWorkerRequest(t, reader, 13, "session.close", map[string]string{"session_id": testSessionID + "@local"})
+			check(t, readWorkerResponse(t, reader, 13).Error == nil, "close failed")
+		})
+	}
+}

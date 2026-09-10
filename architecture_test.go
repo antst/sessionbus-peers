@@ -273,7 +273,7 @@ func TestRetainedManifestCommandReachability(t *testing.T) {
 		t.Errorf("Grok manifest entry is absent or not executable: %v", err)
 	}
 	entry := read(t, "grok/scripts/native-entry")
-	if !bytes.Contains(entry, []byte("/.local/bin/grok-peer")) || !bytes.Contains(entry, []byte("exec \"$peer_binary\" mcp")) {
+	if !bytes.Contains(entry, []byte("/.local/libexec/sessionbus/grok/grok-peer-mcp")) || !bytes.Contains(entry, []byte("exec \"$peer_binary\"")) {
 		t.Error("Grok manifest entry does not resolve to the installed grok-peer binary")
 	}
 	var openCode struct {
@@ -309,8 +309,10 @@ func TestReadmeIsTheSourceInstallAuthority(t *testing.T) {
 	readme := read(t, "README.md")
 	for _, exact := range []string{
 		`git clone https://github.com/antst/sessionbus.git && cd sessionbus && GOBIN="$HOME/.local/bin" go install ./bus/cmd/...`,
-		`git clone https://github.com/antst/sessionbus-peers.git && cd sessionbus-peers && go test -race ./... && GOBIN="$HOME/.local/bin" go install ./cmd/grok-peer ./cmd/qwen-peer ./cmd/opencode-peer`,
+		`git clone https://github.com/antst/sessionbus-peers.git && cd sessionbus-peers && go test -race ./... && GOBIN="$HOME/.local/bin" go install ./cmd/qwen-peer ./cmd/opencode-peer`,
 		"scripts/package-codex ./dist",
+		"scripts/package-product grok ./dist",
+		"grok/README.md",
 		"codex/README.md",
 		"`go install <pkg>@version` is not available",
 		"this README is the installation authority until then",

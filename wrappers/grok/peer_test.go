@@ -25,105 +25,86 @@ import (
 	sessionkit "github.com/antst/sessionbus/bus/sdk/go"
 )
 
-func TestInteractivePlan(t *testing.T) {
-	plan, err := InteractivePlan([]string{"--model", "-g", "--group", "team", "prompt"}, []string{"PATH=/bin"})
-	must(t, err)
-	id := environment(plan.Env, host.SessionIDEnv)
-	check(t, len(id) == 36 && id[14] == '4', "session id = %q", id)
-	check(t, environment(plan.Env, host.NameEnv) == id, "name differs from id")
-	check(t, environment(plan.Env, host.GroupsEnv) == `["team"]`, "groups = %q", environment(plan.Env, host.GroupsEnv))
-	check(t, slices.Contains(plan.Args, "--leader") && slices.Contains(plan.Args, "--session-id"), "managed args = %#v", plan.Args)
-	for _, arguments := range [][]string{{"--always-approve"}, {"--yolo"}, {"--permission-mode", "always-approve"}, {"--permission-mode=always-approve"}} {
-		check(t, interactivePermission(arguments) == "bypassPermissions", "%#v did not select bypass permission", arguments)
-	}
-	model := slices.Index(plan.Args, "--model")
-	check(t, model >= 0 && plan.Args[model+1] == "-g", "native option value was consumed as a group: %#v", plan.Args)
-	plan, err = InteractivePlan([]string{"--resume", testSessionID}, nil)
-	must(t, err)
-	check(t, environment(plan.Env, host.SessionIDEnv) == testSessionID && !slices.Contains(plan.Args, "--session-id"), "resume = %#v / %#v", plan.Env, plan.Args)
-	_, err = InteractivePlan([]string{"--no-leader"}, nil)
-	check(t, err != nil && err.Error() == "grok-peer requires the default leader", "no-leader error = %v", err)
-	for _, arguments := range [][]string{{"--resume"}, {"--continue"}, {"--fork-session"}, {"--resume", testSessionID, "-r" + testSessionID}} {
-		_, err = InteractivePlan(arguments, nil)
-		check(t, err != nil, "unsupported managed surface accepted: %#v", arguments)
-	}
-	for _, arguments := range [][]string{{"--single", "prompt"}, {"-pprompt"}, {"--prompt-file", "prompt.txt"}, {"--prompt-json", `[]`}, {"--output-format", "json"}, {"--json-schema", `{}`}, {"--max-turns", "1"}, {"--include-partial-messages"}} {
-		_, err = InteractivePlan(arguments, nil)
-		check(t, err != nil && strings.Contains(err.Error(), "Sessionbus Grok lane"), "headless surface accepted: %#v / %v", arguments, err)
-	}
-	plan, err = InteractivePlan([]string{"sessions", "list"}, []string{"PATH=/bin"})
-	must(t, err)
-	check(t, slices.Equal(plan.Args, []string{"sessions", "list"}) && environment(plan.Env, host.SessionIDEnv) == "", "native command was wrapped: %#v", plan)
-	plan, err = InteractivePlan([]string{"--", "--leader"}, nil)
-	must(t, err)
-	separator := slices.Index(plan.Args, "--")
-	check(t, separator > 0 && plan.Args[separator-1] == "--leader" && plan.Args[separator+1] == "--leader", "post-separator literal changed: %#v", plan.Args)
+type peerDeliveryResult struct {
+	receipt sessionkit.DeliveryReceipt
+	err     error
 }
 
-func TestProductHelperOwnsPeerAndLazilyObserves(t *testing.T) {
+func TestInteractivePlan(t *testing.T) {
+	for _, test := range []struct {
+		args, native []string
+		groups, name string
+	}{
+		{[]string{"--resume", "test1", "-g", "test", "--group=test2,test3", "--yolo"}, []string{"--resume", "test1", "--always-approve"}, `["test","test2","test3"]`, ""},
+		{[]string{"--group", "a,b", "--future", "value with spaces", "-n", "first", "--group", "c", "--name=second", "--", "-g", "literal", "--yolo"}, []string{"--future", "value with spaces", "--", "-g", "literal", "--yolo"}, `["a","b","c"]`, "second"},
+		{[]string{"--resume"}, []string{"--resume"}, `[]`, ""},
+		{[]string{"--continue", "--fork-session"}, []string{"--continue", "--fork-session"}, `[]`, ""},
+		{[]string{"--resume", testSessionID, "-r" + testSessionID}, []string{"--resume", testSessionID, "-r" + testSessionID}, `[]`, ""},
+		{[]string{"--session-id", testSessionID, "--peer-name", "alias"}, []string{"--session-id", testSessionID}, `[]`, "alias"},
+	} {
+		plan, err := InteractivePlan(test.args, []string{"PATH=/bin", host.SessionIDEnv + "=inherited", host.NameEnv + "=inherited", host.GroupsEnv + `=["inherited"]`})
+		must(t, err)
+		check(t, slices.Equal(plan.Args, test.native), "argv changed: %#v", plan.Args)
+		check(t, environment(plan.Env, host.SessionIDEnv) == "", "launcher invented/inherited session ID")
+		check(t, environment(plan.Env, host.GroupsEnv) == test.groups && environment(plan.Env, host.NameEnv) == test.name, "owned options = %#v", plan.Env)
+		check(t, environment(plan.Env, ManagedEnv) == "launch", "managed topology absent")
+	}
+	for _, args := range [][]string{{"--no-leader"}, {"--leader"}, {"--leader-socket=elsewhere"}, {"-g"}, {"--group", "--"}, {"-n"}} {
+		_, err := InteractivePlan(args, nil)
+		check(t, err != nil, "conflict/missing value accepted: %#v", args)
+	}
+	for _, args := range [][]string{{"--single", "prompt"}, {"-pprompt"}, {"--prompt-file", "prompt.txt"}, {"--prompt-json", `[]`}, {"--output-format", "json"}, {"--json-schema", `{}`}, {"--max-turns", "1"}, {"--include-partial-messages"}} {
+		_, err := InteractivePlan(args, nil)
+		check(t, err != nil && strings.Contains(err.Error(), "Sessionbus Grok lane"), "headless accepted: %#v", args)
+	}
+	for _, args := range [][]string{{"sessions", "list"}, {"--version"}, {"plugin", "list", "--json"}} {
+		plan, err := InteractivePlan(args, []string{ManagedEnv + "=inherited"})
+		must(t, err)
+		check(t, slices.Equal(plan.Args, args) && environment(plan.Env, ManagedEnv) == "", "native command wrapped: %#v", plan)
+	}
+	for _, args := range [][]string{nil, {"--always-approve"}, {"--always-approve", "--permission-mode=default"}, {"--permission-mode", "default", "--always-approve"}, {"--permission-mode", "custom-native-value"}} {
+		check(t, slices.Equal(interactivePolicy(args), args), "explicit native policy rewritten: %#v", args)
+	}
+	check(t, len(interactivePolicy([]string{"--", "--always-approve"})) == 0, "post-delimiter operand selected policy")
+}
+
+func TestNativeTitleEventsRefreshPeerWithoutDelivery(t *testing.T) {
 	root := testsocket.Directory(t)
-	socket := filepath.Join(root, "sessionbus.sock")
+	socket := filepath.Join(root, "bus")
 	server, hellos := fakeDaemon(t, socket)
 	defer server.Close()
 	t.Setenv(host.SocketEnv, socket)
 	recordPath := filepath.Join(root, "record")
+	changed := filepath.Join(root, "changed")
 	t.Setenv("GROK_TEST_RECORD", recordPath)
 	t.Setenv("GROK_TEST_SESSION_ID", testSessionID)
-	t.Setenv("GROK_TEST_TITLES", "product title,"+testSessionID)
-	blocked := filepath.Join(root, "interject-release")
-	t.Setenv("GROK_TEST_INTERJECT_BLOCK", blocked)
-	cwd, err := os.Getwd()
+	t.Setenv("GROK_TEST_TITLES", "native-title,")
+	t.Setenv("GROK_TEST_ROSTER_CHANGE", changed)
+	env := managedPeerEnv(os.Environ(), testSessionID, filepath.Join(root, "leader.sock"))
+	env = setEnvironment(env, host.GroupsEnv, `["peer-group"]`)
+	backend, err := NewPeerBackend(context.Background(), env)
 	must(t, err)
-	t.Setenv("GROK_TEST_CWD", cwd)
-	t.Setenv("GROK_TEST_ACTIVITY", "idle")
-	environment := setEnvironment(setEnvironment(setEnvironment(os.Environ(), grokSessionIDEnv, testSessionID), grokLeaderSocketEnv, filepath.Join(root, "leader.sock")), host.GroupsEnv, `["peer-group"]`)
-	opened := make(chan struct {
-		backend *PeerBackend
-		err     error
-	}, 1)
-	go func() {
-		backend, err := NewPeerBackend(context.Background(), environment)
-		opened <- struct {
-			backend *PeerBackend
-			err     error
-		}{backend, err}
-	}()
-	first := <-hellos
-	check(t, first.SessionID == testSessionID && first.Name == testSessionID && slices.Equal(first.Groups, []string{"peer-group"}), "first hello = %#v", first)
-	check(t, len(records(t, recordPath)) == 0, "helper opened observer before delivery")
-	first.ack <- true
-	result := <-opened
-	must(t, result.err)
-	backend := result.backend
-	<-backend.peer.Ready()
-	check(t, backend.Caller() == backend.peer.Caller, "helper constructed a second Caller")
-	must(t, backend.Prepare(context.Background(), nil))
-	check(t, len(records(t, recordPath)) == 0, "tool preparation opened observer")
-
-	deliveryCtx, cancel := context.WithCancel(context.Background())
-	delivered := deliverPeer(backend, deliveryCtx, delivery("peer message"))
-	rehello := <-hellos
-	check(t, rehello.SessionID == testSessionID && rehello.Name == "product title", "title re-hello = %#v", rehello)
-	cancel()
-	check(t, errors.Is((<-delivered).err, context.Canceled), "cancelled delivery did not return its context error")
-	publishTestFile(blocked, []byte("ready"))
-	request := delivery("again")
-	request.MessageID = "again"
-	delivered = deliverPeer(backend, context.Background(), request)
-	corrected := <-hellos
-	check(t, corrected.Name == testSessionID, "corrective title re-hello = %#v", corrected)
-	corrected.ack <- true
-	answer := <-delivered
-	check(t, answer.err == nil && answer.receipt.Disposition == "injected" && len(peerClientPIDs(t, records(t, recordPath))) == 1, "observer was not retained: %#v", answer)
-	rehello.ack <- true
-	converged := <-hellos
-	check(t, converged.Name == testSessionID, "late-ack convergence hello = %#v", converged)
-	converged.ack <- true
-	<-converged.done
+	defer backend.Shutdown()
+	check(t, len(records(t, recordPath)) == 0, "native observer started before MCP initialize")
+	backend.Initialized()
+	initial := <-hellos
+	check(t, initial.SessionID == testSessionID && initial.Name == "native-title" && slices.Equal(initial.Groups, []string{"peer-group"}), "initial native identity=%+v", initial)
+	initial.ack <- true
+	<-backend.ready
+	must(t, os.WriteFile(changed, nil, 0600))
+	renamed := <-hellos
+	check(t, renamed.SessionID == testSessionID && renamed.Name == "", "empty native title replaced with invented name: %+v", renamed)
+	renamed.ack <- true
+	<-renamed.done
 	listed, err := backend.Caller().List(context.Background(), sessionkit.SessionListRequest{})
 	must(t, err)
-	check(t, len(listed.Sessions) == 1 && listed.Sessions[0].Name == testSessionID+"@local", "final bus identity = %#v", listed.Sessions)
-	backend.Shutdown()
+	check(t, len(listed.Sessions) == 1, "peer absent")
+	check(t, countFrames(records(t, recordPath), "_x.ai/interject") == 0, "title update required delivery")
+}
+func managedPeerEnv(env []string, id, leader string) []string {
+	env = setEnvironment(env, grokSessionIDEnv, id)
+	env = setEnvironment(env, grokLeaderSocketEnv, leader)
+	return setEnvironment(env, ManagedEnv, leader)
 }
 
 func TestProductSessionIDsCreateDistinctPeers(t *testing.T) {
@@ -132,14 +113,23 @@ func TestProductSessionIDsCreateDistinctPeers(t *testing.T) {
 		socket := filepath.Join(root, "sessionbus.sock")
 		server, hellos := fakeDaemon(t, socket)
 		t.Setenv(host.SocketEnv, socket)
+		t.Setenv("GROK_TEST_SESSION_ID", id)
 		environment := setEnvironment(setEnvironment(os.Environ(), grokSessionIDEnv, id), grokLeaderSocketEnv, filepath.Join(root, "leader.sock"))
+		environment = setEnvironment(environment, ManagedEnv, environmentValue(environment, grokLeaderSocketEnv))
 		opened := make(chan *PeerBackend, 1)
-		go func() { backend, _ := NewPeerBackend(context.Background(), environment); opened <- backend }()
+		go func() {
+			backend, _ := NewPeerBackend(context.Background(), environment)
+			backend.Initialized()
+			opened <- backend
+		}()
 		hello := <-hellos
-		check(t, hello.SessionID == id && hello.Name == id, "helper %d hello = %#v", index+1, hello)
+		check(t, hello.SessionID == id && hello.Name == "", "helper %d hello = %#v", index+1, hello)
 		hello.ack <- true
 		backend := <-opened
-		check(t, backend != nil && backend.identity.SessionID == id, "helper %d identity changed", index+1)
+		backend.mu.Lock()
+		actual := backend.identity.SessionID
+		backend.mu.Unlock()
+		check(t, actual == id, "helper %d identity changed", index+1)
 		backend.Shutdown()
 		server.Close()
 	}
@@ -152,25 +142,26 @@ func TestPeerMCPServesWhileBusAdmissionIsHeld(t *testing.T) {
 	defer server.Close()
 	t.Setenv(host.SocketEnv, socket)
 	environment := setEnvironment(setEnvironment(os.Environ(), grokSessionIDEnv, testSessionID), grokLeaderSocketEnv, filepath.Join(root, "leader.sock"))
+	environment = setEnvironment(environment, ManagedEnv, environmentValue(environment, grokLeaderSocketEnv))
 	backend, err := NewPeerBackend(context.Background(), environment)
 	must(t, err)
 	input, writeInput := io.Pipe()
 	readOutput, output := io.Pipe()
 	served := make(chan error, 1)
 	go func() {
-		served <- (&mcp.Server{Backend: backend}).Serve(context.Background(), input, output)
+		served <- mcp.ServeSessionbus(backend, input, output, mcp.ReportHandler{})
 		_ = output.Close()
 	}()
 	encoder := json.NewEncoder(writeInput)
 	scanner := bufio.NewScanner(readOutput)
-	check(t, mcpResponse(t, encoder, scanner, 1, "initialize", map[string]any{})["result"] != nil, "MCP initialize failed")
+	check(t, mcpResponse(t, encoder, scanner, 1, "initialize", map[string]any{"protocolVersion": "2025-06-18"})["result"] != nil, "MCP initialize failed")
 	check(t, mcpResponse(t, encoder, scanner, 2, "tools/list", map[string]any{})["result"] != nil, "MCP tools/list failed")
 	hello := <-hellos
 	hello.ack <- false
-	<-backend.peer.Closed()
+	<-backend.done
 	terminal := mcpResponse(t, encoder, scanner, 3, "tools/call", map[string]any{"name": "sessionbus", "arguments": map[string]any{"action": "list"}})
-	failed := terminal["error"].(map[string]any)
-	check(t, failed["code"] == float64(-32602) && failed["message"] == "invalid_hello", "terminal tools/call = %#v", terminal)
+	failed, _ := terminal["result"].(map[string]any)
+	check(t, failed["isError"] == true, "terminal tools/call = %#v", terminal)
 	must(t, writeInput.Close())
 	must(t, <-served)
 	backend.Shutdown()
@@ -189,11 +180,13 @@ func TestPeerDeliveryOwnerShutdownCrossesBlockedInterject(t *testing.T) {
 	observerPID := filepath.Join(root, "observer.pid")
 	t.Setenv("GROK_TEST_OBSERVER_PID", observerPID)
 	environment := setEnvironment(setEnvironment(os.Environ(), grokSessionIDEnv, testSessionID), grokLeaderSocketEnv, filepath.Join(root, "leader.sock"))
+	environment = setEnvironment(environment, ManagedEnv, environmentValue(environment, grokLeaderSocketEnv))
 	backend, err := NewPeerBackend(context.Background(), environment)
 	must(t, err)
+	backend.Initialized()
 	hello := <-hellos
 	hello.ack <- true
-	<-backend.peer.Ready()
+	<-backend.ready
 	delivered := deliverPeer(backend, context.Background(), delivery("blocked"))
 	waitFrame(t, recordPath, "_x.ai/interject", 1)
 	pidfd := interactivePidfd(t, observerPID)
@@ -202,7 +195,7 @@ func TestPeerDeliveryOwnerShutdownCrossesBlockedInterject(t *testing.T) {
 	go func() { backend.Shutdown(); close(closed) }()
 	<-closed
 	result := <-delivered
-	check(t, result.err == nil && result.receipt.Reason == "shutting down", "blocked delivery = %#v / %v", result.receipt, result.err)
+	check(t, result.receipt.Disposition != "injected", "shutdown invented admission: %#v / %v", result.receipt, result.err)
 	check(t, !processRunning(t, pidfd), "blocked observer survived helper shutdown")
 }
 
@@ -219,17 +212,19 @@ func TestPeerDeliveryOwnerSerializesTwoReceipts(t *testing.T) {
 	must(t, err)
 	t.Setenv("GROK_TEST_CWD", cwd)
 	environment := setEnvironment(setEnvironment(os.Environ(), grokSessionIDEnv, testSessionID), grokLeaderSocketEnv, filepath.Join(root, "leader.sock"))
+	environment = setEnvironment(environment, ManagedEnv, environmentValue(environment, grokLeaderSocketEnv))
 	backend, err := NewPeerBackend(context.Background(), environment)
 	must(t, err)
+	backend.Initialized()
 	hello := <-hellos
 	hello.ack <- true
-	<-backend.peer.Ready()
+	<-backend.ready
 	results := make(chan peerDeliveryResult, 2)
 	for _, message := range []string{"first", "second"} {
 		go func(message string) {
 			request := delivery(message)
 			request.MessageID = message
-			receipt, err := backend.deliver(context.Background(), backend.identity, request)
+			receipt, err := backend.deliver(context.Background(), sessionkit.PeerIdentity{SessionID: testSessionID}, request)
 			results <- peerDeliveryResult{receipt: receipt, err: err}
 		}(message)
 	}
@@ -342,7 +337,7 @@ func TestLeaderCreatesDefaultStateRoot(t *testing.T) {
 	t.Setenv("XDG_RUNTIME_DIR", root)
 	socket := sessionkit.Socket()
 	check(t, !exists(filepath.Dir(socket)), "default run directory already exists")
-	leader, err := startLeader(socket, host.LaunchTokenDigest(testSessionID), t.TempDir(), "default", os.Environ())
+	leader, err := startLeader(context.Background(), socket, host.LaunchTokenDigest(testSessionID), t.TempDir(), "default", os.Environ())
 	must(t, err)
 	check(t, grokSocketReady(leaderSocket(socket, host.LaunchTokenDigest(testSessionID))), "leader socket was not created")
 	must(t, closeNative("leader", leader))
@@ -382,12 +377,17 @@ func TestPeerShutdownKillsItsObserverProcessGroup(t *testing.T) {
 	must(t, err)
 	t.Setenv("GROK_TEST_CWD", cwd)
 	environment := setEnvironment(setEnvironment(os.Environ(), grokSessionIDEnv, testSessionID), grokLeaderSocketEnv, filepath.Join(root, "leader.sock"))
+	environment = setEnvironment(environment, ManagedEnv, environmentValue(environment, grokLeaderSocketEnv))
 	opened := make(chan *PeerBackend, 1)
-	go func() { backend, _ := NewPeerBackend(context.Background(), environment); opened <- backend }()
+	go func() {
+		backend, _ := NewPeerBackend(context.Background(), environment)
+		backend.Initialized()
+		opened <- backend
+	}()
 	hello := <-hellos
 	hello.ack <- true
 	backend := <-opened
-	receipt, err := backend.deliver(context.Background(), backend.identity, delivery("peer message"))
+	receipt, err := backend.deliver(context.Background(), sessionkit.PeerIdentity{SessionID: testSessionID}, delivery("peer message"))
 	must(t, err)
 	check(t, receipt.Disposition == "injected", "delivery = %#v", receipt)
 	body, err := os.ReadFile(filepath.Join(root, "descendant.pid"))
@@ -480,7 +480,7 @@ func fakeDaemon(t *testing.T, path string) (net.Listener, <-chan hello) {
 func deliverPeer(backend *PeerBackend, ctx context.Context, request sessionkit.DeliveryRequest) <-chan peerDeliveryResult {
 	result := make(chan peerDeliveryResult, 1)
 	go func() {
-		receipt, err := backend.deliver(ctx, backend.identity, request)
+		receipt, err := backend.deliver(ctx, sessionkit.PeerIdentity{SessionID: testSessionID}, request)
 		result <- peerDeliveryResult{receipt: receipt, err: err}
 	}()
 	return result
@@ -566,4 +566,36 @@ func environment(values []string, name string) string {
 		}
 	}
 	return ""
+}
+
+func TestResumingSameNativeIDUsesNewLaunchResources(t *testing.T) {
+	root := testsocket.Directory(t)
+	recordPath := filepath.Join(root, "record")
+	t.Setenv(host.SocketEnv, filepath.Join(root, "bus"))
+	t.Setenv("GROK_TEST_RECORD", recordPath)
+	t.Setenv("GROK_TEST_INTERACTIVE_EXIT", "7")
+	for range 2 {
+		plan, err := InteractivePlan([]string{"--resume", testSessionID, "-n", "initial"}, os.Environ())
+		must(t, err)
+		var exited *exec.ExitError
+		check(t, errors.As(RunInteractive(context.Background(), plan), &exited) && exited.ExitCode() == 7, "native exit was not retained")
+	}
+	paths := []string{}
+	for _, raw := range records(t, recordPath) {
+		var record struct {
+			Kind  string `json:"kind"`
+			Value struct {
+				Arguments []string `json:"arguments"`
+			} `json:"value"`
+		}
+		must(t, json.Unmarshal(raw, &record))
+		if record.Kind != "START" || !slices.Contains(record.Value.Arguments, "leader") {
+			continue
+		}
+		paths = append(paths, nativeOption(record.Value.Arguments, "--leader-socket"))
+	}
+	check(t, len(paths) == 2 && paths[0] != paths[1], "same native ID reused launch identity: %#v", paths)
+	for _, path := range paths {
+		check(t, !exists(filepath.Dir(path)), "launch directory remains: %s", path)
+	}
 }

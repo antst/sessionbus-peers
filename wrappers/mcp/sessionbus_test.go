@@ -32,17 +32,15 @@ func TestSessionbusNativeReportsAreExplicitAndHidden(t *testing.T) {
 					return nil, nil
 				}}
 			}
-			input := `{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
-{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"identity","arguments":{"native":true}}}
-`
-			var output bytes.Buffer
-			if err := ServeSessionbus(owner, io.NopCloser(strings.NewReader(input)), &output, report); err != nil {
+			input, writer := io.Pipe()
+			output, reader := io.Pipe()
+			done := make(chan error, 1)
+			go func() { done <- ServeSessionbus(owner, input, reader, report) }()
+			t.Cleanup(func() { _ = writer.Close(); _ = output.Close() })
+			encoder, decoder := json.NewEncoder(writer), json.NewDecoder(output)
+			if err := encoder.Encode(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/list"}); err != nil {
 				t.Fatal(err)
 			}
-			if !owner.ended || called != enabled {
-				t.Fatalf("ended=%v called=%v", owner.ended, called)
-			}
-			decoder := json.NewDecoder(&output)
 			var listing struct {
 				Result struct{ Tools []struct{ Name string } }
 			}
@@ -51,6 +49,9 @@ func TestSessionbusNativeReportsAreExplicitAndHidden(t *testing.T) {
 			}
 			if len(listing.Result.Tools) != 1 || listing.Result.Tools[0].Name != "sessionbus" {
 				t.Fatalf("tools=%+v", listing)
+			}
+			if err := encoder.Encode(map[string]any{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": map[string]any{"name": "identity", "arguments": map[string]bool{"native": true}}}); err != nil {
+				t.Fatal(err)
 			}
 			var reply struct {
 				Error  *struct{ Code int }
@@ -62,6 +63,14 @@ func TestSessionbusNativeReportsAreExplicitAndHidden(t *testing.T) {
 			if enabled && reply.Error != nil || !enabled && (reply.Error == nil || reply.Error.Code != -32602) {
 				t.Fatalf("reply=%+v", reply)
 			}
+			_ = writer.Close()
+			if err := <-done; err != nil {
+				t.Fatal(err)
+			}
+			if !owner.ended || called != enabled {
+				t.Fatalf("ended=%v called=%v", owner.ended, called)
+			}
+
 		})
 	}
 }
@@ -114,4 +123,55 @@ func TestSessionbusMetadataIsPerNativeRequest(t *testing.T) {
 	}
 	output.Close()
 	reader.Close()
+}
+
+func TestInactiveMCPStaysUntilEOFAndAdvertisesNothing(t *testing.T) {
+	input, writer := io.Pipe()
+	output, reader := io.Pipe()
+	done := make(chan error, 1)
+	go func() { done <- ServeInactiveSessionbus(input, reader) }()
+	encoder, decoder := json.NewEncoder(writer), json.NewDecoder(output)
+	calls := []struct {
+		method string
+		params any
+	}{
+		{"initialize", map[string]any{"protocolVersion": "2025-06-18"}},
+		{"ping", map[string]any{}}, {"tools/list", map[string]any{}},
+		{"tools/call", map[string]any{"name": "sessionbus", "arguments": map[string]any{"action": "list", "arguments": map[string]any{}}}},
+	}
+	for i, call := range calls {
+		if err := encoder.Encode(map[string]any{"jsonrpc": "2.0", "id": i + 1, "method": call.method, "params": call.params}); err != nil {
+			t.Fatal(err)
+		}
+		var frame struct {
+			Result map[string]json.RawMessage
+			Error  json.RawMessage
+		}
+		if err := decoder.Decode(&frame); err != nil {
+			t.Fatal(err)
+		}
+		if i < 3 && frame.Error != nil {
+			t.Fatalf("%s failed: %s", call.method, frame.Error)
+		}
+		if i == 0 && string(frame.Result["capabilities"]) != "{}" {
+			t.Fatal(frame.Result)
+		}
+		if i == 2 && string(frame.Result["tools"]) != "[]" {
+			t.Fatal(frame.Result)
+		}
+		if i == 3 && frame.Error == nil {
+			t.Fatal("inactive public call succeeded")
+		}
+		select {
+		case err := <-done:
+			t.Fatalf("inactive server exited before EOF: %v", err)
+		default:
+		}
+	}
+	_ = writer.Close()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	_ = reader.Close()
+	_ = output.Close()
 }
