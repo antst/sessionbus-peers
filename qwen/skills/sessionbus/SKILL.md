@@ -6,7 +6,8 @@ description: Discover and message Sessionbus peers, and create, run, collect, cl
 # Sessionbus
 
 The native extension makes this skill discoverable in ordinary Qwen too.
-Skill visibility alone does not establish an active Sessionbus connection or
+Ordinary Qwen starts no Sessionbus MCP helper; use `qwen-peer` for managed
+activation. Skill visibility alone does not establish an active connection or
 which native session owns it. Sessionbus's interactive binding is to the launch's
 initial native session. After an in-process /new, /clear, /resume or other
 switch, outbound MCP identity can stay on the original session while inbound

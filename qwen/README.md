@@ -64,18 +64,68 @@ place. Forget removes the daemon's resume recipe, not native history. There is
 no wrapper database, result journal or restart recovery. The shared result
 cursor and staging are bounded worker memory.
 
-## Checkpoint limits
+## Interactive launches and ordinary Qwen
 
-This source checkpoint updates guidance and payload reconciliation while
-retaining the current MCP activation mechanism: the globally installed
-extension's `mcp.json` still invokes `qwen-peer mcp` from PATH. The lane's
-per-session same-name server selects the private entry under the inspected
-native precedence; unrelated native servers and settings retain their normal
-behavior. No global enable/disable toggle or per-launch MCP-config merger is
-introduced here.
+The installed extension contains one generic skill and no MCP registration.
+Ordinary native Qwen can discover the guidance but does not start this package's
+MCP helper. `qwen-peer` adds its private sibling through one per-launch native
+`--mcp-config`; dedicated ACP lanes use their per-session configuration instead.
+Existing settings and other extensions retain native precedence.
 
-The generic skill is therefore globally discoverable. Ordinary isolation and
-the remaining interactive implementation are unfinished in this checkpoint.
+Native initial selectors (including bare/title/ID resume, continue and fork)
+remain native arguments. Native subcommands and help/version pass through. Repeated `-g`/`--group` comma lists and
+`-n`/`--name`/`--peer-name` are wrapper options before `--`; tokens after `--`
+remain untouched. No generated native ID or title resolver is used. Explicit
+native permission arguments remain unchanged and omitted policy stays omitted.
+Headless input belongs in a lane. The wrapper reserves `--input-file`,
+`--json-file` and `--json-fd`, and requires native chat recording for titles.
+
+A single caller `--mcp-config` is composed in its original position. Existing
+files use native file-only JSON comment handling; inline input is strict JSON.
+Wrapped `mcpServers` and direct maps retain raw server values, numeric tokens and
+unknown fields. Both caller input and combined output are capped at 65536 UTF-8
+bytes. Duplicate flags, malformed input and an explicit caller `sessionbus`
+server fail clearly. Caller files are never edited. No second config flag,
+all-extension enablement, global toggle or permission grant is introduced.
+
+After MCP initialization, the helper reserves an empty exclusive launch claim
+after native env and live launch-ancestry validation, then asynchronously matches the first native
+`session_start`, its native `QWEN_CODE_SESSION_ID`, and a live launch-owned
+native process/registry record. Registry publication is source-bound ordering
+after normal input-watcher construction; native caught watcher-init failures
+mean it is not universal watcher-health proof. Linux checks native process-start
+and PID-namespace tokens; macOS native records have null tokens, so live sysctl
+process identity and a registry timestamp after that process start qualify the
+weaker native record. Tools remain cancelable while binding is pending.
+
+Initial `-n` is appended once after that gate, then published only after matching
+native `custom_title` confirmation. Existing historical title text cannot confirm
+this new rename. Later native title changes, including clearing a name, update
+the same bus connection. An empty per-launch exclusive claim prevents restarted
+or overlapping helpers from creating another owner or repeating the rename;
+a failed owner requires a fresh launch. The claim contains no session metadata.
+
+The launcher owns its native child, unique temporary input file and native event
+FIFO until native exit. One claimed helper reads the initial native event and
+then drains/discards output; it does not store an answer transcript. Native may
+open before or after the reader. The reader closes and joins on cancellation.
+The input file remains append-only during the live launch, with an 8 MiB
+per-record wrapper limit and no total-byte ceiling; it is never truncated or
+rotated because native consumed-offset guarantees are absent. Native event and
+history observation records are bounded at 8 MiB. Directory/file watches are
+bounded at eight, and incoming bus handler work at 32. This is temporary native
+transport, not a wrapper history/recovery store.
+
+Terminal-group SIGINT is left to native Qwen; the launcher does not convert it
+into TERM or send a duplicate interrupt. Normal exit/TERM joins the child and
+removes those resources. Helper
+EOF, native-parent loss or launcher loss cancels its sole Caller and observers.
+If the launcher is killed abruptly, the integration retires but native processes
+and unique files may remain; there is no claim of reaping/cleanup by a dead
+launcher and no recovery from these files.
+
+## Session switching limitation
+
 The owner has accepted the released native interfaces' session-switch limit:
 Sessionbus binds to the launch's initial native session. After an in-process
 /new, /clear, /resume or other switch, outbound MCP calls can retain that old
@@ -91,5 +141,6 @@ native ToolSearch plus public list, staged delivery, seeded wake, active pull,
 interrupt, repeated collection/acknowledgment and healthy following runs.
 Receipt limits and later process-absence evidence are retained separately;
 these observations are not an interactive or all-policy acceptance claim.
-This skill migration itself has archive/literal-reinstall tests; it has not
-yet replaced the real installation or received native skill-discovery credit.
+The interactive/skill-only source has controlled archive, literal reinstall and
+compiled-entry checks; it has not yet replaced the real installation or received
+new native interactive/ordinary-isolation acceptance credit.

@@ -67,6 +67,8 @@ esac
 		// Exercise an upgrade and a reinstall with stale payload in both owned
 		// copies. A copy-over install would leave these discoverable.
 		for _, owned := range []string{filepath.Join(permanent, "plugin"), extension} {
+			must(t, os.MkdirAll(owned, 0700))
+			must(t, os.WriteFile(filepath.Join(owned, "mcp.json"), []byte(`{"mcpServers":{"sessionbus":{"command":"obsolete"}}}`), 0600))
 			for _, name := range []string{"claude-lane", "codex-lane", "grok-lane", "qwen-lane", "obsolete"} {
 				path := filepath.Join(owned, "skills", name, "SKILL.md")
 				must(t, os.MkdirAll(filepath.Dir(path), 0700))
@@ -95,19 +97,20 @@ esac
 	canonical, err := filepath.EvalSymlinks(permanent)
 	must(t, err)
 	check(t, alias == filepath.Join(canonical, PrivateAlias), "resolved alias=%q", alias)
-	// The skill migration does not change the separately selected activation path.
-	native, err := os.ReadFile(filepath.Join(permanent, "plugin/mcp.json"))
-	must(t, err)
-	original, err := os.ReadFile(filepath.Join(root, "qwen/mcp.json"))
-	must(t, err)
-	check(t, string(native) == string(original), "unexpected activation change")
 	for _, mode := range []string{"eof", "term-open-input", "term-undrained-output"} {
 		t.Run(mode, func(t *testing.T) { exercisePackagedPrivateEntry(t, alias, stage, mode) })
 	}
+	for _, mode := range []string{"eof", "eof-late-native-writer", "term-open-input", "term-undrained-output", "pending-action-eof"} {
+		t.Run("interactive-"+mode, func(t *testing.T) { exercisePackagedInteractiveEntry(t, alias, mode) })
+	}
+	t.Run("interactive-public-argv-exit-cleanup", func(t *testing.T) { exercisePackagedInteractiveLaunch(t, public) })
 }
 
 func assertGenericSkillPayload(t *testing.T, plugin, root string) {
 	t.Helper()
+	if _, err := os.Stat(filepath.Join(plugin, "mcp.json")); !os.IsNotExist(err) {
+		t.Fatalf("ordinary extension retains MCP activation: %v", err)
+	}
 	skills, err := os.ReadDir(filepath.Join(plugin, "skills"))
 	must(t, err)
 	if len(skills) != 1 || skills[0].Name() != "sessionbus" || !skills[0].IsDir() {
@@ -116,7 +119,7 @@ func assertGenericSkillPayload(t *testing.T, plugin, root string) {
 	files, err := os.ReadDir(filepath.Join(plugin, "skills/sessionbus"))
 	must(t, err)
 	check(t, len(files) == 1 && files[0].Name() == "SKILL.md", "unexpected generic skill files: %v", files)
-	for _, name := range []string{"skills/sessionbus/SKILL.md", "mcp.json", "plugin.json", "README.md"} {
+	for _, name := range []string{"skills/sessionbus/SKILL.md", "plugin.json", "README.md"} {
 		got, err := os.ReadFile(filepath.Join(plugin, name))
 		must(t, err)
 		want, err := os.ReadFile(filepath.Join(root, "qwen", name))
