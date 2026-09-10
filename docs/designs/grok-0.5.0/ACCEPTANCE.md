@@ -1,10 +1,14 @@
 # Grok installed acceptance, 2026-09-10
 
-Runtime/package checkpoint: e24f9ca40ef08e73a27a1624423e39d4bf335a2a.
+Current installed runtime: 3e035e8b13d562e1eacd1564bfe5b119e9968194.
+The original matrix was executed at e24f9ca40ef08e73a27a1624423e39d4bf335a2a;
+its evidence remains unchanged. The completion-ownership correction below
+replaces that build in the same installation.
 One permanent umka installation, actual user home/config/login/service; no
 isolated product prefix or protected baseline. Grok native1.0.25 executable
 SHA256 a46d17bcd602c46135b5be2da69a081447f8c514c5ea733c5be1265bcfb62b80;
-installed Go binary1534033e5fc19ccd48fa6cbdebe259e52fbee5d28b04a320e994c7a61078f650.
+current Go binary0f3877a2676b32b5c36d15a132b1fe3e3925af8dd71bb667f03941217a8645f9.
+The earlier e24 binary was1534033e5fc19ccd48fa6cbdebe259e52fbee5d28b04a320e994c7a61078f650.
 
 Evidence root (external immutable artifacts):
 `/home/antst/grok-architecture-20260910/dev1-runtime-e24f9ca`.
@@ -32,6 +36,40 @@ relative archaeology references in the copied contract refer to that packet.
 | Cleanup | P1/P2 interactive/resume/fork records: all identified processes absent after only dedicated dead-pane removal; no missing native exit codes invented. P2 completion-supplement closes C scope: seven PIDs and native leader socket absent later; fixture socket unlink separate. P3 records remaining lane/shared-native cleanup and controller exit. |
 | Shared-engine Claude regression | P3 shared-smoke: same-e24 archive/member/installed hash binding, native2.1.267 actual public list toolu_014NmjwBDkzxjA5kSF4jgvkf and matched result with actual Claude/Codex IDs, exact GROK_SHARED_CLAUDE_OK. Native ToolSearch discovery is separate. Ordinary zero-model native startup has no direct Sessionbus MCP in captured process set; versions pass. |
 | Shared-engine Codex regression | P3 shared-smoke: same-e24 binary/archive binding, native0.153.4 startup/name and catalog sessionbus connected1; ordinary catalog only codex_apps. The single model request hit native account quota, so no new public-tool/result PASS. Refusal preserved; no reset/purchase/account/model substitution. Earlier installed Codex public-tool acceptance at docs/designs/codex-0.5.0 remains historical; exact-e24 controlled engine/Codex regressions pass separately. |
+
+## Completed-run correction on the same installation
+
+The Linux PR16 failure at76e5877 exposed a real race: asynchronous cleanup
+could leave an already-completed Run installed until after the next callback.
+Correction3e035e8 removes the cleanup goroutine. Run admission and Deliver
+classification clear only a prior token whose shared Done is already closed,
+under the owner mutex. Live native continuation still holds the original Run.
+A single retained completed token is bounded memory ownership, not storage.
+
+`/home/antst/grok-architecture-20260910/dev1-runtime-3e035e8/installed`
+contains the74-entry correction seal. Default-stage lane01a08a68-cafb-7ad1-b9a1-f178485db478
+completed run-agciyr5jqgo7/1, accepted a queued message after completion, then
+completed /2 with its exact marker. The marker is absent from the intervening
+native history snapshot and from the second explicit prompt. Wake lane
+01a08a68-e55b-7e93-91bd-84d4acf81c77 completed successive injected seeds
+run-fr5769zx5jaz/1 and /2. Actual native assistant replies match all four public
+results; each cursor is read again before ack. Both closes succeed, ten
+identified PIDs are absent afterward, then both leader sockets and the distinct
+controller are absent. No individual exit status or pre-close-result cleanup
+ordering is inferred.
+
+The unchanged oversized-stage sequence failed four of thirty executions before
+the source correction and passes thirty after it. A separately labelled
+controlled old schedule holds the old asynchronous cleanup unscheduled; the
+actual Worker direct/stage/seed regression fails all three there and passes on
+the correction. Existing held-continuation tests keep a live Done busy.
+
+The next macOS CI failure at3e035e8 was a test ordering assumption: the shared
+MCP budget could stop all responses before any physical Write, while the test
+awaited first Write. Test-only2304783 establishes that blocked Write before
+submitting the remaining31 requests. Limits, timeouts and production code are
+unchanged. The original failure is retained; thirty Linux passes alone are not
+a reproduction. Final macOS CI remains a required gate.
 
 ## Controlled correctness and remaining limits
 

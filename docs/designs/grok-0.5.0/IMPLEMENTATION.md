@@ -1,6 +1,7 @@
 # Grok implementation inventory
 
-Baseline eb727701; runtime/package checkpoint e24f9ca. The accepted native
+Baseline eb727701; original runtime/package checkpoint e24f9ca, corrected
+installed runtime3e035e8. The accepted native
 facts remain in the historical product ledger and external archaeology packet.
 CONTRACT plus the three amendments select the new behavior. They are copied
 unchanged; later evidence qualifies installed claims without rewriting history.
@@ -22,6 +23,9 @@ native leader/primary/observer and one Go MCP forwarder. Other native-config
 MCPs are visible in process captures but are not this package's dependencies.
 Ordinary native Grok starts the inert Go helper because global registration is
 the available native leader route; it creates no Sessionbus owner or observer.
+
+Completed Run ownership is checked synchronously at the next Run or Deliver
+admission using shared Done; no asynchronous retirement race or new storage.
 
 Stage retains at most64 never-submitted messages/1MiB, in worker memory only.
 ACP frames/output are bounded1MiB, pending correlations and continuation
