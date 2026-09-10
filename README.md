@@ -5,6 +5,17 @@ skills, installers, and product facts. The daemon and public SDKs live in
 [`antst/sessionbus`](https://github.com/antst/sessionbus); this repository uses
 the public Go SDK and the pinned public JavaScript kit.
 
+`list` reports the bound originating caller in `self_info` alongside the visible
+`sessions`. Compare its `session_id` with row IDs to recognize self; a filter or
+remote host query does not change the caller identity. Older daemons may omit
+this field, which must not be guessed from names or row order.
+
+When updating an existing installation for `self_info`, update every product
+peer first and restart managed sessions so their helpers load the updated SDK.
+Then update the host daemon. Older SDKs reject the new response field; updated
+SDKs also accept older daemon responses. Coordinate federated host upgrades as
+well, since daemons validate forwarded responses with their embedded SDK.
+
 ## Install a product from a binary release
 
 Install the [Sessionbus host](https://github.com/antst/sessionbus/tree/develop#install-binaries)

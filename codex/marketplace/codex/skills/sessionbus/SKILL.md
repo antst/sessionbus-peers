@@ -5,6 +5,14 @@ description: Discover and message Sessionbus peers, and create, run, collect, cl
 
 # Sessionbus
 
+`list` returns `self_info` for the identity bound to this caller: `session_id`,
+optional `name`, `product`, and `groups`. Compare `self_info.session_id` with
+row IDs to recognize yourself; unfiltered lists include self. Filters can omit
+your row, and queries to another host still report your originating identity.
+This identifies the integration's bound caller, not necessarily the currently
+displayed native session after an unsupported switch. If an older daemon omits
+`self_info`, do not infer it from names, row order, or message text.
+
 Use the installed native `mcp__sessionbus__sessionbus` tool with `{action, arguments}`.
 The tool's action enum and field guidance come from the public Sessionbus kit.
 Use `describe` to check a selected product's supported open fields. Use `list`

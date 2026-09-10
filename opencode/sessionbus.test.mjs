@@ -69,7 +69,7 @@ const context = { sessionID: "ses_exact", messageID: "msg_tool", abort: new Abor
 
 test("extracted package imports its exact kit dependency", async () => {
   const manifest = JSON.parse(await readFile(new URL("./package.json", import.meta.url), "utf8"));
-  assert.equal(manifest.dependencies["@sessionbus/kit"], "0.1.0-pre.2");
+  assert.equal(manifest.dependencies["@sessionbus/kit"], "https://pkg.pr.new/@sessionbus/kit@8cc6a59");
   const module = await import("./sessionbus.mjs");
   assert.equal(typeof module.createPlugin, "function");
 });
@@ -82,6 +82,14 @@ test("lane plugin is presence-inert and sends one stateless action", async () =>
   assert.deepEqual(hooks.tool.sessionbus.args.action.values, ACTIONS);
   assert.deepEqual(JSON.parse(await hooks.tool.sessionbus.execute({ action: "list", arguments: {} }, context)), { sessions: [] });
   assert.deepEqual(calls[0].slice(0, 3), ["/tmp/lane.sock", "list", {}]);
+});
+
+test("native tool preserves daemon self_info independently of listed rows", async () => {
+  const module = await load({ environment: { SESSIONBUS_LANE_SOCKET: "/tmp/lane.sock", SESSIONBUS_GROUPS: "[]" } });
+  const result = { sessions: [], self_info: { session_id: "lane@alpha", product: "opencode-peer", groups: ["team"] } };
+  const plugin = module.createPlugin({ tool: fakeTool, connectPeer() { throw new Error("lane created a peer"); }, privateAction: async () => result, onExit() {} });
+  const hooks = await plugin({ client: {}, directory: "/work" });
+  assert.deepEqual(JSON.parse(await hooks.tool.sessionbus.execute({ action: "list", arguments: { host: "beta" } }, context)), result);
 });
 
 test("plugin stays discovery-safe without a Sessionbus connection environment", async () => {

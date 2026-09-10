@@ -12,7 +12,7 @@ import (
 
 const toolDescription = `Call Sessionbus using the current Sessionbus identity. Written means local write completion only.
 Arguments by action (wire validation remains in the public kit):
-list: {} or {session_id:string} or {host:string}; session_id and host are exclusive.
+list: {} or {session_id:string} or {host:string}; session_id and host are exclusive. Returns self_info {session_id,name?,product,groups} for the bound originating caller, independent of filters or queried host. Compare row IDs to self_info.session_id; never infer self from names or order. Older daemons may omit self_info.
 send: {message:nonempty string, target:string} or {message, targets:unique nonempty string[]} or {message, group:string, host?:string}; choose exactly one addressing form; host applies only to group. Use returned session IDs or unambiguous names.
 describe: {product:string, host?:string}; returns supported open fields and native extra arguments.
 spawn fresh: {product:string, name:string, open:object, host?:string, extra_groups?:unique string[], persistent?:boolean, auto_close_ms?:nonnegative integer, idle_message?:"stage"|"run", notify?:boolean, notify_target?:string}. open accepts cwd, permission_mode, model, reasoning_effort (strings), arguments (string[]); use describe to check product support. spawn resume: {resume_session_id:string, persistent?:boolean, auto_close_ms?:nonnegative integer, idle_message?:"stage"|"run", notify?:boolean, notify_target?:string}. Choose a product using describe (for example "claude-peer" or "codex-peer"); use returned session_id, never a shell substitute.

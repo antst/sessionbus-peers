@@ -185,7 +185,7 @@ export function createPlugin(dependencies = {}) {
       },
       tool: {
         sessionbus: defineTool({
-          description: "List and message sessionbus peers or control product lanes.",
+          description: "List and message sessionbus peers or control product lanes. List returns self_info for the bound originating caller even when filters exclude its row; identify self by self_info.session_id, never names or list order. Older daemons may omit self_info.",
           args: {
             action: defineTool.schema.enum(ACTIONS),
             arguments: defineTool.schema.record(defineTool.schema.string(), defineTool.schema.any()).default({}),
