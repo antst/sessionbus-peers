@@ -5,6 +5,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net"
 	"path/filepath"
@@ -23,7 +24,7 @@ type continuationHarness struct {
 	primaryWrite, observerWrite *json.Encoder
 }
 
-func newContinuationHarness(t *testing.T) *continuationHarness {
+func newContinuationHarness(t *testing.T, configure ...func(*grokSeedProduct)) *continuationHarness {
 	t.Helper()
 	path := filepath.Join(testsocket.Directory(t), "bus")
 	l, e := net.Listen("unix", path)
@@ -38,6 +39,9 @@ func newContinuationHarness(t *testing.T) *continuationHarness {
 	p.primary = newACPClient(rw, sr, p.receive)
 	p.observer = newACPClient(ow, osr, nil)
 	product := &grokSeedProduct{Wrapper: p, returned: make(chan error, 8)}
+	for _, apply := range configure {
+		apply(product)
+	}
 	worker := kit.NewWorker(product)
 	p.SetCaller(worker.Caller())
 	served := make(chan error, 1)
@@ -186,18 +190,28 @@ func TestInterjectCancellationPreservesAttemptedNativeAccounting(t *testing.T) {
 			original := h.start(t, 2, "g/1", "owned-first")
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
-			returned := make(chan error, 1)
+			type deliveryResult struct {
+				receipt kit.DeliveryReceipt
+				err     error
+			}
+			returned := make(chan deliveryResult, 1)
 			if !submitted {
 				cancel()
 			}
-			go func() { _, e := h.p.Deliver(ctx, delivery("cancel-marker"), nil); returned <- e }()
+			go func() { r, e := h.p.Deliver(ctx, delivery("cancel-marker"), nil); returned <- deliveryResult{r, e} }()
 			var interject acpFrame
 			if submitted {
 				interject = readACP(t, h.observerRead)
 				cancel()
 			}
-			if e := <-returned; e == nil {
-				t.Fatal("cancelled caller returned success before native admission")
+			result := <-returned
+			// Before submission, a still-unavailable local native owner can reject
+			// explicitly; a nil Go error alone is not an admission receipt.
+			if result.err != nil && !errors.Is(result.err, context.Canceled) {
+				t.Fatalf("unexpected cancellation error: %v", result.err)
+			}
+			if result.err == nil && (submitted || result.receipt.Disposition != "rejected" || result.receipt.Reason != "native_turn_unavailable") {
+				t.Fatalf("cancelled caller admitted before native acknowledgement: %+v", result)
 			}
 			h.answer(t, "p-g/1", "first")
 			h.terminal(t, "p-g/1", "end_turn")

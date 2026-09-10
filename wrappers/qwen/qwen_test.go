@@ -15,7 +15,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
-	"runtime"
 	"strings"
 	"testing"
 
@@ -87,6 +86,36 @@ func fakeChild() {
 }
 
 func TestAbnormalRunCarriesNothingIntoReopen(t *testing.T) {
+	testAbnormalRunRetirement(t, false)
+}
+
+func TestAbnormalExitRetiresRunBeforeShutdownWithBackgroundHeld(t *testing.T) {
+	testAbnormalRunRetirement(t, true)
+}
+
+// Isolate the watcher from the independent cleanup goroutine's scheduling.
+// This preserves native execution and SDK Run.Done, but holds background
+// retirement until after the shutdown/Closed assertions.
+type heldRetirementProduct struct {
+	*Wrapper
+	release chan struct{}
+	retired chan struct{}
+}
+
+func (p *heldRetirementProduct) Run(ctx context.Context, run *sessionkit.Run, seed sessionkit.RunInput) (sessionkit.TurnResult, error) {
+	p.mu.Lock()
+	p.run = run
+	p.mu.Unlock()
+	go func() {
+		defer close(p.retired)
+		<-p.release
+		p.retireRun(run)
+	}()
+	return p.handoff.Run(ctx, run, *seed.Text, p.start)
+}
+
+func testAbnormalRunRetirement(t *testing.T, holdBackground bool) {
+	t.Helper()
 	t.Setenv("QWEN_TEST_CHILD", "1")
 	t.Setenv("QWEN_TEST_DIE_PROMPT", "1")
 	t.Setenv("QWEN_TEST_RECORD", filepath.Join(t.TempDir(), "child.json"))
@@ -99,8 +128,21 @@ func TestAbnormalRunCarriesNothingIntoReopen(t *testing.T) {
 	t.Setenv(host.SocketEnv, socket)
 	p := New(socket)
 	p.SetCall(func(context.Context, string, any) (json.RawMessage, error) { return json.RawMessage(`{}`), nil })
-	worker := sessionkit.NewWorker(p)
-	p.SetShutdown(worker.Shutdown)
+	var product sessionkit.WorkerCallbacks = p
+	if holdBackground {
+		held := &heldRetirementProduct{Wrapper: p, release: make(chan struct{}), retired: make(chan struct{})}
+		product = held
+		t.Cleanup(func() { close(held.release); <-held.retired })
+	}
+	worker := sessionkit.NewWorker(product)
+	shutdownRun := make(chan *sessionkit.Run, 1)
+	p.SetShutdown(func() {
+		p.mu.Lock()
+		carried := p.run
+		p.mu.Unlock()
+		shutdownRun <- carried
+		worker.Shutdown()
+	})
 	served := make(chan error, 1)
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() { served <- worker.Serve(ctx) }()
@@ -140,14 +182,8 @@ func TestAbnormalRunCarriesNothingIntoReopen(t *testing.T) {
 		t.Fatal(err)
 	}
 	<-worker.Closed()
-	for range 1000 {
-		p.mu.Lock()
-		carried := p.run
-		p.mu.Unlock()
-		if carried == nil {
-			break
-		}
-		runtime.Gosched()
+	if carried := <-shutdownRun; carried != nil {
+		t.Fatalf("completed Run survived until Shutdown: %p", carried)
 	}
 	p.mu.Lock()
 	carried := p.run

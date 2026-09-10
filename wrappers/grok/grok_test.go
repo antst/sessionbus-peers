@@ -144,6 +144,9 @@ func fakeGrok() {
 			if method == "session/load" {
 				session = first(os.Getenv("GROK_TEST_LOAD_ID"), session)
 				reply(map[string]any{"jsonrpc": "2.0", "id": id, "result": map[string]any{"models": map[string]any{}, "_meta": map[string]any{"sessionId": session, "x.ai/sessionDetail": map[string]string{"sessionId": session}}}})
+				if path := os.Getenv("GROK_TEST_LOAD_EXIT_BLOCK"); path != "" {
+					<-fileReady(path)
+				}
 			} else {
 				reply(map[string]any{"jsonrpc": "2.0", "id": id, "result": map[string]any{"sessionId": session, "models": map[string]any{}}})
 			}
@@ -340,6 +343,11 @@ func TestInterruptAndResume(t *testing.T) {
 
 func TestResumeIdentityFailureRepliesBeforeCleanup(t *testing.T) {
 	root := testsocket.Directory(t)
+	// Closing ACP input may otherwise let the fake child exit successfully
+	// before Kill. Force a real cleanup error for the diagnostic assertion.
+	exitGate := filepath.Join(root, "release-load-exit")
+	t.Setenv("GROK_TEST_LOAD_EXIT_BLOCK", exitGate)
+	t.Cleanup(func() { _ = os.WriteFile(exitGate, nil, 0o600) })
 	t.Setenv("GROK_TEST_RECORD", filepath.Join(root, "record"))
 	t.Setenv("GROK_TEST_LOAD_ID", "different-product-id")
 	socket := filepath.Join(root, "sessionbus.sock")
@@ -353,6 +361,11 @@ func TestResumeIdentityFailureRepliesBeforeCleanup(t *testing.T) {
 	go func() { _ = worker.Serve(context.Background()) }()
 	connection, err := listener.Accept()
 	must(t, err)
+	t.Cleanup(func() {
+		_ = connection.Close()
+		<-worker.Closed()
+		_ = listener.Close()
+	})
 	reader := &workerReader{connection: connection, requestIDs: map[int]int{}, ready: map[string]map[string]any{}, reader: bufio.NewReader(connection), pending: map[int]workerResponse{}}
 	readLine(t, reader.reader)
 	_, err = connection.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":{}}` + "\n"))

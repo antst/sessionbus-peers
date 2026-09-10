@@ -347,7 +347,7 @@ func (p *Wrapper) watch(child *host.Child, drained <-chan struct{}) {
 	p.mu.Unlock()
 	if opened && !closing {
 		if run != nil {
-			<-run.Done()
+			p.retireRun(run)
 		}
 		if p.shutdown != nil {
 			p.shutdown()
