@@ -245,6 +245,21 @@ func TestInterjectCancellationPreservesAttemptedNativeAccounting(t *testing.T) {
 	}
 }
 
+// Done is first consulted after Deliver selects the active path, at the
+// deliveryGate select. Observe that boundary before ending the native turn.
+type deliveryGateObservedContext struct {
+	context.Context
+	entered chan struct{}
+}
+
+func (c deliveryGateObservedContext) Done() <-chan struct{} {
+	select {
+	case c.entered <- struct{}{}:
+	default:
+	}
+	return c.Context.Done()
+}
+
 func TestWaitingInterjectCannotWakeRetiredRun(t *testing.T) {
 	h := newContinuationHarness(t)
 	original := h.start(t, 2, "g/1", "owned-first")
@@ -253,12 +268,19 @@ func TestWaitingInterjectCannotWakeRetiredRun(t *testing.T) {
 	gate := h.p.deliveryGate
 	h.p.mu.Unlock()
 	returned := make(chan kit.DeliveryReceipt, 1)
-	go func() { r, _ := h.p.Deliver(context.Background(), delivery("not-submitted"), nil); returned <- r }()
+	ctx := deliveryGateObservedContext{Context: context.Background(), entered: make(chan struct{}, 1)}
+	go func() { r, _ := h.p.Deliver(ctx, delivery("not-submitted"), nil); returned <- r }()
+	select {
+	case <-ctx.entered:
+	case receipt := <-returned:
+		t.Fatalf("delivery did not enter the active gate: %+v", receipt)
+	}
 	h.terminal(t, "p-g/1", "end_turn")
 	replyACP(t, h.primaryWrite, original, map[string]any{"stopReason": "end_turn", "_meta": map[string]string{"promptId": "p-g/1"}})
 	readWorkerReadyID(t, h.bus, "g/1")
 	gate <- struct{}{}
-	check(t, (<-returned).Disposition == "rejected", "retired run was woken")
+	receipt := <-returned
+	check(t, receipt.Disposition == "rejected", "retired run was woken: %+v", receipt)
 	barrier := make(chan error, 1)
 	go func() { barrier <- h.p.observer.request(context.Background(), "barrier", nil, nil) }()
 	f := readACP(t, h.observerRead)
