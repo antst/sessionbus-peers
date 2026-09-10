@@ -258,11 +258,11 @@ func (p *Wrapper) receive(method string, raw json.RawMessage) {
 	var n struct {
 		SessionID string `json:"sessionId"`
 		Update    struct {
-			Kind    string                      `json:"sessionUpdate"`
-			Content struct{ Type, Text string } `json:"content"`
+			Kind    string          `json:"sessionUpdate"`
+			Content json.RawMessage `json:"content"`
 		} `json:"update"`
 	}
-	if json.Unmarshal(raw, &n) != nil {
+	if json.Unmarshal(raw, &n) != nil || n.SessionID == "" || n.Update.Kind == "" {
 		p.lost(errors.New("malformed Qwen session update"))
 		return
 	}
@@ -272,17 +272,28 @@ func (p *Wrapper) receive(method string, raw json.RawMessage) {
 		p.mu.Unlock()
 		return
 	}
-	if n.Update.Content.Type != "" && n.Update.Content.Type != "text" {
+	// Tool-call updates carry arrays; only an owned answer chunk has the
+	// ContentBlock shape consumed here. Other variants are native UI events.
+	var content struct {
+		Type string  `json:"type"`
+		Text *string `json:"text"`
+	}
+	if json.Unmarshal(n.Update.Content, &content) != nil || content.Type == "" || (content.Type == "text" && content.Text == nil) {
+		p.mu.Unlock()
+		p.lost(errors.New("malformed Qwen agent message content"))
+		return
+	}
+	if content.Type != "text" {
 		p.mu.Unlock()
 		return
 	}
-	if len(n.Update.Content.Text) > maxACPFrame-t.output.Len() {
+	if len(*content.Text) > maxACPFrame-t.output.Len() {
 		t.failure = fmt.Errorf("Qwen output exceeds %d byte bound", maxACPFrame)
 		err := t.failure
 		p.mu.Unlock()
 		p.lost(err)
 		return
 	}
-	t.output.WriteString(n.Update.Content.Text)
+	t.output.WriteString(*content.Text)
 	p.mu.Unlock()
 }
