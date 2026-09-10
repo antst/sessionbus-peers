@@ -34,7 +34,7 @@
     "@opencode-ai/sdk": "1.18.29"
   },
   "dependencies": {
-    "@sessionbus/kit": "0.1.0-pre.2",
+    "@sessionbus/kit": "https://pkg.pr.new/@sessionbus/kit@8cc6a59",
     "jsonc-parser": "3.3.1"
   }
 }

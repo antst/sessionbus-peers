@@ -5,6 +5,14 @@ description: Discover and message Sessionbus peers, and create, run, collect, cl
 
 # Sessionbus
 
+`list` returns `self_info` for the identity bound to this caller: `session_id`,
+optional `name`, `product`, and `groups`. Compare `self_info.session_id` with
+row IDs to recognize yourself; unfiltered lists include self. Filters can omit
+your row, and queries to another host still report your originating identity.
+This identifies the integration's bound caller, not necessarily the currently
+displayed native session after an unsupported switch. If an older daemon omits
+`self_info`, do not infer it from names, row order, or message text.
+
 The globally installed Grok plugin exposes this skill in ordinary Grok too.
 Sessionbus tools require an explicit managed `grok-peer` launch. Ordinary Grok
 starts an inert helper with no tools and no bus presence; do not try to enable
