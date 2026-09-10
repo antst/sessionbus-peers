@@ -204,18 +204,25 @@ func TestMCPReturnedPayloadBudgetStopsBlockedResponses(t *testing.T) {
 	observed := &observedMCPOutput{WriteCloser: out, entered: make(chan struct{})}
 	done := make(chan struct{})
 	go func() { defer close(done); _ = ServeSessionbus(owner, input, observed, ReportHandler{}) }()
+	request := func(id int) []byte {
+		body := boundsRequest("tools/call", map[string]any{"name": "sessionbus", "arguments": map[string]any{"action": "list", "arguments": map[string]any{}}})
+		return bytes.Replace(body, []byte(`"id":1`), []byte(`"id":`+jsonNumber(id)), 1)
+	}
+	if _, err := send.Write(request(1)); err != nil {
+		t.Fatal(err)
+	}
+	// Establish an actual blocked response before charging the remaining
+	// results. A burst can legitimately exhaust the budget before any Write.
+	awaitBounds(t, observed.entered)
 	sent := make(chan struct{})
 	go func() {
 		defer close(sent)
-		for i := range 32 {
-			body := boundsRequest("tools/call", map[string]any{"name": "sessionbus", "arguments": map[string]any{"action": "list", "arguments": map[string]any{}}})
-			body = bytes.Replace(body, []byte(`"id":1`), []byte(`"id":`+jsonNumber(i+1)), 1)
-			if _, err := send.Write(body); err != nil {
+		for id := 2; id <= 32; id++ {
+			if _, err := send.Write(request(id)); err != nil {
 				return
 			}
 		}
 	}()
-	awaitBounds(t, observed.entered)
 	awaitBounds(t, done)
 	awaitBounds(t, sent)
 }
