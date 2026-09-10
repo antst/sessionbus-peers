@@ -27,6 +27,9 @@ func main() {
 }
 
 func run(ctx context.Context, arguments []string) error {
+	if len(arguments) > 0 && arguments[0] == "--sessionbus-install" {
+		return opencode.InstallPlugin(arguments[1:])
+	}
 	if !host.LaneMode() {
 		plan, _, err := opencode.InteractivePlan(arguments, os.Environ())
 		if err != nil {
