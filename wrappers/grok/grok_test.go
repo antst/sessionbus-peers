@@ -406,7 +406,7 @@ func TestKitRunTokenCrossings(t *testing.T) {
 	check(t, readWorkerResponse(t, reader, 5).Result != nil, "close response absent")
 }
 
-func TestDeliveryDoesNotHoldRunHandoff(t *testing.T) {
+func TestActorAcknowledgedDeliveryNeverRequeuesAfterTerminal(t *testing.T) {
 	root, recordPath := testsocket.Directory(t), filepath.Join(t.TempDir(), "record")
 	interjectRelease := filepath.Join(root, "interject-release")
 	t.Setenv("GROK_TEST_RECORD", recordPath)
@@ -427,7 +427,16 @@ func TestDeliveryDoesNotHoldRunHandoff(t *testing.T) {
 	response := readWorkerResponse(t, reader, 3)
 	var receipt sessionkit.DeliveryReceipt
 	must(t, json.Unmarshal(response.Result, &receipt))
-	check(t, receipt.Disposition == "queued_for_next_turn", "stale native token reported %q", receipt.Disposition)
+	check(t, receipt.Disposition == "injected", "actor admission was downgraded to %q", receipt.Disposition)
+	writeWorkerRequest(t, reader, 6, "turn.execute", map[string]any{"session_id": testSessionID + "@local", "run_id": "g/2", "input": "next-explicit"})
+	check(t, readWorkerResponse(t, reader, 6).Error == nil, "following run refused")
+	check(t, readWorkerTerminal(t, reader, 6) != nil, "following terminal missing")
+	for _, frame := range records(t, recordPath) {
+		if strings.Contains(string(frame), "next-explicit") && strings.Contains(string(frame), "crossed delivery") {
+			t.Fatal("submitted delivery replayed into following run")
+		}
+	}
+
 	writeWorkerRequest(t, reader, 5, "session.close", map[string]string{"session_id": testSessionID + "@local"})
 	check(t, readWorkerResponse(t, reader, 5).Result != nil, "close response absent")
 }

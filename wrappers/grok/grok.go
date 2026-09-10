@@ -42,7 +42,8 @@ type Wrapper struct {
 	leader      *nativeProcess
 	watcher     *nativeProcess
 	sessionID   string
-	handoff     host.Handoff
+	staged      []string
+	stagedBytes int
 	run         *sessionkit.Run
 	active      *nativePrompt
 	answers     map[string]*strings.Builder
@@ -324,9 +325,27 @@ func (p *Wrapper) Run(ctx context.Context, run *sessionkit.Run, seed sessionkit.
 	primary, id := p.primary, p.sessionID
 	go p.retireRun(run)
 	p.mu.Unlock()
-	result, err := p.handoff.Run(ctx, run, input, func(ctx context.Context, prompt string) (host.Turn, error) {
-		return p.startPrompt(ctx, primary, id, prompt)
-	})
+
+	if run.Interrupted() {
+		return sessionkit.TurnResult{Outcome: "interrupted"}, nil
+	}
+	p.mu.Lock()
+	parts := append([]string(nil), p.staged...)
+	p.staged, p.stagedBytes = nil, 0
+	p.mu.Unlock()
+	if input != "" {
+		parts = append(parts, input)
+	}
+	// Claimed staged text is never restored after a native submission attempt.
+	turn, err := p.startPrompt(ctx, primary, id, strings.Join(parts, "\n"))
+	var result sessionkit.TurnResult
+	if err == nil {
+		if run.Interrupted() {
+			_ = turn.Interrupt(ctx)
+		}
+		result, err = turn.Wait(ctx)
+	}
+
 	p.mu.Lock()
 	p.answers = nil
 	p.mu.Unlock()
@@ -365,7 +384,14 @@ func (t *nativePrompt) Wait(ctx context.Context) (sessionkit.TurnResult, error) 
 	var err error
 	select {
 	case <-ctx.Done():
-		err = ctx.Err()
+		// A cancelled waiter must not inspect result while the RPC goroutine
+		// can still be decoding it. Drain ownership remains in ACP.
+		t.owner.mu.Lock()
+		if t.owner.active == t {
+			t.owner.active = nil
+		}
+		t.owner.mu.Unlock()
+		return sessionkit.TurnResult{}, ctx.Err()
 	case err = <-t.done:
 	}
 	answer := ""
@@ -392,7 +418,9 @@ func (t *nativePrompt) Wait(ctx context.Context) (sessionkit.TurnResult, error) 
 	return sessionkit.TurnResult{Outcome: outcome, Result: answer, NativeStopReason: t.result.StopReason}, nil
 }
 
-func (t *nativePrompt) Interrupt(context.Context) error { return t.client.cancel(t.sessionID) }
+func (t *nativePrompt) Interrupt(ctx context.Context) error {
+	return t.client.cancelContext(ctx, t.sessionID)
+}
 
 func (p *Wrapper) retireRun(run *sessionkit.Run) {
 	<-run.Done()
@@ -433,36 +461,52 @@ func (p *Wrapper) receive(frame acpFrame) {
 }
 
 func (p *Wrapper) Interrupt(ctx context.Context, run *sessionkit.Run) error {
-	return p.handoff.Interrupt(ctx, run)
-}
-
-func (p *Wrapper) Deliver(ctx context.Context, request sessionkit.DeliveryRequest, _ *sessionkit.Run) (sessionkit.DeliveryReceipt, error) {
-	return p.handoff.Deliver(ctx, request, func(ctx context.Context, message string) (host.Injection, error) {
-		injected, err := p.inject(ctx, request.MessageID, message)
-		if injected {
-			return host.Injected, err
-		}
-		return host.NotInjected, err
-	})
-}
-
-func (p *Wrapper) inject(ctx context.Context, messageID, message string) (bool, error) {
 	p.mu.Lock()
+	native := p.active
+	if p.run != run {
+		native = nil
+	}
+	p.mu.Unlock()
+	if native != nil {
+		return native.Interrupt(ctx)
+	}
+	return nil
+}
+func (p *Wrapper) Deliver(ctx context.Context, request sessionkit.DeliveryRequest, _ *sessionkit.Run) (sessionkit.DeliveryReceipt, error) {
+	message, err := host.RenderNativeMessage(request)
+	if err != nil {
+		return sessionkit.DeliveryReceipt{}, err
+	}
+	p.mu.Lock()
+	if p.closing || p.primary == nil {
+		p.mu.Unlock()
+		return sessionkit.DeliveryReceipt{Disposition: "rejected", Reason: "lane_unavailable"}, nil
+	}
+	if p.run == nil {
+		added := len(message)
+		if len(p.staged) > 0 {
+			added++
+		}
+		if len(p.staged) >= host.MaxQueuedDeliveries || p.stagedBytes+added > host.MaxQueuedBytes {
+			p.mu.Unlock()
+			return sessionkit.DeliveryReceipt{Disposition: "rejected", Reason: "queue_full"}, nil
+		}
+		p.staged = append(p.staged, message)
+		p.stagedBytes += added
+		p.mu.Unlock()
+		return sessionkit.DeliveryReceipt{Disposition: "queued_for_next_turn"}, nil
+	}
 	observer, id, native := p.observer, p.sessionID, p.active
 	p.mu.Unlock()
-	if native == nil {
-		return false, nil
+	if observer == nil || native == nil {
+		return sessionkit.DeliveryReceipt{Disposition: "rejected", Reason: "native_turn_unavailable"}, nil
 	}
-	if observer == nil {
-		return false, errors.New("Grok observer is unavailable")
+	if err := observer.interject(ctx, id, request.MessageID, message); err != nil {
+		return sessionkit.DeliveryReceipt{}, fmt.Errorf("Grok interject: %w", err)
 	}
-	if err := observer.interject(ctx, id, messageID, message); err != nil {
-		return false, fmt.Errorf("Grok interject: %w", err)
-	}
-	p.mu.Lock()
-	active := p.active == native
-	p.mu.Unlock()
-	return active, nil
+	// Actor acknowledgement is admission even when the original prompt terminal
+	// crossed it. Never put a submitted message into the unsent FIFO.
+	return sessionkit.DeliveryReceipt{Disposition: "injected"}, nil
 }
 
 func (p *Wrapper) Close(ctx context.Context, _ sessionkit.SessionCloseRequest) error {
