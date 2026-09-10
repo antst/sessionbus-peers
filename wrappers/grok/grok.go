@@ -439,6 +439,9 @@ func (p *Wrapper) executeRun(ctx context.Context, run *sessionkit.Run, seed sess
 		result, err = turn.Wait(ctx)
 	}
 
+	if err != nil && turn != nil {
+		turn.failOwned(err)
+	}
 	p.mu.Lock()
 	p.answers = nil
 	if p.active == turn {

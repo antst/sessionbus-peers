@@ -312,3 +312,28 @@ func (p *Wrapper) pendingFailure(err error) {
 		}
 	})
 }
+
+// Errors may end the shared callback only after outstanding native ownership
+// has ended or been aborted. A definite refused prompt needs no forced abort.
+func (t *nativePrompt) failOwned(err error) {
+	p := t.owner
+	p.mu.Lock()
+	unsettled := t.delivery != nil || t.failure != nil
+	for _, s := range t.segments {
+		unsettled = unsettled || !s.terminal
+	}
+	if len(t.segments) == 0 && t.attempted {
+		known := false
+		select {
+		case <-t.done:
+			var refused *acpError
+			known = errors.As(t.err, &refused) || t.err == nil && t.result.Meta.PromptID != ""
+		default:
+		}
+		unsettled = unsettled || !known
+	}
+	p.mu.Unlock()
+	if unsettled {
+		t.abortAccounting(err)
+	}
+}
