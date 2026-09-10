@@ -83,7 +83,7 @@ if len(sys.argv) > 2:
     result['real_installed_inventory'] = {
         'record': str(installed),
         'sha256': hashlib.sha256(installed.read_bytes()).hexdigest(),
-        'scope': 'Actual permanent Qwen package plus native extension copy at installed68; symlink targets counted once, native extension metadata included. Final README documentation delta is separate; runtime and active skill stay identical.',
+        'scope': 'Actual permanent Qwen package plus native extension copy at installed68; symlink targets counted once, native extension metadata included. Historical installed68 inventory; final source additionally changes explicit FIFO poll registration. Active skill, lane runtime, scripts and pins stay identical; final archive is measured separately.',
         'entries': len(files),
         'regular_bytes_excluding_symlink_targets': sum(r['bytes'] for r in files if not r['symlink']),
         'members': files,

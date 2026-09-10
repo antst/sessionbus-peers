@@ -1,7 +1,7 @@
 # Qwen installed acceptance, 2026-09-10
 
 One real permanent umka installation and real home/config/login/service.
-Current installed combined source 68e04075155a0072c6121a84a4a4f5bbc5d4e175;
+Installed native acceptance source 68e04075155a0072c6121a84a4a4f5bbc5d4e175;
 binary 9b05b0fc64850086f605d97011451311bc3927c940df69939fe6652dce57428c,
 3,891,362 bytes. Earlier b047 lane binary 8b740be8... is separate evidence,
 not a protected installation. [EVIDENCE.json](EVIDENCE.json) binds all seals.
@@ -61,3 +61,18 @@ quit/updater relaunch and the harness Python module-name collision are preserved
 separately from product successes. Native-owned history/background behavior does
 not constitute wrapper persistence. No current Codex/Claude implementation or
 shared MCP engine change is included in this Qwen unit.
+
+Post-install macOS CI at986b674 found a real portability defect: os.OpenFile
+left the FIFO outside Go's Darwin poller, so the retained pollability check
+rejected startup. Correction974a01c explicitly registers the same owned RDWR
+nonblocking FIFO and preserves bounded draining and close/join. The data test
+also crosses an external writer gap. Linux controlled package tests pass;
+actual macOS CI remains the execution gate. The installed68 native rows above
+are not relabeled as tests of that later source. No native behavior or policy
+campaign is repeated for this correction.
+
+The same CI exposed an independent failed-resume fixture race: fake-child EOF
+could exit successfully before Kill, while the test demanded a kill diagnostic.
+The test-only cff6d62 gate forces the intended nonzero reap and retains the
+identity/error assertions. Its discarded-cleanup-error negative control fails.
+The earlier raw CI failure remains in the indexed correction packets.

@@ -90,7 +90,10 @@ retained payload 32 MiB and encoded result 8 MiB.
 Interactive caller/combined MCP config is at most 64 KiB UTF-8. Native event or
 history records and each submitted input record are at most 8 MiB; incoming
 bus handler work 32, watched paths 8. FIFO has one joined reader: initial identity
-then output drain/discard, no duplicate answer file. The native output bridge's
+then output drain/discard, no duplicate answer file. Its RDWR/nonblocking
+descriptor is explicitly registered with Go through NewFile, because Darwin
+OpenFile excludes FIFOs from its poller. The held writer prevents dependence
+on external writer EOF; process watches and owned Close govern lifetime. The native output bridge's
 own 1 MiB buffered-stream self-disable is not a wrapper bound.
 
 The native input file is append-only for the live launch, with no aggregate
