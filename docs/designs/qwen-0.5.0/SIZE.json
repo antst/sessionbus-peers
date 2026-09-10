@@ -1,5 +1,5 @@
 {
-  "measured_source_commit": "44b4eca1449d05c8236b0142b035e6f45ce24082",
+  "measured_source_commit": "1e3d23448f314e9d045cbffcdb462edfde9a40e7",
   "installed_runtime_commit": "68e04075155a0072c6121a84a4a4f5bbc5d4e175",
   "scope": "Whole checkout includes retained source, tests, docs and old installers. SIZE.json has a separate self-size, no impossible self-hash. Dependency source is the non-stdlib files selected by Linux go list, not installed module trees. All stdlib/runtime cost is included in linked binary.",
   "archive": {
@@ -777,8 +777,8 @@
   },
   "whole_checkout_excluding_this_measurement": {
     "files": 306,
-    "bytes": 2135996,
-    "lines": 49499,
+    "bytes": 2136620,
+    "lines": 49521,
     "members": [
       {
         "path": ".forgejo/workflows/ci.yml",
@@ -2114,9 +2114,9 @@
       },
       {
         "path": "wrappers/grok/continuation_test.go",
-        "bytes": 15155,
-        "lines": 337,
-        "sha256": "2f613c84de0ad996ceab457d747dd0d27d28caf61d0cbf8e2613f08d9f2a175e"
+        "bytes": 15779,
+        "lines": 359,
+        "sha256": "3267ab872a0f1ba4c27c8eb04704c19359b709e46f49ced7bb9d524566acf006"
       },
       {
         "path": "wrappers/grok/grok.go",
@@ -2620,8 +2620,8 @@
   },
   "whole_checkout_including_this_measurement": {
     "files": 307,
-    "bytes": 2228717,
-    "lines": 52257,
+    "bytes": 2229341,
+    "lines": 52279,
     "measurement_bytes": 92721
   },
   "real_installed_inventory": {
