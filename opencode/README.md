@@ -22,7 +22,8 @@ The plugin registers the `sessionbus` tool and uses OpenCode's v2 session API
 for native delivery. OpenCode must run without `--pure`, which disables external
 plugins.
 
-The package pins `@sessionbus/kit` `0.1.0-pre.2`. The initial split publishes
+The package pins an immutable `@sessionbus/kit` commit preview in
+`package.json` and `package-lock.json`. The initial split publishes
 this OpenCode package only through pkg.pr.new previews; it does not claim a
 stable `@sessionbus/opencode` registry release. A first registry version must
 be published manually before trusted publishing can be configured.
