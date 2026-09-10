@@ -6,6 +6,20 @@
 > commit recorded by the split archive manifest. Host evidence paths are
 > immutable external artifacts, not repository paths.
 
+## Current Go integration (2026-09-10)
+
+The rewrite starts at peers eb727701 and retains the native evidence below as historical knowledge. Current implementation and installation are described in [Grok README](../../grok/README.md) and the [implementation contract](../designs/grok-0.5.0/CONTRACT.md), with activation, naming and delivery amendments alongside it. The installed composition uses native Grok 1.0.25 and the real permanent umka installation.
+
+Current behavior supersedes historical wrapper choices below: no generated native IDs or native selector resolver; repeated mixed -g/--group before --; no session lock, reconnect loop, default MCP permission grant or forced autoMode; native titles including empty names update the same owner connection. The private MCP alias shares one Go binary with launcher and lane, and only the generic Sessionbus skill is installed. Ordinary Grok still discovers that global plugin and starts its inert, zero-tool helper because native leader mode rejects per-launch plugin-dir.
+
+The shared Worker owns message-seeded runs and nonconsuming result cursors with explicit ack. Persistence means owner-exit lifetime, not durable storage. Grok stage keeps only never-submitted messages in bounded worker memory. Attempted deliveries never replay; actor admission stays injected across a native terminal. A product-created continuation remains in the original shared Run until its matched native completion, with bounded aggregate output. No wrapper database, result journal or restart recovery exists.
+
+Installed evidence scope and remaining limits are mapped in [acceptance](../designs/grok-0.5.0/ACCEPTANCE.md). The retained earlier isolated-home/daemon experiments are historical evidence, not the current installation or acceptance recipe. Current changes do not require repeating already sealed native discoveries.
+
+## Historical native captures and earlier wrapper behavior
+
+All entries below retain their original versions and evidence. Unqualified source paths and descriptions of old generated IDs, permission grants, locks, lazy observers, durable rows, reconnect and consumed t-1 handles describe the earlier implementation; they are not current requirements. In particular, old picker/restricted-resume wording does not override native selector behavior.
+
 - verified: Grok Build 1.0.13 (`5e9a58528b76`, stable) was installed at `/home/antst/.local/bin/grok` on `umka-dev1`. source: `/home/antst/agentbus-evidence/grok-20260906T072333Z/P0-version-help.txt`
 - verified: Grok Build 1.0.13 — Grok's product interface is ACP over stdio; `grok agent stdio` and `grok agent leader` are native commands, and Grok is an MCP client rather than an MCP server. source: `/home/antst/agentbus-evidence/grok-20260906T072333Z/P0-version-help.txt`
 - verified: Grok Build 1.0.13 — ACP initialization uses protocol version 1 and advertises `cached_token`; unattended authentication is `authenticate {methodId:"cached_token",_meta:{headless:true}}`. source: `/home/antst/agentbus-evidence/grok-20260906T072333Z/P1-P7-acp-raw-v3.txt`

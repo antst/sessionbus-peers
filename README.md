@@ -42,7 +42,7 @@ Missing releases/checksum failures stop before installation. Inspect the
 downloaded shell script first if preferred. Rerun to update that product.
 Native login, permissions and history stay native. These installers package
 the current adapters; the per-product facts still define their accepted scope
-(including the retained Grok/Qwen/OpenCode limitations).
+(including the documented activation and lifecycle limits).
 
 Maintainers build Claude/Codex using `scripts/package-claude` and
 `scripts/package-codex`. For other products use
@@ -69,11 +69,11 @@ instead.
 Install the product peers from this repository:
 
 ```sh
-git clone https://github.com/antst/sessionbus-peers.git && cd sessionbus-peers && go test -race ./... && GOBIN="$HOME/.local/bin" go install ./cmd/grok-peer ./cmd/qwen-peer ./cmd/opencode-peer
+git clone https://github.com/antst/sessionbus-peers.git && cd sessionbus-peers && go test -race ./... && GOBIN="$HOME/.local/bin" go install ./cmd/qwen-peer ./cmd/opencode-peer
 ```
 
-That command installs `grok-peer`, `qwen-peer` and `opencode-peer` in
-`~/.local/bin`. Claude and Codex use their bundled archive recipes below so
+That command installs `qwen-peer` and `opencode-peer` in
+`~/.local/bin`. Claude, Codex and Grok use their bundled archive recipes below so
 each launcher and native plugin share one installation.
 
 Claude's candidate is one Go binary with its bundled native plugin
@@ -93,7 +93,11 @@ Node implementation and regressions remain a behavioral reference under
 interactive broker, lane worker and private MCP entry. Native plugin
 registration is disabled for ordinary Codex and activated per managed launch.
 The earlier `scripts/codex-mcp` hookup is retained historical source and is not
-the current installation route. Grok's native entry defaults to `$HOME/.local/bin/grok-peer`;
+the current installation route. Grok uses `scripts/package-product grok ./dist`
+and the archive installer in [`grok/README.md`](grok/README.md). Its private
+`grok-peer-mcp` alias shares the permanent binary with interactive and lane modes.
+The global native plugin starts an inert, zero-tool helper for ordinary Grok;
+managed launches activate it using the exact private native leader.
 Qwen's MCP manifest invokes `qwen-peer` from PATH; Sessionbus uses
 `opencode-peer` for the retained OpenCode lane source.
 
@@ -102,7 +106,7 @@ Complete each product hookup using only the retained integration:
 - Claude: use the bundled candidate recipe and scoped status in [`claude/README.md`](claude/README.md).
 - Codex: build with `scripts/package-codex ./dist` and use the archive's installer as documented in [`codex/README.md`](codex/README.md).
 - OpenCode: install the pkg.pr.new preview rooted at `opencode/`, then run its `sessionbus-opencode-install` executable from `bin.mjs`.
-- Grok: install or register the `grok/` plugin directory.
+- Grok: build with `scripts/package-product grok ./dist` and run the archive installer in [`grok/README.md`](grok/README.md).
 - Qwen: install or register the `qwen/` plugin directory.
 
 Product evidence and constraints are in `docs/products/claude.md`,

@@ -1,0 +1,26 @@
+{
+  "runtime_commit": "e24f9ca40ef08e73a27a1624423e39d4bf335a2a",
+  "source_build_record": "/home/antst/grok-architecture-20260910/dev1-runtime-e24f9ca/BUILD.json",
+  "source_build_sha256": "45d886cad311abc8450c5eba038b257b30b36ff66c318ba829363c599ba65b4f",
+  "manifests": [
+    {
+      "root": "/home/antst/grok-architecture-20260910/dev1-runtime-e24f9ca/installed-phase1",
+      "manifest": "FINAL-SHA256SUMS",
+      "sha256": "eade316f870f2b0ca8a446ca75730d649978a73862109dde2c7dd15d7d439f1e",
+      "entries": 138
+    },
+    {
+      "root": "/home/antst/grok-architecture-20260910/dev1-runtime-e24f9ca/installed-phase2",
+      "manifest": "SHA256SUMS",
+      "sha256": "40258f1cdc0015141f6e007b22aa9d74cc3700a1526748b02ca1b563b8a68785",
+      "entries": 58
+    },
+    {
+      "root": "/home/antst/grok-architecture-20260910/dev1-runtime-e24f9ca/installed-phase3",
+      "manifest": "SHA256SUMS",
+      "sha256": "c55f3820bea2bc68de60c5a4adb8ed44dc2df6cf9e8974248cb6e8d641757e5b",
+      "entries": 98
+    }
+  ],
+  "note": "Manifests overlap previously reviewed C scope; counts are listed entries, not unique evidence facts. No copied native secrets/config are published in this repository."
+}
