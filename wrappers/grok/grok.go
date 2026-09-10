@@ -59,6 +59,7 @@ type Wrapper struct {
 	lossOnce      sync.Once
 	nativeFailed  chan struct{}
 	nativeFailure error
+	deliveryGate  chan struct{}
 }
 
 func New(socket, token string) *Wrapper {
@@ -394,7 +395,7 @@ func (p *Wrapper) executeRun(ctx context.Context, run *sessionkit.Run, seed sess
 	}
 
 	p.mu.Lock()
-	if p.primary == nil || p.run != nil || p.closing {
+	if p.primary == nil || p.run != nil || p.closing || p.nativeFailure != nil {
 		p.mu.Unlock()
 		return reject(errors.New("Grok lane is not idle"))
 	}
@@ -451,16 +452,23 @@ func (p *Wrapper) executeRun(ctx context.Context, run *sessionkit.Run, seed sess
 }
 
 type nativePrompt struct {
-	owner      *Wrapper
-	client     *acpClient
-	sessionID  string
-	promptText string
-	nativeID   string
-	attempted  bool
-	admitted   chan struct{}
-	done       chan struct{}
-	err        error
-	result     struct {
+	ctx         context.Context
+	changed     chan struct{}
+	segments    []*nativeSegment
+	delivery    *nativeDelivery
+	retiring    bool
+	outputBytes int
+	failure     error
+	owner       *Wrapper
+	client      *acpClient
+	sessionID   string
+	promptText  string
+	nativeID    string
+	attempted   bool
+	admitted    chan struct{}
+	done        chan struct{}
+	err         error
+	result      struct {
 		StopReason string `json:"stopReason"`
 		Meta       struct {
 			PromptID string `json:"promptId"`
@@ -469,13 +477,19 @@ type nativePrompt struct {
 }
 
 func (p *Wrapper) startPrompt(ctx context.Context, primary *acpClient, id, prompt string) (*nativePrompt, error) {
-	t := &nativePrompt{owner: p, client: primary, sessionID: id, promptText: prompt, admitted: make(chan struct{}), done: make(chan struct{})}
+	t := &nativePrompt{ctx: ctx, changed: make(chan struct{}), owner: p, client: primary, sessionID: id, promptText: prompt, admitted: make(chan struct{}), done: make(chan struct{})}
 	p.mu.Lock()
 	p.pendingPrompt = t
 	p.mu.Unlock()
 	started := make(chan error, 1)
 	go func() {
-		t.err = primary.requestSubmitting(ctx, "session/prompt", map[string]any{"sessionId": id, "prompt": []map[string]string{{"type": "text", "text": prompt}}}, &t.result, started, func() { p.mu.Lock(); t.attempted = true; p.staged, p.stagedBytes = nil, 0; p.mu.Unlock() })
+		t.err = primary.requestSubmitting(ctx, "session/prompt", map[string]any{"sessionId": id, "prompt": []map[string]string{{"type": "text", "text": prompt}}}, &t.result, started, func() error {
+			p.mu.Lock()
+			t.attempted = true
+			p.staged, p.stagedBytes = nil, 0
+			p.mu.Unlock()
+			return nil
+		})
 		close(t.done)
 	}()
 	if err := <-started; err != nil {
@@ -493,49 +507,7 @@ func (p *Wrapper) startPrompt(ctx context.Context, primary *acpClient, id, promp
 }
 
 func (t *nativePrompt) Wait(ctx context.Context) (sessionkit.TurnResult, error) {
-	var err error
-	select {
-	case <-ctx.Done():
-		// A cancelled waiter must not inspect result while the RPC goroutine
-		// can still be decoding it. Drain ownership remains in ACP.
-		t.owner.mu.Lock()
-		if t.owner.active == t {
-			t.owner.active = nil
-		}
-		t.owner.mu.Unlock()
-		return sessionkit.TurnResult{}, ctx.Err()
-	case <-t.done:
-		err = t.err
-	}
-	answer := ""
-	t.owner.mu.Lock()
-	if builder := t.owner.answers[t.result.Meta.PromptID]; builder != nil {
-		answer = builder.String()
-	}
-	if t.owner.active == t {
-		t.owner.active = nil
-	}
-	if t.owner.pendingPrompt == t {
-		t.owner.pendingPrompt = nil
-	}
-	nativeID := t.nativeID
-	t.owner.mu.Unlock()
-	if err != nil {
-		return sessionkit.TurnResult{}, err
-	}
-	if nativeID != "" && nativeID != t.result.Meta.PromptID {
-		return sessionkit.TurnResult{}, errors.New("Grok prompt terminal identity contradicted admission")
-	}
-	if t.result.Meta.PromptID == "" {
-		return sessionkit.TurnResult{}, errors.New("Grok prompt response omitted its identity")
-	}
-	outcome := "completed"
-	if t.result.StopReason == "cancelled" {
-		outcome = "interrupted"
-	} else if t.result.StopReason != "end_turn" {
-		outcome = "failed"
-	}
-	return sessionkit.TurnResult{Outcome: outcome, Result: answer, NativeStopReason: t.result.StopReason}, nil
+	return t.waitOwned(ctx)
 }
 
 func (t *nativePrompt) Interrupt(ctx context.Context) error {
@@ -556,6 +528,7 @@ func (p *Wrapper) receive(frame acpFrame) {
 		return
 	}
 	p.receiveQueue(frame)
+	p.receiveLifecycle(frame)
 	if frame.Method != "session/update" {
 		return
 	}
@@ -575,13 +548,25 @@ func (p *Wrapper) receive(frame acpFrame) {
 		return
 	}
 	p.mu.Lock()
-	if p.answers != nil && update.SessionID == p.sessionID {
-		if p.answers[update.Meta.PromptID] == nil {
-			p.answers[update.Meta.PromptID] = &strings.Builder{}
+	t := p.pendingPrompt
+	var overflow error
+	if t != nil && update.SessionID == p.sessionID && t.hasSegment(update.Meta.PromptID) {
+		if t.outputBytes+len(update.Update.Content.Text) > maxACPFrame {
+			t.failure = errors.New("Grok output exceeds retention limit")
+			overflow = t.failure
+			t.signal()
+		} else if t.failure == nil {
+			if p.answers[update.Meta.PromptID] == nil {
+				p.answers[update.Meta.PromptID] = &strings.Builder{}
+			}
+			p.answers[update.Meta.PromptID].WriteString(update.Update.Content.Text)
+			t.outputBytes += len(update.Update.Content.Text)
 		}
-		p.answers[update.Meta.PromptID].WriteString(update.Update.Content.Text)
 	}
 	p.mu.Unlock()
+	if overflow != nil {
+		t.abortAccounting(overflow)
+	}
 }
 
 func (p *Wrapper) Interrupt(ctx context.Context, run *sessionkit.Run) error {
@@ -602,7 +587,7 @@ func (p *Wrapper) Deliver(ctx context.Context, request sessionkit.DeliveryReques
 		return sessionkit.DeliveryReceipt{}, err
 	}
 	p.mu.Lock()
-	if p.closing || p.primary == nil {
+	if p.closing || p.primary == nil || p.nativeFailure != nil {
 		p.mu.Unlock()
 		return sessionkit.DeliveryReceipt{Disposition: "rejected", Reason: "lane_unavailable"}, nil
 	}
@@ -620,17 +605,8 @@ func (p *Wrapper) Deliver(ctx context.Context, request sessionkit.DeliveryReques
 		p.mu.Unlock()
 		return sessionkit.DeliveryReceipt{Disposition: "queued_for_next_turn"}, nil
 	}
-	observer, id, native := p.observer, p.sessionID, p.active
 	p.mu.Unlock()
-	if observer == nil || native == nil {
-		return sessionkit.DeliveryReceipt{Disposition: "rejected", Reason: "native_turn_unavailable"}, nil
-	}
-	if err := observer.interject(ctx, id, request.MessageID, message); err != nil {
-		return sessionkit.DeliveryReceipt{}, fmt.Errorf("Grok interject: %w", err)
-	}
-	// Actor acknowledgement is admission even when the original prompt terminal
-	// crossed it. Never put a submitted message into the unsent FIFO.
-	return sessionkit.DeliveryReceipt{Disposition: "injected"}, nil
+	return p.deliverActive(ctx, request, message)
 }
 
 func (p *Wrapper) Close(ctx context.Context, _ sessionkit.SessionCloseRequest) error {
@@ -855,13 +831,37 @@ func (p *Wrapper) receiveQueue(frame acpFrame) {
 		return
 	}
 	p.mu.Lock()
-	defer p.mu.Unlock()
+	var overflow error
+	defer func() {
+		p.mu.Unlock()
+		if overflow != nil {
+			p.pendingFailure(overflow)
+		}
+	}()
 	t := p.pendingPrompt
-	if t == nil || !t.attempted || q.SessionID != t.sessionID || q.Text != t.promptText || t.nativeID != "" {
+	if t == nil || !t.attempted || q.SessionID != t.sessionID {
 		return
 	}
-	t.nativeID = q.PromptID
-	close(t.admitted)
+	if t.nativeID == "" && q.Text == t.promptText {
+		t.nativeID = q.PromptID
+		t.segments = append(t.segments, &nativeSegment{id: q.PromptID})
+		close(t.admitted)
+		t.signal()
+		return
+	}
+	d := t.delivery
+	if d != nil && d.attempted && d.acked && !d.classified && q.Text == d.text && !t.hasSegment(q.PromptID) {
+		if len(t.segments) >= maxACPPending {
+			t.failure = errors.New("Grok continuation capacity exceeded")
+			overflow = t.failure
+			t.signal()
+			return
+		}
+		t.segments = append(t.segments, &nativeSegment{id: q.PromptID})
+		d.classified = true
+		t.releaseDelivery(d)
+	}
+
 }
 func (t *nativePrompt) admission(ctx context.Context) error {
 	t.owner.mu.Lock()

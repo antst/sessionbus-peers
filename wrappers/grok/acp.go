@@ -159,7 +159,7 @@ func (c *acpClient) request(ctx context.Context, method string, params, result a
 func (c *acpClient) requestStarted(ctx context.Context, method string, params, result any, started chan<- error) error {
 	return c.requestSubmitting(ctx, method, params, result, started, nil)
 }
-func (c *acpClient) requestSubmitting(ctx context.Context, method string, params, result any, started chan<- error, submit func()) error {
+func (c *acpClient) requestSubmitting(ctx context.Context, method string, params, result any, started chan<- error, submit func() error) error {
 	signal := func(err error) {
 		if started != nil {
 			started <- err
@@ -219,11 +219,10 @@ func (c *acpClient) requestSubmitting(ctx context.Context, method string, params
 	}
 	return nil
 }
-func (c *acpClient) send(value any) error { return c.sendContext(context.Background(), value) }
 func (c *acpClient) sendContext(ctx context.Context, value any) error {
 	return c.sendSubmitting(ctx, value, nil)
 }
-func (c *acpClient) sendSubmitting(ctx context.Context, value any, submit func()) error {
+func (c *acpClient) sendSubmitting(ctx context.Context, value any, submit func() error) error {
 	body, err := json.Marshal(value)
 	if err != nil {
 		return err
@@ -255,7 +254,9 @@ func (c *acpClient) sendSubmitting(ctx context.Context, value any, submit func()
 		return err
 	}
 	if submit != nil {
-		submit()
+		if err = submit(); err != nil {
+			return err
+		}
 	}
 	done := make(chan error, 1)
 	go func() {
@@ -280,9 +281,6 @@ func (c *acpClient) sendSubmitting(ctx context.Context, value any, submit func()
 		c.finish(err)
 	}
 	return err
-}
-func (c *acpClient) cancel(sessionID string) error {
-	return c.cancelContext(context.Background(), sessionID)
 }
 func (c *acpClient) cancelContext(ctx context.Context, sessionID string) error {
 	return c.sendContext(ctx, map[string]any{"jsonrpc": "2.0", "method": "session/cancel", "params": map[string]string{"sessionId": sessionID}})

@@ -137,6 +137,7 @@ func TestGrokWorkerSeedAdmissionReceiptAndCursor(t *testing.T) {
 			if mode == "wrong-terminal" {
 				terminalID = "foreign"
 			}
+			must(t, nativeWriter.Encode(map[string]any{"jsonrpc": "2.0", "method": "_x.ai/session_notification", "params": map[string]any{"sessionId": params.SessionID, "update": map[string]any{"sessionUpdate": "turn_completed", "prompt_id": "prompt-1", "stop_reason": "end_turn"}}}))
 			replyACP(t, nativeWriter, prompt, map[string]any{"stopReason": "end_turn", "_meta": map[string]string{"promptId": terminalID}})
 			// A same-primary response barrier proves terminal parsing progresses while
 			// ReportDelivery is held, independently of callback scheduling.
