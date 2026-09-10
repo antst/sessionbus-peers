@@ -1,10 +1,10 @@
 {
-  "measured_source_commit": "f9d6ce663cecdb44bca9d7d4a7c59d4f1d41cd96",
-  "scope": "Whole tracked checkout at measured commit, excluding this SIZE.json. Self bytes accounted separately, no self hash. Non-stdlib dependency source is files selected by Linux go list, not installed module cache; linked binary includes Go runtime/stdlib. Process RSS pages are one recorded Linux snapshot, not peak or reserved-capacity use. Current installed native config may add unrelated MCPs.",
+  "measured_source_commit": "ca5366c7e3c96b802fa11c4673b8fad130b6f8ca",
+  "scope": "Whole tracked checkout at measured commit, excluding this SIZE.json. Self bytes accounted separately, no self hash. Non-stdlib dependency source is files selected by Linux go list, not installed module cache; linked binary includes Go runtime/stdlib. Process RSS pages are the historical e24 Linux snapshot, not measurements of the corrected3e binary, peak or reserved-capacity use. Current installed native config may add unrelated MCPs.",
   "whole_source": {
     "files": 269,
-    "bytes": 1877109,
-    "lines": 42131,
+    "bytes": 1883144,
+    "lines": 42236,
     "members": [
       {
         "path": ".forgejo/workflows/ci.yml",
@@ -590,9 +590,9 @@
       },
       {
         "path": "docs/designs/grok-0.5.0/ACCEPTANCE.md",
-        "bytes": 8462,
-        "lines": 59,
-        "sha256": "baf20465f455858a80cb59b8d733cb0951cb5f54463482a17cd052817256e132"
+        "bytes": 10888,
+        "lines": 97,
+        "sha256": "649456a82e8013c37e152eebe98e2dabe5604e438240ca462f58fb5431243131"
       },
       {
         "path": "docs/designs/grok-0.5.0/ACTIVATION-AMENDMENT.md",
@@ -614,15 +614,15 @@
       },
       {
         "path": "docs/designs/grok-0.5.0/EVIDENCE.json",
-        "bytes": 1196,
-        "lines": 26,
-        "sha256": "292b9695e6e7c1a0bc2725df377838c080d2dceb7dab46563cb3c251cd362f64"
+        "bytes": 1715,
+        "lines": 35,
+        "sha256": "a8886a915950ed9bcaa28c5038f0a2e4ad6e72009a69c4de6216a57fb41253d9"
       },
       {
         "path": "docs/designs/grok-0.5.0/IMPLEMENTATION.md",
-        "bytes": 3044,
-        "lines": 38,
-        "sha256": "4f35ebd7a5d685b9ec19cebc73230cfbebc927a0d50703200e7016548a6a4c3e"
+        "bytes": 3245,
+        "lines": 42,
+        "sha256": "c914b742a8997b19130320eecd788144126310799e0ee4752657c23b19e78684"
       },
       {
         "path": "docs/designs/grok-0.5.0/NAME-AMENDMENT.md",
@@ -1340,15 +1340,15 @@
       },
       {
         "path": "wrappers/grok/grok.go",
-        "bytes": 26954,
-        "lines": 951,
-        "sha256": "f3950d9edc799480d11fceb02dd0c7074627cbf9e920e23feaecd4bba7e2761b"
+        "bytes": 27150,
+        "lines": 955,
+        "sha256": "ee9d4b42aa5300f5fb4a4d54f1230cb8a6ea0eddceb1a08e78541c67377f85aa"
       },
       {
         "path": "wrappers/grok/grok_test.go",
-        "bytes": 32775,
-        "lines": 755,
-        "sha256": "cf84b184a3de3eb5181827af472ddbf3c31ec539abadc2409dce85ad5b57feba"
+        "bytes": 35202,
+        "lines": 798,
+        "sha256": "698870d5c31918c47a40bb36d0b7dabfba970cf28474265835e995ddc9ff3819"
       },
       {
         "path": "wrappers/grok/lane_endpoint.go",
@@ -1544,9 +1544,9 @@
       },
       {
         "path": "wrappers/mcp/sessionbus_bounds_test.go",
-        "bytes": 14277,
-        "lines": 419,
-        "sha256": "b925b81cb291df91d4a99050bf26e5addba4a5d81b346e3aeccd8f758f3e04b2"
+        "bytes": 14543,
+        "lines": 426,
+        "sha256": "e59d02ed325197568fa9c9daa7c1f72b197b69b1b7074000f9ba8b577c2402c5"
       },
       {
         "path": "wrappers/mcp/sessionbus_test.go",
@@ -1622,8 +1622,8 @@
       }
     ]
   },
-  "self_bytes": 69736,
-  "whole_source_with_self_bytes": 1946845,
+  "self_bytes": 69033,
+  "whole_source_with_self_bytes": 1952177,
   "baseline_source": {
     "commit": "eb727701358a22c9a69f82c3eddeb8a57636fee8",
     "files": 246,
@@ -1632,8 +1632,8 @@
   },
   "grok_runtime": {
     "files": 7,
-    "bytes": 74762,
-    "lines": 2731,
+    "bytes": 74958,
+    "lines": 2735,
     "members": [
       {
         "path": "cmd/grok-peer/main.go",
@@ -1655,9 +1655,9 @@
       },
       {
         "path": "wrappers/grok/grok.go",
-        "bytes": 26954,
-        "lines": 951,
-        "sha256": "f3950d9edc799480d11fceb02dd0c7074627cbf9e920e23feaecd4bba7e2761b"
+        "bytes": 27150,
+        "lines": 955,
+        "sha256": "ee9d4b42aa5300f5fb4a4d54f1230cb8a6ea0eddceb1a08e78541c67377f85aa"
       },
       {
         "path": "wrappers/grok/lane_endpoint.go",
@@ -1681,8 +1681,8 @@
   },
   "grok_tests": {
     "files": 15,
-    "bytes": 106656,
-    "lines": 2633,
+    "bytes": 109083,
+    "lines": 2676,
     "members": [
       {
         "path": "cmd/grok-peer/main_test.go",
@@ -1704,9 +1704,9 @@
       },
       {
         "path": "wrappers/grok/grok_test.go",
-        "bytes": 32775,
-        "lines": 755,
-        "sha256": "cf84b184a3de3eb5181827af472ddbf3c31ec539abadc2409dce85ad5b57feba"
+        "bytes": 35202,
+        "lines": 798,
+        "sha256": "698870d5c31918c47a40bb36d0b7dabfba970cf28474265835e995ddc9ff3819"
       },
       {
         "path": "wrappers/grok/lane_endpoint_test.go",
@@ -1778,8 +1778,8 @@
   },
   "shared_engine_changed_source": {
     "files": 3,
-    "bytes": 32001,
-    "lines": 1007,
+    "bytes": 32267,
+    "lines": 1014,
     "members": [
       {
         "path": "wrappers/mcp/sessionbus.go",
@@ -1789,9 +1789,9 @@
       },
       {
         "path": "wrappers/mcp/sessionbus_bounds_test.go",
-        "bytes": 14277,
-        "lines": 419,
-        "sha256": "b925b81cb291df91d4a99050bf26e5addba4a5d81b346e3aeccd8f758f3e04b2"
+        "bytes": 14543,
+        "lines": 426,
+        "sha256": "e59d02ed325197568fa9c9daa7c1f72b197b69b1b7074000f9ba8b577c2402c5"
       },
       {
         "path": "wrappers/mcp/sessionbus_test.go",
@@ -1902,9 +1902,9 @@
     ]
   },
   "archive": {
-    "source_commit": "e24f9ca40ef08e73a27a1624423e39d4bf335a2a",
-    "bytes": 1619446,
-    "sha256": "250bc2c8f655b98b5d89e043efece85141d0a88a1cebfdf69d9587a2100c10e1",
+    "source_commit": "3e035e8b13d562e1eacd1564bfe5b119e9968194",
+    "bytes": 1619462,
+    "sha256": "1f0924aef4adcf28980279a2018dda14183501d8451460e594e90b3a6bdcada5",
     "regular": {
       "files": 11,
       "bytes": 3861941,
@@ -1913,22 +1913,7 @@
         {
           "path": "grok-peer",
           "bytes": 3838114,
-          "sha256": "1534033e5fc19ccd48fa6cbdebe259e52fbee5d28b04a320e994c7a61078f650"
-        },
-        {
-          "path": "plugin/README.md",
-          "bytes": 4661,
-          "sha256": "a124a99a59e64e4257647c5e941e1bee8117bf98c3f2d8eaa92d7df11f6788e5"
-        },
-        {
-          "path": "plugin/scripts/native-entry",
-          "bytes": 323,
-          "sha256": "3bb18c86d1bc150bbacb85e103a7985c7cbdf92c790a41677acffe93dedb9c3b"
-        },
-        {
-          "path": "plugin/skills/sessionbus/SKILL.md",
-          "bytes": 8238,
-          "sha256": "153f5237905e68edda00dbc7034ba8193b690845880b9f75b5c781693927b4a2"
+          "sha256": "0f3877a2676b32b5c36d15a132b1fe3e3925af8dd71bb667f03941217a8645f9"
         },
         {
           "path": "plugin/.mcp.json",
@@ -1936,9 +1921,24 @@
           "sha256": "9c446c69d581ae15234fe5bac1fb43225d960cf0a980923871d5a9b52c71a43a"
         },
         {
+          "path": "plugin/skills/sessionbus/SKILL.md",
+          "bytes": 8238,
+          "sha256": "153f5237905e68edda00dbc7034ba8193b690845880b9f75b5c781693927b4a2"
+        },
+        {
           "path": "plugin/.grok-plugin/plugin.json",
           "bytes": 152,
           "sha256": "cd10212c8be1f595057472ef82f7646f5faf8ecb01f730ef6cd256bbc117fe3f"
+        },
+        {
+          "path": "plugin/scripts/native-entry",
+          "bytes": 323,
+          "sha256": "3bb18c86d1bc150bbacb85e103a7985c7cbdf92c790a41677acffe93dedb9c3b"
+        },
+        {
+          "path": "plugin/README.md",
+          "bytes": 4661,
+          "sha256": "a124a99a59e64e4257647c5e941e1bee8117bf98c3f2d8eaa92d7df11f6788e5"
         },
         {
           "path": "LICENSE",
@@ -1975,59 +1975,24 @@
     ]
   },
   "installed": {
-    "time": 1789027229.9376743,
-    "members": [
-      {
-        "path": "/home/antst/.local/libexec/sessionbus/grok/LICENSE",
-        "bytes": 1080,
-        "sha256": "5eab6128815879aded938085ac18293e4a09ed84cb425405c5810cdacde776e8"
-      },
-      {
-        "path": "/home/antst/.local/libexec/sessionbus/grok/README.md",
-        "bytes": 4661,
-        "sha256": "a124a99a59e64e4257647c5e941e1bee8117bf98c3f2d8eaa92d7df11f6788e5"
-      },
-      {
-        "path": "/home/antst/.local/libexec/sessionbus/grok/THIRD-PARTY-NOTICES.txt",
-        "bytes": 2691,
-        "sha256": "759f37807f29755383bf63c16cf41818701ee1c2620dd778789d1adba0d87b26"
-      },
-      {
-        "path": "/home/antst/.local/libexec/sessionbus/grok/grok-peer",
-        "bytes": 3838114,
-        "sha256": "1534033e5fc19ccd48fa6cbdebe259e52fbee5d28b04a320e994c7a61078f650"
-      },
-      {
-        "path": "/home/antst/.local/libexec/sessionbus/grok/grok-peer-mcp",
-        "alias": "grok-peer"
-      },
-      {
-        "path": "/home/antst/.local/libexec/sessionbus/grok/plugin/.grok-plugin/plugin.json",
-        "bytes": 152,
-        "sha256": "cd10212c8be1f595057472ef82f7646f5faf8ecb01f730ef6cd256bbc117fe3f"
-      },
-      {
-        "path": "/home/antst/.local/libexec/sessionbus/grok/plugin/.mcp.json",
-        "bytes": 130,
-        "sha256": "9c446c69d581ae15234fe5bac1fb43225d960cf0a980923871d5a9b52c71a43a"
-      },
-      {
-        "path": "/home/antst/.local/libexec/sessionbus/grok/plugin/README.md",
-        "bytes": 4661,
-        "sha256": "a124a99a59e64e4257647c5e941e1bee8117bf98c3f2d8eaa92d7df11f6788e5"
-      },
-      {
-        "path": "/home/antst/.local/libexec/sessionbus/grok/plugin/scripts/native-entry",
-        "bytes": 323,
-        "sha256": "3bb18c86d1bc150bbacb85e103a7985c7cbdf92c790a41677acffe93dedb9c3b"
-      },
-      {
-        "path": "/home/antst/.local/libexec/sessionbus/grok/plugin/skills/sessionbus/SKILL.md",
-        "bytes": 8238,
-        "sha256": "153f5237905e68edda00dbc7034ba8193b690845880b9f75b5c781693927b4a2"
-      }
-    ]
+    "archive_sha256": "1f0924aef4adcf28980279a2018dda14183501d8451460e594e90b3a6bdcada5",
+    "public_target": "/home/antst/.local/libexec/sessionbus/grok/grok-peer",
+    "binary_sha256": "0f3877a2676b32b5c36d15a132b1fe3e3925af8dd71bb667f03941217a8645f9",
+    "binary_bytes": 3838114,
+    "alias": "grok-peer",
+    "payload": {
+      "THIRD-PARTY-NOTICES.txt": "759f37807f29755383bf63c16cf41818701ee1c2620dd778789d1adba0d87b26",
+      "README.md": "a124a99a59e64e4257647c5e941e1bee8117bf98c3f2d8eaa92d7df11f6788e5",
+      "LICENSE": "5eab6128815879aded938085ac18293e4a09ed84cb425405c5810cdacde776e8",
+      "grok-peer": "0f3877a2676b32b5c36d15a132b1fe3e3925af8dd71bb667f03941217a8645f9",
+      "plugin/README.md": "a124a99a59e64e4257647c5e941e1bee8117bf98c3f2d8eaa92d7df11f6788e5",
+      "plugin/.mcp.json": "9c446c69d581ae15234fe5bac1fb43225d960cf0a980923871d5a9b52c71a43a",
+      "plugin/.grok-plugin/plugin.json": "cd10212c8be1f595057472ef82f7646f5faf8ecb01f730ef6cd256bbc117fe3f",
+      "plugin/scripts/native-entry": "3bb18c86d1bc150bbacb85e103a7985c7cbdf92c790a41677acffe93dedb9c3b",
+      "plugin/skills/sessionbus/SKILL.md": "153f5237905e68edda00dbc7034ba8193b690845880b9f75b5c781693927b4a2"
+    }
   },
+  "process_observation_source_commit": "e24f9ca40ef08e73a27a1624423e39d4bf335a2a",
   "process_observations": [
     {
       "role": "worker",
