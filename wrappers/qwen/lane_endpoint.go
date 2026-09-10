@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io"
 	"net"
+	"os"
 	"strings"
 	"sync"
 
@@ -143,7 +144,35 @@ func (e *laneEndpoint) Close() error {
 
 // ForwardLaneMCP is a stateless stdio bridge. Only the endpoint's Worker owns a
 // Caller. The endpoint is supplied in the single native ACP session's config.
+// It takes exclusive ownership of input and closable output, including on
+// setup failure. File transports must be pipes/sockets; their shared open-file
+// description is made nonblocking before either copy starts.
+// Other supplied transports must support interruption through Close; arbitrary
+// blocking, nonclosable Writers cannot provide a joined cancellation boundary.
 func ForwardLaneMCP(ctx context.Context, path string, input io.ReadCloser, output io.Writer) error {
+	originalInput, originalOutput := input, output
+	defer func() {
+		originalInput.Close()
+		if closer, ok := originalOutput.(io.Closer); ok {
+			closer.Close()
+		}
+	}()
+	if file, ok := input.(*os.File); ok {
+		pollable, err := pollableForwardFile(file)
+		if err != nil {
+			return err
+		}
+		defer pollable.Close()
+		input = pollable
+	}
+	if file, ok := output.(*os.File); ok {
+		pollable, err := pollableForwardFile(file)
+		if err != nil {
+			return err
+		}
+		defer pollable.Close()
+		output = pollable
+	}
 	c, err := (&net.Dialer{}).DialContext(ctx, "unix", path)
 	if err != nil {
 		return err
@@ -170,5 +199,27 @@ func ForwardLaneMCP(ctx context.Context, path string, input io.ReadCloser, outpu
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
+	// stop closes the exclusively owned descriptors. Preserve the first
+	// completion and real I/O failures (for example EPIPE), but not the other
+	// copy's expected closed-descriptor error from this teardown.
+	if expectedForwardClose(second) {
+		second = nil
+	}
 	return errors.Join(first, second)
+}
+
+func expectedForwardClose(err error) bool {
+	if joined, ok := err.(interface{ Unwrap() []error }); ok {
+		causes := joined.Unwrap()
+		for _, cause := range causes {
+			if !expectedForwardClose(cause) {
+				return false
+			}
+		}
+		return len(causes) != 0
+	}
+	if wrapped, ok := err.(interface{ Unwrap() error }); ok {
+		return expectedForwardClose(wrapped.Unwrap())
+	}
+	return errors.Is(err, net.ErrClosed) || errors.Is(err, os.ErrClosed)
 }
