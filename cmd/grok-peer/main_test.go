@@ -24,6 +24,7 @@ func TestLaneModeRejectsArguments(t *testing.T) {
 
 func TestMCPRequiresManagedLauncher(t *testing.T) {
 	t.Setenv("SESSIONBUS_LANE_SOCKET", "")
+	t.Setenv("SESSIONBUS_GROK_MANAGED", "1")
 	err := runMCP(context.Background())
 	if err == nil || !strings.Contains(err.Error(), "start Grok with grok-peer") {
 		t.Fatalf("runMCP = %v", err)

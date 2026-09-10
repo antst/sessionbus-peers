@@ -67,6 +67,23 @@ func toolResult(value json.RawMessage, err error) any {
 // Serve keeps native reports, cancellation and EOF independent of pending public
 // calls. Only in-flight public request IDs are retained; results live in Caller.
 func ServeSessionbus(owner SessionbusOwner, input io.ReadCloser, output io.Writer, report ReportHandler) error {
+	return serveSessionbus(owner, input, output, report, true)
+}
+
+// ServeInactiveSessionbus speaks ordinary MCP without activating integration.
+// No product identity, bus connection, hidden handler or public tool is created.
+func ServeInactiveSessionbus(input io.ReadCloser, output io.Writer) error {
+	return serveSessionbus(inactiveOwner{}, input, output, ReportHandler{}, false)
+}
+
+type inactiveOwner struct{}
+
+func (inactiveOwner) Action(context.Context, string, json.RawMessage) (json.RawMessage, error) {
+	return nil, errors.New("Sessionbus integration is inactive")
+}
+func (inactiveOwner) End() {}
+func serveSessionbus(owner SessionbusOwner, input io.ReadCloser, output io.Writer, report ReportHandler, enabled bool) error {
+
 	if report.Begin != nil && (strings.TrimSpace(report.Name) == "" || report.Name == "sessionbus") {
 		return errors.New("hidden report name must be nonempty and distinct from sessionbus")
 	}
@@ -164,15 +181,27 @@ func ServeSessionbus(owner SessionbusOwner, input io.ReadCloser, output io.Write
 				failure(id, -32602, "Invalid initialize parameters")
 				continue
 			}
-			respond(id, map[string]any{"protocolVersion": version, "capabilities": map[string]any{"tools": map[string]any{}}, "serverInfo": map[string]string{"name": "sessionbus", "version": "0.5.0"}})
+			capabilities := map[string]any{}
+			if enabled {
+				capabilities["tools"] = map[string]any{}
+			}
+			respond(id, map[string]any{"protocolVersion": version, "capabilities": capabilities, "serverInfo": map[string]string{"name": "sessionbus", "version": "0.5.0"}})
 			if ready, ok := owner.(interface{ Initialized() }); ok && ctx.Err() == nil {
 				ready.Initialized()
 			}
 		case "ping":
 			respond(id, map[string]any{})
 		case "tools/list":
-			respond(id, map[string]any{"tools": []any{Tool()}})
+			tools := []any{}
+			if enabled {
+				tools = append(tools, Tool())
+			}
+			respond(id, map[string]any{"tools": tools})
 		case "tools/call":
+			if !enabled {
+				failure(id, -32602, "Sessionbus integration is inactive")
+				continue
+			}
 			var name string
 			if json.Unmarshal(params["name"], &name) != nil || name != "sessionbus" && (report.Begin == nil || name != report.Name) {
 				failure(id, -32602, "Unknown tool")

@@ -31,6 +31,8 @@ type peerSession struct {
 var errNoLeader = errors.New("no_leader")
 var errRosterActorGone = errors.New("Grok roster actor is not live")
 
+const ManagedEnv = "SESSIONBUS_GROK_MANAGED"
+
 const grokSessionIDEnv = "GROK_SESSION_ID"
 const grokLeaderSocketEnv = "GROK_LEADER_SOCKET"
 
@@ -154,7 +156,7 @@ func RunInteractive(ctx context.Context, plan host.ExecPlan) error {
 }
 
 func peerNativeEnvironment(environment []string) []string {
-	result := nativeEnvironment()
+	result := setEnvironment(nativeEnvironment(), ManagedEnv, "1")
 	for _, name := range []string{host.SocketEnv, host.GroupsEnv} {
 		if value := environmentValue(environment, name); value != "" {
 			result = setEnvironment(result, name, value)

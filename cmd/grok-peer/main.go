@@ -73,6 +73,11 @@ func run(ctx context.Context, arguments []string) error {
 }
 
 func runMCP(ctx context.Context) error {
+	if os.Getenv(mcp.LaneSocketEnv) == "" && os.Getenv(grok.ManagedEnv) != "1" {
+		stop := context.AfterFunc(ctx, func() { _ = os.Stdin.Close() })
+		defer stop()
+		return mcp.ServeInactiveSessionbus(os.Stdin, os.Stdout)
+	}
 	if os.Getenv(mcp.LaneSocketEnv) != "" {
 		backend, err := mcp.NewLaneBackend()
 		if err != nil {

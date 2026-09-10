@@ -115,3 +115,54 @@ func TestSessionbusMetadataIsPerNativeRequest(t *testing.T) {
 	output.Close()
 	reader.Close()
 }
+
+func TestInactiveMCPStaysUntilEOFAndAdvertisesNothing(t *testing.T) {
+	input, writer := io.Pipe()
+	output, reader := io.Pipe()
+	done := make(chan error, 1)
+	go func() { done <- ServeInactiveSessionbus(input, reader) }()
+	encoder, decoder := json.NewEncoder(writer), json.NewDecoder(output)
+	calls := []struct {
+		method string
+		params any
+	}{
+		{"initialize", map[string]any{"protocolVersion": "2025-06-18"}},
+		{"ping", map[string]any{}}, {"tools/list", map[string]any{}},
+		{"tools/call", map[string]any{"name": "sessionbus", "arguments": map[string]any{"action": "list", "arguments": map[string]any{}}}},
+	}
+	for i, call := range calls {
+		if err := encoder.Encode(map[string]any{"jsonrpc": "2.0", "id": i + 1, "method": call.method, "params": call.params}); err != nil {
+			t.Fatal(err)
+		}
+		var frame struct {
+			Result map[string]json.RawMessage
+			Error  json.RawMessage
+		}
+		if err := decoder.Decode(&frame); err != nil {
+			t.Fatal(err)
+		}
+		if i < 3 && frame.Error != nil {
+			t.Fatalf("%s failed: %s", call.method, frame.Error)
+		}
+		if i == 0 && string(frame.Result["capabilities"]) != "{}" {
+			t.Fatal(frame.Result)
+		}
+		if i == 2 && string(frame.Result["tools"]) != "[]" {
+			t.Fatal(frame.Result)
+		}
+		if i == 3 && frame.Error == nil {
+			t.Fatal("inactive public call succeeded")
+		}
+		select {
+		case err := <-done:
+			t.Fatalf("inactive server exited before EOF: %v", err)
+		default:
+		}
+	}
+	_ = writer.Close()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	_ = reader.Close()
+	_ = output.Close()
+}
