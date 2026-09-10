@@ -33,22 +33,23 @@ type nativeProcess struct {
 }
 
 type Wrapper struct {
-	socket, key string
-	backend     mcp.Backend
-	mu          sync.Mutex
-	primary     *acpClient
-	observer    *acpClient
-	child       *host.Child
-	leader      *nativeProcess
-	watcher     *nativeProcess
-	sessionID   string
-	staged      []string
-	stagedBytes int
-	run         *sessionkit.Run
-	active      *nativePrompt
-	answers     map[string]*strings.Builder
-	closing     bool
-	shutdown    func()
+	socket, key   string
+	backend       mcp.Backend
+	mu            sync.Mutex
+	primary       *acpClient
+	observer      *acpClient
+	child         *host.Child
+	leader        *nativeProcess
+	watcher       *nativeProcess
+	sessionID     string
+	staged        []string
+	stagedBytes   int
+	run           *sessionkit.Run
+	active        *nativePrompt
+	pendingPrompt *nativePrompt
+	answers       map[string]*strings.Builder
+	closing       bool
+	shutdown      func()
 }
 
 func New(socket, token string) *Wrapper {
@@ -70,7 +71,7 @@ func (b laneCallerBackend) Call(context.Context, string, any) (json.RawMessage, 
 func (p *Wrapper) SetCaller(caller *sessionkit.Caller) { p.backend = laneCallerBackend{caller} }
 
 func (*Wrapper) Hello(context.Context) (sessionkit.HelloDescription, error) {
-	return sessionkit.HelloDescription{Product: Product,
+	return sessionkit.HelloDescription{Product: Product, SupportsMessageRun: true,
 		SupportedOpenFields: []string{"cwd", "permission_mode", "model", "reasoning_effort", "arguments"},
 		ExtraArguments: []sessionkit.ExtraArgument{
 			{Name: "--agent", Description: "Agent name or definition", TakesValue: true},
@@ -232,11 +233,15 @@ func startLeader(socket, key, cwd, permission string, environment []string) (*na
 	}
 }
 
-func (p *Wrapper) startObserverClient(ctx context.Context, cwd string) (*acpClient, *nativeProcess, error) {
+func (p *Wrapper) startObserverClient(ctx context.Context, cwd string, notify ...func(acpFrame)) (*acpClient, *nativeProcess, error) {
 	args := []string{"--no-auto-update", "--permission-mode", "default", "--leader-socket", leaderSocket(p.socket, p.key), "agent", "--leader", "stdio"}
 	cmd := command("grok", args...)
 	cmd.Dir, cmd.Env, cmd.Stderr = cwd, nativeEnvironment(), os.Stderr
-	return startObserverClient(ctx, ctx, cmd, nil)
+	var callback func(acpFrame)
+	if len(notify) > 0 {
+		callback = notify[0]
+	}
+	return startObserverClient(ctx, ctx, cmd, callback)
 }
 
 func startObserverClient(lifetimeCtx, requestCtx context.Context, cmd *exec.Cmd, notify func(acpFrame)) (*acpClient, *nativeProcess, error) {
@@ -305,21 +310,38 @@ func initializeACP(ctx context.Context, client *acpClient) error {
 }
 
 func (p *Wrapper) Run(ctx context.Context, run *sessionkit.Run, seed sessionkit.RunInput) (sessionkit.TurnResult, error) {
-	// This mechanical interface migration does not add native wake support.
-	if seed.Delivery != nil {
-		if err := run.ReportDelivery(sessionkit.DeliveryReceipt{Disposition: "rejected", Reason: "unsupported_delivery_seed"}, nil); err != nil {
-			return sessionkit.TurnResult{}, err
+	return p.executeRun(ctx, run, seed, run.ReportDelivery)
+}
+func (p *Wrapper) executeRun(ctx context.Context, run *sessionkit.Run, seed sessionkit.RunInput, report func(sessionkit.DeliveryReceipt, error) error) (sessionkit.TurnResult, error) {
+	reject := func(err error) (sessionkit.TurnResult, error) {
+		if seed.Delivery != nil {
+			if e := report(sessionkit.DeliveryReceipt{Disposition: "rejected", Reason: "not_submitted"}, nil); e != nil {
+				return sessionkit.TurnResult{}, e
+			}
 		}
-		return sessionkit.TurnResult{}, errors.New("delivery-seeded runs are not supported by this product")
+		return sessionkit.TurnResult{}, err
 	}
-	if seed.Text == nil {
-		return sessionkit.TurnResult{}, errors.New("missing explicit run input")
+	if (seed.Text == nil) == (seed.Delivery == nil) {
+		return reject(errors.New("expected exactly one run input"))
 	}
-	input := *seed.Text
+	if err := ctx.Err(); err != nil {
+		return reject(err)
+	}
+	var input string
+	if seed.Text != nil {
+		input = *seed.Text
+	} else {
+		var err error
+		input, err = host.RenderNativeMessage(*seed.Delivery)
+		if err != nil {
+			return reject(err)
+		}
+	}
+
 	p.mu.Lock()
 	if p.primary == nil || p.run != nil || p.closing {
 		p.mu.Unlock()
-		return sessionkit.TurnResult{}, errors.New("Grok lane is not idle")
+		return reject(errors.New("Grok lane is not idle"))
 	}
 	p.run, p.answers = run, map[string]*strings.Builder{}
 	primary, id := p.primary, p.sessionID
@@ -327,6 +349,9 @@ func (p *Wrapper) Run(ctx context.Context, run *sessionkit.Run, seed sessionkit.
 	p.mu.Unlock()
 
 	if run.Interrupted() {
+		if seed.Delivery != nil {
+			return reject(errors.New("interrupted before submission"))
+		}
 		return sessionkit.TurnResult{Outcome: "interrupted"}, nil
 	}
 	p.mu.Lock()
@@ -339,6 +364,19 @@ func (p *Wrapper) Run(ctx context.Context, run *sessionkit.Run, seed sessionkit.
 	// Claimed staged text is never restored after a native submission attempt.
 	turn, err := p.startPrompt(ctx, primary, id, strings.Join(parts, "\n"))
 	var result sessionkit.TurnResult
+	if seed.Delivery != nil {
+		if err == nil {
+			err = turn.admission(ctx)
+		}
+		if err != nil {
+			if e := report(sessionkit.DeliveryReceipt{}, fmt.Errorf("uncertain_native_admission: %w", err)); e != nil {
+				err = e
+			}
+		} else {
+			run.Admitted()
+			err = report(sessionkit.DeliveryReceipt{Disposition: "injected"}, nil)
+		}
+	}
 	if err == nil {
 		if run.Interrupted() {
 			_ = turn.Interrupt(ctx)
@@ -353,11 +391,15 @@ func (p *Wrapper) Run(ctx context.Context, run *sessionkit.Run, seed sessionkit.
 }
 
 type nativePrompt struct {
-	owner     *Wrapper
-	client    *acpClient
-	sessionID string
-	done      chan error
-	result    struct {
+	owner      *Wrapper
+	client     *acpClient
+	sessionID  string
+	promptText string
+	nativeID   string
+	attempted  bool
+	admitted   chan struct{}
+	done       chan error
+	result     struct {
 		StopReason string `json:"stopReason"`
 		Meta       struct {
 			PromptID string `json:"promptId"`
@@ -365,13 +407,21 @@ type nativePrompt struct {
 	}
 }
 
-func (p *Wrapper) startPrompt(ctx context.Context, primary *acpClient, id, prompt string) (host.Turn, error) {
-	t := &nativePrompt{owner: p, client: primary, sessionID: id, done: make(chan error, 1)}
+func (p *Wrapper) startPrompt(ctx context.Context, primary *acpClient, id, prompt string) (*nativePrompt, error) {
+	t := &nativePrompt{owner: p, client: primary, sessionID: id, promptText: prompt, admitted: make(chan struct{}), done: make(chan error, 1)}
+	p.mu.Lock()
+	p.pendingPrompt = t
+	p.mu.Unlock()
 	started := make(chan error, 1)
 	go func() {
-		t.done <- primary.requestStarted(ctx, "session/prompt", map[string]any{"sessionId": id, "prompt": []map[string]string{{"type": "text", "text": prompt}}}, &t.result, started)
+		t.done <- primary.requestSubmitting(ctx, "session/prompt", map[string]any{"sessionId": id, "prompt": []map[string]string{{"type": "text", "text": prompt}}}, &t.result, started, func() { p.mu.Lock(); t.attempted = true; p.mu.Unlock() })
 	}()
 	if err := <-started; err != nil {
+		p.mu.Lock()
+		if p.pendingPrompt == t {
+			p.pendingPrompt = nil
+		}
+		p.mu.Unlock()
 		return nil, err
 	}
 	p.mu.Lock()
@@ -402,9 +452,16 @@ func (t *nativePrompt) Wait(ctx context.Context) (sessionkit.TurnResult, error) 
 	if t.owner.active == t {
 		t.owner.active = nil
 	}
+	if t.owner.pendingPrompt == t {
+		t.owner.pendingPrompt = nil
+	}
+	nativeID := t.nativeID
 	t.owner.mu.Unlock()
 	if err != nil {
 		return sessionkit.TurnResult{}, err
+	}
+	if nativeID != "" && nativeID != t.result.Meta.PromptID {
+		return sessionkit.TurnResult{}, errors.New("Grok prompt terminal identity contradicted admission")
 	}
 	if t.result.Meta.PromptID == "" {
 		return sessionkit.TurnResult{}, errors.New("Grok prompt response omitted its identity")
@@ -432,6 +489,7 @@ func (p *Wrapper) retireRun(run *sessionkit.Run) {
 }
 
 func (p *Wrapper) receive(frame acpFrame) {
+	p.receiveQueue(frame)
 	if frame.Method != "session/update" {
 		return
 	}
@@ -683,3 +741,52 @@ func first(values ...string) string {
 }
 
 var _ sessionkit.WorkerCallbacks = (*Wrapper)(nil)
+
+func (p *Wrapper) receiveQueue(frame acpFrame) {
+	if frame.Method != "_x.ai/queue/changed" {
+		return
+	}
+	var q struct {
+		SessionID string `json:"sessionId"`
+		PromptID  string `json:"runningPromptId"`
+		Text      string `json:"runningText"`
+		Kind      string `json:"runningKind"`
+	}
+	if json.Unmarshal(frame.Params, &q) != nil || q.PromptID == "" || q.Kind != "prompt" {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	t := p.pendingPrompt
+	if t == nil || !t.attempted || q.SessionID != t.sessionID || q.Text != t.promptText || t.nativeID != "" {
+		return
+	}
+	t.nativeID = q.PromptID
+	close(t.admitted)
+}
+func (t *nativePrompt) admission(ctx context.Context) error {
+	t.owner.mu.Lock()
+	observer := t.owner.primary
+	t.owner.mu.Unlock()
+	if observer == nil {
+		return errors.New("Grok primary admission stream unavailable")
+	}
+	select {
+	case <-t.admitted:
+		return nil
+	case <-ctx.Done():
+		select {
+		case <-t.admitted:
+			return nil
+		default:
+			return ctx.Err()
+		}
+	case <-observer.done:
+		select {
+		case <-t.admitted:
+			return nil
+		default:
+			return errors.New("Grok primary ended before prompt admission")
+		}
+	}
+}

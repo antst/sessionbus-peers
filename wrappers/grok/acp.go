@@ -157,6 +157,9 @@ func (c *acpClient) request(ctx context.Context, method string, params, result a
 	return c.requestStarted(ctx, method, params, result, nil)
 }
 func (c *acpClient) requestStarted(ctx context.Context, method string, params, result any, started chan<- error) error {
+	return c.requestSubmitting(ctx, method, params, result, started, nil)
+}
+func (c *acpClient) requestSubmitting(ctx context.Context, method string, params, result any, started chan<- error, submit func()) error {
 	signal := func(err error) {
 		if started != nil {
 			started <- err
@@ -183,7 +186,7 @@ func (c *acpClient) requestStarted(ctx context.Context, method string, params, r
 	reply := make(chan acpReply, 1)
 	c.pending[id] = reply
 	c.mu.Unlock()
-	err := c.sendContext(ctx, map[string]any{"jsonrpc": "2.0", "id": id, "method": method, "params": params})
+	err := c.sendSubmitting(ctx, map[string]any{"jsonrpc": "2.0", "id": id, "method": method, "params": params}, submit)
 	signal(err)
 	if err != nil {
 		c.mu.Lock()
@@ -218,6 +221,9 @@ func (c *acpClient) requestStarted(ctx context.Context, method string, params, r
 }
 func (c *acpClient) send(value any) error { return c.sendContext(context.Background(), value) }
 func (c *acpClient) sendContext(ctx context.Context, value any) error {
+	return c.sendSubmitting(ctx, value, nil)
+}
+func (c *acpClient) sendSubmitting(ctx context.Context, value any, submit func()) error {
 	body, err := json.Marshal(value)
 	if err != nil {
 		return err
@@ -247,6 +253,9 @@ func (c *acpClient) sendContext(ctx context.Context, value any) error {
 	}
 	if err = ctx.Err(); err != nil {
 		return err
+	}
+	if submit != nil {
+		submit()
 	}
 	done := make(chan error, 1)
 	go func() {
