@@ -56,8 +56,17 @@ func New(socket, token string) *Wrapper {
 
 func (p *Wrapper) SetShutdown(shutdown func()) { p.shutdown = shutdown }
 func (p *Wrapper) SetCall(call func(context.Context, string, any) (json.RawMessage, error)) {
-	p.backend = mcp.BackendFunc(call)
+	p.SetCaller(sessionkit.NewCaller(call))
 }
+
+type laneCallerBackend struct{ caller *sessionkit.Caller }
+
+func (b laneCallerBackend) Prepare(context.Context, json.RawMessage) error { return nil }
+func (b laneCallerBackend) Caller() *sessionkit.Caller                     { return b.caller }
+func (b laneCallerBackend) Call(context.Context, string, any) (json.RawMessage, error) {
+	return nil, errors.New("use the owned public Caller")
+}
+func (p *Wrapper) SetCaller(caller *sessionkit.Caller) { p.backend = laneCallerBackend{caller} }
 
 func (*Wrapper) Hello(context.Context) (sessionkit.HelloDescription, error) {
 	return sessionkit.HelloDescription{Product: Product,

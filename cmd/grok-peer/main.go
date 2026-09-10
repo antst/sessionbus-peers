@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -67,11 +68,7 @@ func run(ctx context.Context, arguments []string) error {
 	product := grok.New(os.Getenv(host.SocketEnv), os.Getenv(host.TokenEnv))
 	worker := sessionkit.NewWorker(product)
 	product.SetShutdown(worker.Shutdown)
-	product.SetCall(func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-		var result json.RawMessage
-		err := worker.Call(ctx, method, params, &result)
-		return result, err
-	})
+	product.SetCaller(worker.Caller())
 	return worker.Serve(ctx)
 }
 
@@ -81,12 +78,33 @@ func runMCP(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		return (&mcp.Server{Backend: backend}).Serve(ctx, os.Stdin, os.Stdout)
+		return serveMCP(ctx, grokMCPOwner{action: backend.Action}, os.Stdin, os.Stdout)
 	}
 	backend, err := grok.NewPeerBackend(ctx, os.Environ())
 	if err != nil {
 		return err
 	}
 	defer backend.Shutdown()
-	return (&mcp.Server{Backend: backend}).Serve(ctx, os.Stdin, os.Stdout)
+	return serveMCP(ctx, grokMCPOwner{action: backend.Caller().Action, end: backend.Shutdown}, os.Stdin, os.Stdout)
+}
+
+// The native MCP process owns its stdin and the lifetime of its public calls.
+// A lane forwarder uses the Worker's sole Caller through its private endpoint.
+type grokMCPOwner struct {
+	action func(context.Context, string, json.RawMessage) (json.RawMessage, error)
+	end    func()
+}
+
+func (o grokMCPOwner) Action(ctx context.Context, action string, args json.RawMessage) (json.RawMessage, error) {
+	return o.action(ctx, action, args)
+}
+func (o grokMCPOwner) End() {
+	if o.end != nil {
+		o.end()
+	}
+}
+func serveMCP(ctx context.Context, owner mcp.SessionbusOwner, input io.ReadCloser, output io.Writer) error {
+	stop := context.AfterFunc(ctx, func() { owner.End(); _ = input.Close() })
+	defer stop()
+	return mcp.ServeSessionbus(owner, input, output, mcp.ReportHandler{})
 }
