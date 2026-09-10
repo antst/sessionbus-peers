@@ -73,18 +73,15 @@ func run(ctx context.Context, arguments []string) error {
 }
 
 func runMCP(ctx context.Context) error {
-	if os.Getenv(mcp.LaneSocketEnv) == "" && os.Getenv(grok.ManagedEnv) != "1" {
+	if os.Getenv(mcp.LaneSocketEnv) == "" && !grok.ManagedHelper(os.Environ()) {
 		stop := context.AfterFunc(ctx, func() { _ = os.Stdin.Close() })
 		defer stop()
 		return mcp.ServeInactiveSessionbus(os.Stdin, os.Stdout)
 	}
-	if os.Getenv(mcp.LaneSocketEnv) != "" {
-		backend, err := mcp.NewLaneBackend()
-		if err != nil {
-			return err
-		}
-		return serveMCP(ctx, grokMCPOwner{action: backend.Action}, os.Stdin, os.Stdout)
+	if path := os.Getenv(mcp.LaneSocketEnv); path != "" {
+		return grok.ForwardLane(ctx, path, os.Stdin, os.Stdout)
 	}
+
 	backend, err := grok.NewPeerBackend(ctx, os.Environ())
 	if err != nil {
 		return err

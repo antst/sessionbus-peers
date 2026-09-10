@@ -59,7 +59,7 @@ type peerDeliveryResult struct {
 }
 
 func startPeerClient(lifetimeCtx, requestCtx context.Context, leaderPath, cwd string, notify func(acpFrame)) (*acpClient, *nativeProcess, error) {
-	cmd := command("grok", "--no-auto-update", "--permission-mode", "default", "--leader-socket", leaderPath, "agent", "--leader", "stdio")
+	cmd := command("grok", "--no-auto-update", "--leader-socket", leaderPath, "agent", "--leader", "stdio")
 	cmd.Dir, cmd.Env, cmd.Stderr, cmd.SysProcAttr = cwd, nativeEnvironment(), os.Stderr, &syscall.SysProcAttr{Setpgid: true}
 	return startObserverClient(lifetimeCtx, requestCtx, cmd, notify)
 }
@@ -115,9 +115,10 @@ func RunInteractive(ctx context.Context, plan host.ExecPlan) error {
 		return err
 	}
 	leaderPath := leaderSocket(socket, key)
+	plan.Env = setEnvironment(plan.Env, ManagedEnv, leaderPath)
 	defer os.Remove(leaderPath)
 	defer os.Remove(strings.TrimSuffix(leaderPath, ".sock") + ".lock")
-	leader, err := startLeader(socket, key, cwd, interactivePermission(plan.Args), peerNativeEnvironment(plan.Env))
+	leader, err := startLeader(ctx, socket, key, cwd, interactivePermission(plan.Args), peerNativeEnvironment(plan.Env))
 	if err != nil {
 		return err
 	}
@@ -156,8 +157,8 @@ func RunInteractive(ctx context.Context, plan host.ExecPlan) error {
 }
 
 func peerNativeEnvironment(environment []string) []string {
-	result := setEnvironment(nativeEnvironment(), ManagedEnv, "1")
-	for _, name := range []string{host.SocketEnv, host.GroupsEnv} {
+	result := nativeEnvironment()
+	for _, name := range []string{host.SocketEnv, host.GroupsEnv, ManagedEnv} {
 		if value := environmentValue(environment, name); value != "" {
 			result = setEnvironment(result, name, value)
 		}
@@ -550,4 +551,9 @@ func newSessionID() (string, error) {
 	}
 	value[6], value[8] = value[6]&0x0f|0x40, value[8]&0x3f|0x80
 	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x", value[0:4], value[4:6], value[6:8], value[8:10], value[10:16]), nil
+}
+
+func ManagedHelper(environment []string) bool {
+	marker := environmentValue(environment, ManagedEnv)
+	return marker != "" && marker == environmentValue(environment, grokLeaderSocketEnv) && environmentValue(environment, grokSessionIDEnv) != ""
 }

@@ -8,10 +8,10 @@ import (
 	"encoding/json"
 	kit "github.com/antst/sessionbus/bus/sdk/go"
 	"io"
-	"strings"
 	"sync"
 	"testing"
 
+	"github.com/antst/sessionbus-peers/wrappers/grok"
 	"github.com/antst/sessionbus-peers/wrappers/host"
 )
 
@@ -22,12 +22,14 @@ func TestLaneModeRejectsArguments(t *testing.T) {
 	}
 }
 
-func TestMCPRequiresManagedLauncher(t *testing.T) {
-	t.Setenv("SESSIONBUS_LANE_SOCKET", "")
-	t.Setenv("SESSIONBUS_GROK_MANAGED", "1")
-	err := runMCP(context.Background())
-	if err == nil || !strings.Contains(err.Error(), "start Grok with grok-peer") {
-		t.Fatalf("runMCP = %v", err)
+func TestManagedHelperRequiresMatchingNativeLeader(t *testing.T) {
+	for _, env := range [][]string{nil, {"SESSIONBUS_GROK_MANAGED=private", "GROK_SESSION_ID=native"}, {"SESSIONBUS_GROK_MANAGED=private", "GROK_LEADER_SOCKET=ordinary", "GROK_SESSION_ID=native"}} {
+		if grok.ManagedHelper(env) {
+			t.Fatalf("foreign/inherited activation: %v", env)
+		}
+	}
+	if !grok.ManagedHelper([]string{"SESSIONBUS_GROK_MANAGED=private", "GROK_LEADER_SOCKET=private", "GROK_SESSION_ID=native"}) {
+		t.Fatal("matching native helper inactive")
 	}
 }
 

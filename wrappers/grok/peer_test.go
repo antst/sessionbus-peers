@@ -342,7 +342,7 @@ func TestLeaderCreatesDefaultStateRoot(t *testing.T) {
 	t.Setenv("XDG_RUNTIME_DIR", root)
 	socket := sessionkit.Socket()
 	check(t, !exists(filepath.Dir(socket)), "default run directory already exists")
-	leader, err := startLeader(socket, host.LaunchTokenDigest(testSessionID), t.TempDir(), "default", os.Environ())
+	leader, err := startLeader(context.Background(), socket, host.LaunchTokenDigest(testSessionID), t.TempDir(), "default", os.Environ())
 	must(t, err)
 	check(t, grokSocketReady(leaderSocket(socket, host.LaunchTokenDigest(testSessionID))), "leader socket was not created")
 	must(t, closeNative("leader", leader))

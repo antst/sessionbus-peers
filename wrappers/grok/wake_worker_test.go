@@ -47,7 +47,7 @@ func (p *grokSeedProduct) Run(ctx context.Context, run *kit.Run, seed kit.RunInp
 	return result, err
 }
 func TestGrokWorkerSeedAdmissionReceiptAndCursor(t *testing.T) {
-	for _, mode := range []string{"direct", "terminal-before-receipt", "bus-loss-at-receipt", "wrong-terminal"} {
+	for _, mode := range []string{"direct", "terminal-before-receipt", "bus-loss-at-receipt", "wrong-terminal", "native-error", "missing-admission", "replayed-admission"} {
 		t.Run(mode, func(t *testing.T) {
 			listener, err := net.Listen("unix", filepath.Join(testsocket.Directory(t), "bus.sock"))
 			must(t, err)
@@ -104,12 +104,35 @@ func TestGrokWorkerSeedAdmissionReceiptAndCursor(t *testing.T) {
 			}
 			must(t, json.Unmarshal(prompt.Params, &params))
 			check(t, len(params.Prompt) == 1 && strings.Contains(params.Prompt[0].Text, "owned-wake-marker"), "seed input missing")
+			if mode == "native-error" || mode == "missing-admission" || mode == "replayed-admission" {
+				if mode == "replayed-admission" {
+					must(t, nativeWriter.Encode(map[string]any{"jsonrpc": "2.0", "method": "_x.ai/queue/changed", "params": map[string]any{"sessionId": params.SessionID, "runningPromptId": "prompt-1", "runningText": params.Prompt[0].Text, "runningKind": "prompt", "_meta": map[string]bool{"isReplay": true}}}))
+				}
+				if mode == "native-error" {
+					must(t, nativeWriter.Encode(map[string]any{"jsonrpc": "2.0", "id": prompt.ID, "error": map[string]any{"code": -32603, "message": "native refused"}}))
+				} else {
+					replyACP(t, nativeWriter, prompt, map[string]any{"stopReason": "end_turn", "_meta": map[string]string{"promptId": "prompt-1"}})
+				}
+				refused := next()
+				check(t, refused.ID == 2, "wrong refused receipt")
+				ready := next()
+				check(t, ready.Method == "turn.ready", "missing unavailable record")
+				send(protocol.ResultBytes(ready.ID, "turn.ready", struct{}{}))
+				// No EOF or manual release: its own RPC completion settled the seed.
+				select {
+				case <-base.primary.done:
+					t.Fatal("healthy primary was closed")
+				default:
+				}
+				return
+			}
 			// The live primary running event establishes admission, not the write return.
 			must(t, nativeWriter.Encode(map[string]any{"jsonrpc": "2.0", "method": "_x.ai/queue/changed", "params": map[string]any{"sessionId": params.SessionID, "runningPromptId": "prompt-1", "runningText": params.Prompt[0].Text, "runningKind": "prompt", "entries": []any{}}}))
 			if p.entered != nil {
 				<-p.entered
 			}
 			must(t, nativeWriter.Encode(map[string]any{"jsonrpc": "2.0", "method": "session/update", "params": map[string]any{"sessionId": params.SessionID, "update": map[string]any{"sessionUpdate": "agent_message_chunk", "content": map[string]string{"text": "wake-answer"}}, "_meta": map[string]string{"promptId": "prompt-1"}}}))
+			must(t, nativeWriter.Encode(map[string]any{"jsonrpc": "2.0", "method": "session/update", "params": map[string]any{"sessionId": params.SessionID, "update": map[string]any{"sessionUpdate": "agent_message_chunk", "content": map[string]string{"text": "REPLAY"}}, "_meta": map[string]any{"promptId": "prompt-1", "isReplay": true}}}))
 			terminalID := "prompt-1"
 			if mode == "wrong-terminal" {
 				terminalID = "foreign"
