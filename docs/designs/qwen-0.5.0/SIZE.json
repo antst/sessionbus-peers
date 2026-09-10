@@ -1,10 +1,10 @@
 {
-  "measured_source_commit": "b8ac913f07d3212e93aacc9edd6e44ba0da3c020",
+  "measured_source_commit": "44b4eca1449d05c8236b0142b035e6f45ce24082",
   "installed_runtime_commit": "68e04075155a0072c6121a84a4a4f5bbc5d4e175",
   "scope": "Whole checkout includes retained source, tests, docs and old installers. SIZE.json has a separate self-size, no impossible self-hash. Dependency source is the non-stdlib files selected by Linux go list, not installed module trees. All stdlib/runtime cost is included in linked binary.",
   "archive": {
-    "bytes": 1645240,
-    "sha256": "3f48125381e149297564bcfd131f05d0abdeeedcde60c3c93eb64d9c51c19248",
+    "bytes": 1645618,
+    "sha256": "9ee711ef3ed7c81cbba62a7c613bfff69bbbd634f8317650a248f92e3a894f98",
     "regular": {
       "files": 9,
       "bytes": 3926686,
@@ -13,7 +13,12 @@
         {
           "path": "qwen-peer",
           "bytes": 3891362,
-          "sha256": "9b05b0fc64850086f605d97011451311bc3927c940df69939fe6652dce57428c"
+          "sha256": "498890250e5f329134e6a0a14d50e2b1f7604f797b0069b7986ef723a6ddf487"
+        },
+        {
+          "path": "plugin/plugin.json",
+          "bytes": 465,
+          "sha256": "7b9b33d6d34937d359626e1a80cebd6bac5bf06dc52b56b0e0891d8629eba8f6"
         },
         {
           "path": "plugin/README.md",
@@ -24,11 +29,6 @@
           "path": "plugin/skills/sessionbus/SKILL.md",
           "bytes": 9075,
           "sha256": "563aeec4c536398f3c91ce1effc90f76ce902c5e203166e4e5bd509605f099e0"
-        },
-        {
-          "path": "plugin/plugin.json",
-          "bytes": 465,
-          "sha256": "7b9b33d6d34937d359626e1a80cebd6bac5bf06dc52b56b0e0891d8629eba8f6"
         },
         {
           "path": "LICENSE",
@@ -66,8 +66,8 @@
   },
   "qwen_and_common_mcp_runtime_source": {
     "files": 24,
-    "bytes": 120348,
-    "lines": 4087,
+    "bytes": 120874,
+    "lines": 4095,
     "members": [
       {
         "path": "cmd/qwen-peer/main.go",
@@ -125,9 +125,9 @@
       },
       {
         "path": "wrappers/qwen/interactive_events.go",
-        "bytes": 2154,
-        "lines": 82,
-        "sha256": "d28b392fb7d68119558afe09652b7310493042d6e5b8de71ad3ced10d7d3e580"
+        "bytes": 2680,
+        "lines": 90,
+        "sha256": "959dd1a7acfa5c804bd860fe52e0c57dd3271c69e4d4880c5ee987fd6bfdec0d"
       },
       {
         "path": "wrappers/qwen/interactive_launch.go",
@@ -217,8 +217,8 @@
   },
   "qwen_and_common_mcp_tests": {
     "files": 26,
-    "bytes": 144926,
-    "lines": 3987,
+    "bytes": 146374,
+    "lines": 4026,
     "members": [
       {
         "path": "cmd/qwen-peer/main_test.go",
@@ -270,9 +270,9 @@
       },
       {
         "path": "wrappers/qwen/interactive_events_test.go",
-        "bytes": 2649,
-        "lines": 81,
-        "sha256": "b532ff9294e4c83014716afbc09732f57c1a2faf7c2a82f0443694f9b49c98cb"
+        "bytes": 3418,
+        "lines": 104,
+        "sha256": "a49750242a5efd6933734ff62d4c06705e33876c63c1895e1bb17c8bbc8ffe5e"
       },
       {
         "path": "wrappers/qwen/interactive_lifetime_test.go",
@@ -336,9 +336,9 @@
       },
       {
         "path": "wrappers/qwen/qwen_test.go",
-        "bytes": 16774,
-        "lines": 438,
-        "sha256": "288a1228db1e0f936119d62b6dc4b50e0464a2593a3c3ece55d398dbc41b8be4"
+        "bytes": 17453,
+        "lines": 454,
+        "sha256": "2aa955ad75818ae67a89677aeb90f747e71980ad3c747c861a1e9f2bd3b2ddfb"
       },
       {
         "path": "wrappers/qwen/review_config_test.go",
@@ -777,8 +777,8 @@
   },
   "whole_checkout_excluding_this_measurement": {
     "files": 306,
-    "bytes": 2131867,
-    "lines": 49420,
+    "bytes": 2135996,
+    "lines": 49499,
     "members": [
       {
         "path": ".forgejo/workflows/ci.yml",
@@ -1430,27 +1430,27 @@
       },
       {
         "path": "docs/designs/qwen-0.5.0/ACCEPTANCE.md",
-        "bytes": 7816,
-        "lines": 63,
-        "sha256": "aaf3284ba12fa001e2a9c312bec6d669d1796c8d80632dc6345019e7b307fcfe"
+        "bytes": 8782,
+        "lines": 78,
+        "sha256": "f7c469cf918bec028048ddc72ec175d75a3d333240f9793793e1ae48f987ce0d"
       },
       {
         "path": "docs/designs/qwen-0.5.0/EVIDENCE.json",
-        "bytes": 1211,
-        "lines": 26,
-        "sha256": "a2f7adba170429073f8c175b397f2e59460160848c93e7ee750c1b4abb1d27a6"
+        "bytes": 2040,
+        "lines": 40,
+        "sha256": "dbcf27233c59f598d8e29a4d68c72757e3c003daad00fd91b7518f925542bb69"
       },
       {
         "path": "docs/designs/qwen-0.5.0/IMPLEMENTATION.md",
-        "bytes": 7812,
-        "lines": 115,
-        "sha256": "39e99b556f58aa4895cc664f08d6bc468aff2a76c1759e2ed4fe3e0f71618e0b"
+        "bytes": 8059,
+        "lines": 118,
+        "sha256": "04b304244d60d59aca66f89a1bf90040b38a581f855f1d418cee17cb9b43f66c"
       },
       {
         "path": "docs/designs/qwen-0.5.0/measure.py",
-        "bytes": 6468,
+        "bytes": 6581,
         "lines": 115,
-        "sha256": "661a78a4eed3b061c7c294e82013e2056db556290ba2814c5873ceb4f413c870"
+        "sha256": "b5599dd1fff51552fb81d264deb9e9b23f1100ad6bc019dadfacfaa27ceef0c3"
       },
       {
         "path": "docs/development/codex-broker.md",
@@ -2414,15 +2414,15 @@
       },
       {
         "path": "wrappers/qwen/interactive_events.go",
-        "bytes": 2154,
-        "lines": 82,
-        "sha256": "d28b392fb7d68119558afe09652b7310493042d6e5b8de71ad3ced10d7d3e580"
+        "bytes": 2680,
+        "lines": 90,
+        "sha256": "959dd1a7acfa5c804bd860fe52e0c57dd3271c69e4d4880c5ee987fd6bfdec0d"
       },
       {
         "path": "wrappers/qwen/interactive_events_test.go",
-        "bytes": 2649,
-        "lines": 81,
-        "sha256": "b532ff9294e4c83014716afbc09732f57c1a2faf7c2a82f0443694f9b49c98cb"
+        "bytes": 3418,
+        "lines": 104,
+        "sha256": "a49750242a5efd6933734ff62d4c06705e33876c63c1895e1bb17c8bbc8ffe5e"
       },
       {
         "path": "wrappers/qwen/interactive_launch.go",
@@ -2564,9 +2564,9 @@
       },
       {
         "path": "wrappers/qwen/qwen_test.go",
-        "bytes": 16774,
-        "lines": 438,
-        "sha256": "288a1228db1e0f936119d62b6dc4b50e0464a2593a3c3ece55d398dbc41b8be4"
+        "bytes": 17453,
+        "lines": 454,
+        "sha256": "2aa955ad75818ae67a89677aeb90f747e71980ad3c747c861a1e9f2bd3b2ddfb"
       },
       {
         "path": "wrappers/qwen/review_config_test.go",
@@ -2620,14 +2620,14 @@
   },
   "whole_checkout_including_this_measurement": {
     "files": 307,
-    "bytes": 2224473,
-    "lines": 52178,
-    "measurement_bytes": 92606
+    "bytes": 2228717,
+    "lines": 52257,
+    "measurement_bytes": 92721
   },
   "real_installed_inventory": {
     "record": "/home/antst/qwen-architecture-20260910/installed-interactive-68e0407/remote/final-installed-and-cleanup.json",
     "sha256": "363f0e7017159b83e3631c6e82f224d46941992d9853634964e262c076b6adf2",
-    "scope": "Actual permanent Qwen package plus native extension copy at installed68; symlink targets counted once, native extension metadata included. Final README documentation delta is separate; runtime and active skill stay identical.",
+    "scope": "Actual permanent Qwen package plus native extension copy at installed68; symlink targets counted once, native extension metadata included. Historical installed68 inventory; final source additionally changes explicit FIFO poll registration. Active skill, lane runtime, scripts and pins stay identical; final archive is measured separately.",
     "entries": 12,
     "regular_bytes_excluding_symlink_targets": 3943065,
     "members": [
