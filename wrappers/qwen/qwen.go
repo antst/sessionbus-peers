@@ -240,11 +240,10 @@ func (p *Wrapper) retireRun(run *sessionkit.Run) {
 	p.mu.Unlock()
 }
 func (p *Wrapper) watch(child *host.Child, drained <-chan struct{}) {
-	err := child.Wait()
-	if err == nil {
-		err = errors.New("Qwen ACP exited")
-	}
-	p.client.fail(err)
+	_ = child.Wait()
+	// StartChild uses explicit pipes: process reaping does not drain stdout.
+	// Let the ACP reader consume buffered terminal frames and reach EOF; its
+	// failure path closes stdin and joins native response writers before drained.
 	<-drained
 	p.mu.Lock()
 	opened, closing, run := p.opened, p.closing, p.run

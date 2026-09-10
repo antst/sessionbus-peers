@@ -23,6 +23,10 @@ const fixtureID = "11111111-2222-4333-8444-555555555555"
 
 func TestMain(m *testing.M) {
 	if os.Getenv("QWEN_TEST_CHILD") != "" {
+		if os.Getenv("QWEN_TEST_WATCH_CHILD") != "" {
+			watchChild()
+			os.Exit(0)
+		}
 		fakeChild()
 		os.Exit(0)
 	}
