@@ -111,6 +111,13 @@ func fakeChild() {
 			result = map[string]any{}
 		}
 		_ = encoder.Encode(map[string]any{"jsonrpc": "2.0", "id": request.ID, "result": result})
+		if request.Method == "session/resume" && os.Getenv("QWEN_TEST_HOLD_RESUME_EXIT") == "1" {
+			// Force the mismatch case's kill diagnostic: ordinary stdin EOF can
+			// otherwise let this fixture exit successfully before Kill executes.
+			gate := os.NewFile(3, "test-resume-exit-gate")
+			_, _ = io.Copy(io.Discard, gate)
+			_ = gate.Close()
+		}
 		if request.Method == "renameSession" && os.Getenv("QWEN_TEST_NOTIFY_OPEN") == "1" {
 			f := os.NewFile(3, "test-open-complete")
 			_, _ = f.Write([]byte{1})
@@ -296,6 +303,15 @@ func TestOpenResumeUsesCapturedACPShapesAndScrubsBusEnv(t *testing.T) {
 	must(t, p.Close(context.Background(), sessionkit.SessionCloseRequest{}))
 	t.Setenv("QWEN_TEST_RESUME_FRAME", "")
 	t.Setenv("QWEN_TEST_RESUME_ID", "22222222-3333-4444-8555-666666666666")
+	gateRead, gateWrite, err := os.Pipe()
+	must(t, err)
+	t.Cleanup(func() { _ = gateWrite.Close(); _ = gateRead.Close() })
+	t.Setenv("QWEN_TEST_HOLD_RESUME_EXIT", "1")
+	laneCommand = func(_ string, arguments ...string) *exec.Cmd {
+		cmd := exec.Command(os.Args[0], arguments...)
+		cmd.ExtraFiles = []*os.File{gateRead}
+		return cmd
+	}
 	p = New(socket)
 	p.SetCall(func(context.Context, string, any) (json.RawMessage, error) { return json.RawMessage(`{}`), nil })
 	_, err = p.Open(context.Background(), sessionkit.OpenRequest{Name: "leaf@local", ResumeSessionID: fixtureID, Open: sessionkit.OpenOptions{Cwd: directory}})
