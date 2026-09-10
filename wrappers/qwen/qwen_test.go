@@ -3,12 +3,8 @@
 package qwen
 
 import (
-	"bufio"
-	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
-	"fmt"
 	"io"
 	"net"
 	"os"
@@ -64,16 +60,22 @@ func fakeChild() {
 		case "initialize":
 			result = map[string]any{"protocolVersion": 1, "agentInfo": map[string]string{"name": "qwen-code"}, "agentCapabilities": map[string]bool{"loadSession": true}}
 		case "session/resume":
+			if os.Getenv("QWEN_TEST_NO_MCP") != "1" && !fakeMCP(request.Params.MCP) {
+				return
+			}
 			if frame := os.Getenv("QWEN_TEST_RESUME_FRAME"); frame != "" {
 				_, _ = io.WriteString(os.Stdout, frame)
 				continue
 			}
 			result = map[string]any{"sessionId": os.Getenv("QWEN_TEST_RESUME_ID"), "modes": map[string]string{"currentModeId": "yolo"}}
 		case "session/new":
+			if os.Getenv("QWEN_TEST_NO_MCP") != "1" && !fakeMCP(request.Params.MCP) {
+				return
+			}
 			if request.Params.Cwd == "" || len(request.Params.MCP) != 1 {
 				return
 			}
-			result = map[string]any{"sessionId": request.Params.Meta["qwen-code/sessionId"], "modes": map[string]string{"currentModeId": "default"}}
+			result = map[string]any{"sessionId": fixtureID, "modes": map[string]string{"currentModeId": "default"}}
 		case "session/set_config_option":
 			result = map[string]any{"configOptions": []any{map[string]string{"id": "reasoning_effort", "currentValue": "low"}}}
 		case "renameSession":
@@ -82,6 +84,11 @@ func fakeChild() {
 			result = map[string]any{}
 		}
 		_ = encoder.Encode(map[string]any{"jsonrpc": "2.0", "id": request.ID, "result": result})
+		if request.Method == "renameSession" && os.Getenv("QWEN_TEST_NOTIFY_OPEN") == "1" {
+			f := os.NewFile(3, "test-open-complete")
+			_, _ = f.Write([]byte{1})
+			_ = f.Close()
+		}
 	}
 }
 
@@ -111,7 +118,7 @@ func (p *heldRetirementProduct) Run(ctx context.Context, run *sessionkit.Run, se
 		<-p.release
 		p.retireRun(run)
 	}()
-	return p.handoff.Run(ctx, run, *seed.Text, p.start)
+	return p.executeRun(ctx, run, seed, run.ReportDelivery)
 }
 
 func testAbnormalRunRetirement(t *testing.T, holdBackground bool) {
@@ -193,7 +200,7 @@ func testAbnormalRunRetirement(t *testing.T, holdBackground bool) {
 	}
 }
 
-func TestFreshOpenMintsV4AndRenames(t *testing.T) {
+func TestFreshOpenAdoptsNativeIDAndRenames(t *testing.T) {
 	directory := testsocket.Directory(t)
 	socket, record := filepath.Join(directory, "bus.sock"), filepath.Join(directory, "child.json")
 	t.Setenv("QWEN_TEST_CHILD", "1")
@@ -205,7 +212,7 @@ func TestFreshOpenMintsV4AndRenames(t *testing.T) {
 	p.SetCall(func(context.Context, string, any) (json.RawMessage, error) { return json.RawMessage(`{}`), nil })
 	result, err := p.Open(context.Background(), sessionkit.OpenRequest{Name: "fresh@local", Open: sessionkit.OpenOptions{Cwd: directory}})
 	must(t, err)
-	check(t, len(result.SessionID) == 36 && result.SessionID[14] == '4' && strings.Contains("89ab", string(result.SessionID[19])), "session id = %q", result.SessionID)
+	check(t, result.SessionID == fixtureID, "native id = %q", result.SessionID)
 	must(t, p.Close(context.Background(), sessionkit.SessionCloseRequest{}))
 }
 
@@ -255,7 +262,7 @@ func TestOpenResumeUsesCapturedACPShapesAndScrubsBusEnv(t *testing.T) {
 	var child map[string]any
 	must(t, json.Unmarshal(mustRead(t, record), &child))
 	check(t, reflect.DeepEqual(child["args"], []any{"--acp", "--yolo", "-m", "model", "--screen-reader"}), "args = %#v", child["args"])
-	check(t, child["lane_socket"] == filepath.Join(directory, "lanes", fixtureID+".sock"), "lane socket = %#v", child["lane_socket"])
+	check(t, child["lane_socket"] == "", "legacy lane socket reached native: %#v", child["lane_socket"])
 	for _, name := range []string{host.SocketEnv, host.LocalKeyEnv, host.TokenEnv, host.SessionIDEnv, host.NameEnv, host.GroupsEnv} {
 		check(t, child[name] == "", "%s reached child: %#v", name, child)
 	}
@@ -265,217 +272,13 @@ func TestOpenResumeUsesCapturedACPShapesAndScrubsBusEnv(t *testing.T) {
 	p = New(socket)
 	p.SetCall(func(context.Context, string, any) (json.RawMessage, error) { return json.RawMessage(`{}`), nil })
 	_, err = p.Open(context.Background(), sessionkit.OpenRequest{Name: "leaf@local", ResumeSessionID: fixtureID, Open: sessionkit.OpenOptions{Cwd: directory}})
-	check(t, err != nil && err.Error() == `Qwen ACP changed native session from "11111111-2222-4333-8444-555555555555" to "22222222-3333-4444-8555-666666666666"`, "mismatch error = %v", err)
-}
-
-func TestRunMayDrainQueuedDeliveryAndRestoresUndrained(t *testing.T) {
-	p, productIn, productOut := newFixtureClient(t)
-	firstDone := make(chan sessionkit.TurnResult, 1)
-	go func() {
-		result, _ := p.Run(context.Background(), &sessionkit.Run{}, textSeed("first"))
-		firstDone <- result
-	}()
-	first := readRequest(t, productIn)
-	check(t, first.Method == "session/prompt", "request = %#v", first)
-	receipt, err := p.Deliver(context.Background(), delivery("MID"), nil)
-	must(t, err)
-	check(t, receipt.Disposition == "queued_for_next_turn", "receipt = %#v", receipt)
-	writeFrame(t, productOut, `{"jsonrpc":"2.0","id":79,"method":"craft/drainMidTurnQueue","params":{"sessionId":"wrong"}}`)
-	wrong := readRequest(t, productIn)
-	check(t, bytes.Contains(wrong.Raw, []byte(`"code":-32602`)) && !bytes.Contains(wrong.Raw, []byte("MID")), "wrong-session drain = %s", wrong.Raw)
-	writeFrame(t, productOut, `{"jsonrpc":"2.0","id":80,"method":"craft/drainMidTurnQueue","params":{"sessionId":"`+fixtureID+`"}}`)
-	drain := readRequest(t, productIn)
-	check(t, bytes.Contains(drain.Raw, []byte(`"hasQueuedPrompt":true`)) && bytes.Contains(drain.Raw, []byte("MID")), "drain = %s", drain.Raw)
-	writeFrame(t, productOut, `{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"`+fixtureID+`","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"answer"}}}}`)
-	writeResult(t, productOut, first.ID, `{"stopReason":"end_turn"}`)
-	check(t, (<-firstDone).Result == "answer", "first result changed")
-
-	secondDone := make(chan sessionkit.TurnResult, 1)
-	go func() {
-		result, _ := p.Run(context.Background(), &sessionkit.Run{}, textSeed("second"))
-		secondDone <- result
-	}()
-	second := readRequest(t, productIn)
-	check(t, !bytes.Contains(second.Raw, []byte("MID")), "claimed message replayed: %s", second.Raw)
-	receipt, err = p.Deliver(context.Background(), delivery("UNDRAINED"), nil)
-	must(t, err)
-	check(t, receipt.Disposition == "queued_for_next_turn", "receipt = %#v", receipt)
-	writeResult(t, productOut, second.ID, `{"stopReason":"end_turn"}`)
-	<-secondDone
-	thirdDone := make(chan sessionkit.TurnResult, 1)
-	go func() {
-		result, _ := p.Run(context.Background(), &sessionkit.Run{}, textSeed("third"))
-		thirdDone <- result
-	}()
-	third := readRequest(t, productIn)
-	check(t, bytes.Contains(third.Raw, []byte("UNDRAINED")), "undrained message lost: %s", third.Raw)
-	writeResult(t, productOut, third.ID, `{"stopReason":"end_turn"}`)
-	<-thirdDone
-}
-
-func TestDrainRequestIsHandledBeforeFollowingTerminal(t *testing.T) {
-	p, productIn, productOut := newFixtureClient(t)
-	done := make(chan sessionkit.TurnResult, 1)
-	go func() { result, _ := p.Run(context.Background(), &sessionkit.Run{}, textSeed("turn")); done <- result }()
-	prompt := readRequest(t, productIn)
-	receipt, err := p.Deliver(context.Background(), delivery("ORDERED"), nil)
-	must(t, err)
-	check(t, receipt.Disposition == "queued_for_next_turn", "receipt = %#v", receipt)
-
-	drain := p.client.drain
-	entered, release := make(chan struct{}), make(chan struct{})
-	p.client.drain = func(sessionID string) ([]string, error) {
-		close(entered)
-		<-release
-		return drain(sessionID)
+	check(t, err != nil && strings.Contains(err.Error(), "changed requested native identity"), "mismatch error = %v", err)
+	if p.child.Wait() == nil || p.command.ProcessState.Success() {
+		t.Fatal("failed Open lost direct-child cleanup diagnostic")
 	}
-	writeFrame(t, productOut, `{"jsonrpc":"2.0","id":90,"method":"craft/drainMidTurnQueue","params":{"sessionId":"`+fixtureID+`"}}`)
-	writeResult(t, productOut, prompt.ID, `{"stopReason":"end_turn"}`)
-	<-entered
-	select {
-	case result := <-done:
-		t.Fatalf("terminal passed held drain: %#v", result)
-	default:
+	if !strings.Contains(err.Error(), "signal:") {
+		t.Fatalf("cleanup error omitted: %v", err)
 	}
-	close(release)
-	response := readRequest(t, productIn)
-	check(t, bytes.Count(response.Raw, []byte("ORDERED")) == 1, "drain response = %s", response.Raw)
-	<-done
-
-	next := make(chan sessionkit.TurnResult, 1)
-	go func() { result, _ := p.Run(context.Background(), &sessionkit.Run{}, textSeed("next")); next <- result }()
-	nextPrompt := readRequest(t, productIn)
-	check(t, !bytes.Contains(nextPrompt.Raw, []byte("ORDERED")), "claimed delivery replayed: %s", nextPrompt.Raw)
-	writeResult(t, productOut, nextPrompt.ID, `{"stopReason":"end_turn"}`)
-	<-next
-}
-
-func TestFailedPromptWriteRestoresQueuedDelivery(t *testing.T) {
-	writer := &blockedWriteCloser{entered: make(chan struct{}), release: make(chan struct{})}
-	clientOutput, productOut, err := os.Pipe()
-	must(t, err)
-	p := New("")
-	p.id = fixtureID
-	p.client = newACPClient(writer, clientOutput, p.receive, p.drain)
-	t.Cleanup(func() { _ = productOut.Close(); <-p.client.done })
-	failed := make(chan error, 1)
-	go func() {
-		_, err := p.Run(context.Background(), &sessionkit.Run{}, textSeed("turn"))
-		failed <- err
-	}()
-	<-writer.entered
-	receipt, err := p.Deliver(context.Background(), delivery("RESTORED"), nil)
-	must(t, err)
-	check(t, receipt.Disposition == "queued_for_next_turn", "receipt = %#v", receipt)
-	close(writer.release)
-	check(t, (<-failed).Error() == "prompt write failed", "prompt start did not fail")
-
-	next, prompt := &immediateTurn{}, ""
-	_, err = p.handoff.Run(context.Background(), &sessionkit.Run{}, "next", func(_ context.Context, input string) (host.Turn, error) {
-		prompt = input
-		return next, nil
-	})
-	must(t, err)
-	check(t, strings.Count(prompt, "RESTORED") == 1 && len(p.handoff.Claim()) == 0, "prompt = %q", prompt)
-	_, err = p.handoff.Run(context.Background(), &sessionkit.Run{}, "again", func(_ context.Context, input string) (host.Turn, error) {
-		prompt = input
-		return next, nil
-	})
-	must(t, err)
-	check(t, !strings.Contains(prompt, "RESTORED"), "delivery replayed twice: %q", prompt)
-}
-
-func TestInterruptIgnoresCancelledBooleanAndUsesTerminal(t *testing.T) {
-	p, productIn, productOut := newFixtureClient(t)
-	done := make(chan sessionkit.TurnResult, 1)
-	go func() { result, _ := p.Run(context.Background(), &sessionkit.Run{}, textSeed("block")); done <- result }()
-	prompt := readRequest(t, productIn)
-	p.mu.Lock()
-	native := p.active
-	p.mu.Unlock()
-	interrupted := make(chan error, 1)
-	go func() { interrupted <- native.Interrupt(context.Background()) }()
-	cancel := readRequest(t, productIn)
-	check(t, cancel.Method == "craft/cancelPendingPrompt", "cancel = %#v", cancel)
-	writeResult(t, productOut, cancel.ID, `{"cancelled":false}`)
-	must(t, <-interrupted)
-	writeResult(t, productOut, prompt.ID, `{"stopReason":"end_turn"}`)
-	check(t, (<-done).Outcome == "interrupted", "terminal was not authoritative")
-}
-
-func TestACPClientAnswersCapturedRequestsAndDrainsLargeExitFrame(t *testing.T) {
-	p, productIn, productOut := newFixtureClient(t)
-	writeFrame(t, productOut, `{"jsonrpc":"2.0","id":91,"method":"session/request_permission","params":{}}`)
-	permission := readRequest(t, productIn)
-	check(t, string(permission.Raw) == `{"id":91,"jsonrpc":"2.0","result":{"outcome":{"outcome":"cancelled"}}}`, "permission = %s", permission.Raw)
-	done := make(chan sessionkit.TurnResult, 1)
-	go func() { result, _ := p.Run(context.Background(), &sessionkit.Run{}, textSeed("large")); done <- result }()
-	prompt := readRequest(t, productIn)
-	large := strings.Repeat("x", 300000) + "tail"
-	writeFrame(t, productOut, fmt.Sprintf(`{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"%s","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":%q}}}}`, fixtureID, large))
-	writeResult(t, productOut, prompt.ID, `{"stopReason":"end_turn"}`)
-	must(t, productOut.Close())
-	result := <-done
-	check(t, len(result.Result) == 300004 && strings.HasSuffix(result.Result, "tail"), "result bytes = %d", len(result.Result))
-}
-
-type wireRequest struct {
-	ID     int64
-	Method string
-	Raw    []byte
-}
-
-type blockedWriteCloser struct {
-	entered chan struct{}
-	release chan struct{}
-}
-
-func (w *blockedWriteCloser) Write([]byte) (int, error) {
-	close(w.entered)
-	<-w.release
-	return 0, errors.New("prompt write failed")
-}
-func (*blockedWriteCloser) Close() error { return nil }
-
-type immediateTurn struct{}
-
-func (*immediateTurn) Wait(context.Context) (sessionkit.TurnResult, error) {
-	return sessionkit.TurnResult{Outcome: "completed"}, nil
-}
-func (*immediateTurn) Interrupt(context.Context) error { return nil }
-
-func newFixtureClient(t *testing.T) (*Wrapper, *bufio.Reader, *os.File) {
-	productIn, clientInput, err := os.Pipe()
-	must(t, err)
-	clientOutput, productOut, err := os.Pipe()
-	must(t, err)
-	p := New("")
-	p.id = fixtureID
-	p.client = newACPClient(clientInput, clientOutput, p.receive, p.drain)
-	t.Cleanup(func() { _ = productIn.Close(); _ = productOut.Close(); _ = p.client.close(); <-p.client.done })
-	return p, bufio.NewReader(productIn), productOut
-}
-
-func readRequest(t *testing.T, input *bufio.Reader) wireRequest {
-	t.Helper()
-	line, err := input.ReadBytes('\n')
-	must(t, err)
-	line = bytes.TrimSpace(line)
-	var request wireRequest
-	must(t, json.Unmarshal(line, &request))
-	request.Raw = append([]byte(nil), line...)
-	return request
-}
-
-func writeFrame(t *testing.T, output io.Writer, frame string) {
-	t.Helper()
-	_, err := io.WriteString(output, frame+"\n")
-	must(t, err)
-}
-
-func writeResult(t *testing.T, output io.Writer, id int64, result string) {
-	t.Helper()
-	writeFrame(t, output, fmt.Sprintf(`{"jsonrpc":"2.0","id":%d,"result":%s}`, id, result))
 }
 
 func delivery(body string) sessionkit.DeliveryRequest {
@@ -503,4 +306,94 @@ func check(t *testing.T, ok bool, format string, values ...any) {
 	}
 }
 
-func textSeed(text string) sessionkit.RunInput { return sessionkit.RunInput{Text: &text} }
+// Native-child fixture performs a real MCP initialize on the exact configured
+// endpoint. It does not inject a ready bit or call the owner directly.
+func fakeMCP(servers []any) bool {
+	if len(servers) != 1 {
+		return false
+	}
+	server, ok := servers[0].(map[string]any)
+	if !ok {
+		return false
+	}
+	values, ok := server["env"].([]any)
+	if !ok {
+		return false
+	}
+	path := ""
+	for _, raw := range values {
+		v, _ := raw.(map[string]any)
+		if v["name"] == LaneEndpointEnv {
+			path, _ = v["value"].(string)
+		}
+	}
+	conn, err := net.Dial("unix", path)
+	if err != nil {
+		return false
+	}
+	if json.NewEncoder(conn).Encode(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": map[string]any{"protocolVersion": "2024-11-05", "capabilities": map[string]any{}, "clientInfo": map[string]string{"name": "native-controlled-child", "version": "1"}}}) != nil {
+		return false
+	}
+	var result map[string]any
+	return json.NewDecoder(conn).Decode(&result) == nil && result["error"] == nil
+}
+
+func TestCompletedOpenOutlivesOperationCancellation(t *testing.T) {
+	directory := testsocket.Directory(t)
+	t.Setenv("QWEN_TEST_CHILD", "1")
+	t.Setenv("QWEN_TEST_RECORD", filepath.Join(directory, "child.json"))
+	old := laneCommand
+	laneCommand = func(_ string, args ...string) *exec.Cmd { return exec.Command(os.Args[0], args...) }
+	defer func() { laneCommand = old }()
+	p := New(filepath.Join(directory, "bus.sock"))
+	p.SetCall(func(context.Context, string, any) (json.RawMessage, error) { return json.RawMessage(`{}`), nil })
+	ctx, cancel := context.WithCancel(context.Background())
+	_, err := p.Open(ctx, sessionkit.OpenRequest{Name: "fresh@local", Open: sessionkit.OpenOptions{Cwd: directory}})
+	must(t, err)
+	cancel()
+	// Exercise the same adopted native pipe after the operation context ends.
+	must(t, p.client.call(context.Background(), "initialize", map[string]any{"protocolVersion": 1}, nil))
+	must(t, p.Close(context.Background(), sessionkit.SessionCloseRequest{}))
+	must(t, p.Close(context.Background(), sessionkit.SessionCloseRequest{}))
+}
+
+func TestNativeOpenWithoutMCPInitializationCannotBecomeReady(t *testing.T) {
+	directory := testsocket.Directory(t)
+	t.Setenv("QWEN_TEST_CHILD", "1")
+	t.Setenv("QWEN_TEST_RECORD", filepath.Join(directory, "child.json"))
+	t.Setenv("QWEN_TEST_NO_MCP", "1")
+	t.Setenv("QWEN_TEST_NOTIFY_OPEN", "1")
+	signalRead, signalWrite, err := os.Pipe()
+	must(t, err)
+	defer signalRead.Close()
+	defer signalWrite.Close()
+	old := laneCommand
+	laneCommand = func(_ string, args ...string) *exec.Cmd {
+		c := exec.Command(os.Args[0], args...)
+		c.ExtraFiles = []*os.File{signalWrite}
+		return c
+	}
+	defer func() { laneCommand = old }()
+	p := New(filepath.Join(directory, "bus.sock"))
+	p.SetCall(func(context.Context, string, any) (json.RawMessage, error) { return json.RawMessage(`{}`), nil })
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		_, err := p.Open(ctx, sessionkit.OpenRequest{Name: "fresh@local", Open: sessionkit.OpenOptions{Cwd: directory}})
+		done <- err
+	}()
+	var b [1]byte
+	_, err = io.ReadFull(signalRead, b[:])
+	must(t, err)
+	select {
+	case err := <-done:
+		t.Fatalf("native catalog/new/rename without actual MCP became ready: %v", err)
+	default:
+	}
+	cancel()
+	if err = <-done; err == nil {
+		t.Fatal("missing MCP initialization accepted")
+	}
+	<-p.child.Done()
+}

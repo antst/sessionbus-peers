@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: MIT
-
 package qwen
 
 import (
@@ -16,7 +15,6 @@ import (
 	"sync"
 
 	"github.com/antst/sessionbus-peers/wrappers/host"
-	"github.com/antst/sessionbus-peers/wrappers/mcp"
 	sessionkit "github.com/antst/sessionbus/bus/sdk/go"
 )
 
@@ -25,27 +23,26 @@ const Product = "qwen-peer"
 var laneCommand = exec.Command
 
 type Wrapper struct {
-	socket   string
-	handoff  host.Handoff
-	backend  mcp.Backend
-	mu       sync.Mutex
-	child    *host.Child
-	client   *acpClient
-	id       string
-	active   *turn
-	run      *sessionkit.Run
-	opened   bool
-	closing  bool
-	shutdown func()
+	lock            *host.SessionLock
+	closeOnce       sync.Once
+	closeErr        error
+	socket          string
+	caller          *sessionkit.Caller
+	mu              sync.Mutex
+	ctx             context.Context
+	cancel          context.CancelFunc
+	child           *host.Child
+	command         *exec.Cmd
+	client          *acpClient
+	endpoint        *laneEndpoint
+	id              string
+	active          *nativePrompt
+	run             *sessionkit.Run
+	staged          []*queuedMessage
+	stagedBytes     int
+	opened, closing bool
+	shutdown        func()
 }
-
-type turn struct {
-	owner       *Wrapper
-	reply       <-chan acpReply
-	output      strings.Builder
-	interrupted bool
-}
-
 type initializeReply struct {
 	ProtocolVersion   int                   `json:"protocolVersion"`
 	AgentInfo         struct{ Name string } `json:"agentInfo"`
@@ -53,11 +50,7 @@ type initializeReply struct {
 		LoadSession bool `json:"loadSession"`
 	} `json:"agentCapabilities"`
 }
-
-type configOption struct {
-	ID, CurrentValue string
-}
-
+type configOption struct{ ID, CurrentValue string }
 type openReply struct {
 	SessionID string `json:"sessionId"`
 	Modes     struct {
@@ -66,139 +59,178 @@ type openReply struct {
 	ConfigOptions []configOption `json:"configOptions"`
 }
 
-func New(socket string) *Wrapper               { return &Wrapper{socket: socket} }
-func (p *Wrapper) SetShutdown(shutdown func()) { p.shutdown = shutdown }
+func New(socket string) *Wrapper                  { return &Wrapper{socket: socket} }
+func (p *Wrapper) SetShutdown(f func())           { p.shutdown = f }
+func (p *Wrapper) SetCaller(c *sessionkit.Caller) { p.caller = c }
 func (p *Wrapper) SetCall(call func(context.Context, string, any) (json.RawMessage, error)) {
-	p.backend = mcp.BackendFunc(call)
+	p.SetCaller(sessionkit.NewCaller(call))
 }
-
 func (*Wrapper) Hello(context.Context) (sessionkit.HelloDescription, error) {
-	return sessionkit.HelloDescription{Product: Product, SupportedOpenFields: []string{"cwd", "permission_mode", "model", "reasoning_effort", "arguments"}, ExtraArguments: []sessionkit.ExtraArgument{}}, nil
+	return sessionkit.HelloDescription{Product: Product, SupportsMessageRun: true, SupportedOpenFields: []string{"cwd", "permission_mode", "model", "reasoning_effort", "arguments"}, ExtraArguments: []sessionkit.ExtraArgument{}}, nil
 }
 
-func (p *Wrapper) Open(ctx context.Context, request sessionkit.OpenRequest) (sessionkit.OpenResult, error) {
-	id, err := sessionID(request.ResumeSessionID)
-	if err != nil {
-		return sessionkit.OpenResult{}, err
-	}
+func (p *Wrapper) Open(ctx context.Context, request sessionkit.OpenRequest) (result sessionkit.OpenResult, err error) {
 	arguments, err := launchArguments(request.Open)
 	if err != nil {
-		return sessionkit.OpenResult{}, err
+		return result, err
 	}
 	cwd, err := filepath.Abs(first(request.Open.Cwd, "."))
 	if err != nil {
-		return sessionkit.OpenResult{}, err
+		return result, err
 	}
 	name, err := namePart(request.Name)
 	if err != nil {
-		return sessionkit.OpenResult{}, err
+		return result, err
 	}
-	lock, err := host.AcquireSessionLock(p.socket, "qwen", id)
+	if p.caller == nil {
+		return result, errors.New("Sessionbus lane Caller is unavailable")
+	}
+	key, err := sessionID("")
 	if err != nil {
-		return sessionkit.OpenResult{}, err
+		return result, err
+	} // Private launch resource key, never a native session identity.
+	p.mu.Lock()
+	if p.ctx != nil || p.closing {
+		p.mu.Unlock()
+		return result, errors.New("Qwen worker already opened or closed")
 	}
-	endpoint, err := host.ListenPrivate(p.socket, id)
+	p.ctx, p.cancel = context.WithCancel(context.WithoutCancel(ctx))
+	p.mu.Unlock()
+	startupStop := context.AfterFunc(ctx, func() {
+		p.mu.Lock()
+		if !p.opened {
+			p.cancel()
+		}
+		p.mu.Unlock()
+	})
+	defer startupStop()
+	defer func() {
+		if err != nil {
+			p.lost(err)
+			err = errors.Join(err, p.Close(context.WithoutCancel(ctx), sessionkit.SessionCloseRequest{}))
+		}
+	}()
+	lock, err := host.AcquireSessionLock(p.socket, "qwen", key)
 	if err != nil {
-		_ = lock.Close()
-		return sessionkit.OpenResult{}, err
-	}
-	if p.backend == nil {
-		return sessionkit.OpenResult{}, closeLaunch(lock, endpoint, errors.New("Sessionbus lane backend is unavailable"))
-	}
-	go func() { _ = mcp.ServeLane(ctx, endpoint, p.backend) }()
-	command := laneCommand("qwen", arguments...)
-	command.Dir, command.Stderr = request.Open.Cwd, os.Stderr
-	command.Env = slices.DeleteFunc(os.Environ(), func(value string) bool { return strings.HasPrefix(value, mcp.LaneSocketEnv+"=") })
-	command.Env = append(command.Env, mcp.LaneSocketEnv+"="+endpoint.Path)
-	child, input, output, err := host.StartChild(command, lock, endpoint)
-	if err != nil {
-		return sessionkit.OpenResult{}, closeLaunch(lock, endpoint, fmt.Errorf("start Qwen ACP: %w", err))
+		return result, err
 	}
 	p.mu.Lock()
-	p.child, p.id = child, id
-	p.client = newACPClient(input, output, p.receive, p.drain)
+	p.lock = lock
+	p.mu.Unlock()
+	endpoint, err := newLaneEndpoint(p, key)
+	if err != nil {
+		return result, err
+	}
+	p.mu.Lock()
+	p.endpoint = endpoint
+	p.mu.Unlock()
+	command := laneCommand("qwen", arguments...)
+	command.Dir, command.Stderr = cwd, os.Stderr
+	command.Env = slices.DeleteFunc(os.Environ(), func(s string) bool { return strings.HasPrefix(s, LaneEndpointEnv+"=") })
+	child, input, output, err := host.StartChild(command, lock, endpoint.PrivateEndpoint)
+	if err != nil {
+		return result, fmt.Errorf("start Qwen ACP: %w", err)
+	}
+	p.mu.Lock()
+	p.child, p.command = child, command
+	p.client = newDuplexACP(input, output, p.receive, p.answer)
 	client := p.client
 	p.mu.Unlock()
-	go p.watch(child, client.done)
-	cleanup := func(err error) (sessionkit.OpenResult, error) {
-		p.mu.Lock()
-		p.closing = true
-		p.mu.Unlock()
-		_ = child.Close(ctx, func(context.Context) error { return client.close() })
-		return sessionkit.OpenResult{}, err
-	}
-	var initialized initializeReply
-	if err = client.call(ctx, "initialize", map[string]any{"protocolVersion": 1, "clientCapabilities": map[string]any{"fs": map[string]bool{"readTextFile": false, "writeTextFile": false}, "terminal": false}}, &initialized); err != nil {
-		return cleanup(err)
-	}
-	if initialized.ProtocolVersion != 1 || initialized.AgentInfo.Name != "qwen-code" {
-		return cleanup(errors.New("Qwen ACP initialize returned the wrong product"))
-	}
-	params := map[string]any{"cwd": cwd, "mcpServers": []any{mcpServer(endpoint.Path)}}
-	method := "session/new"
-	if request.ResumeSessionID == "" {
-		params["_meta"] = map[string]string{"qwen-code/sessionId": id}
-	} else {
-		if !initialized.AgentCapabilities.LoadSession {
-			return cleanup(errors.New("Qwen ACP does not support session resume"))
+	// Lifetime cancellation is transport loss, not merely a completed Open RPC.
+	go func() {
+		select {
+		case <-p.ctx.Done():
+			client.fail(p.ctx.Err())
+			_ = command.Process.Kill()
+		case <-child.Done():
 		}
-		method, params["sessionId"] = "session/resume", id
+	}()
+	go p.watch(child, client.done)
+	var init initializeReply
+	if err = client.call(ctx, "initialize", map[string]any{"protocolVersion": 1, "clientCapabilities": map[string]any{"fs": map[string]bool{"readTextFile": false, "writeTextFile": false}, "terminal": false}}, &init); err != nil {
+		return result, err
+	}
+	if init.ProtocolVersion != 1 || init.AgentInfo.Name != "qwen-code" {
+		return result, errors.New("Qwen ACP initialize returned the wrong product")
+	}
+	params := map[string]any{"cwd": cwd, "mcpServers": []any{laneMCPServer(endpoint.Path)}}
+	method := "session/new"
+	if request.ResumeSessionID != "" {
+		if !init.AgentCapabilities.LoadSession {
+			return result, errors.New("Qwen ACP does not support session resume")
+		}
+		method = "session/resume"
+		params["sessionId"] = request.ResumeSessionID
 	}
 	var opened openReply
 	if err = client.call(ctx, method, params, &opened); err != nil {
-		return cleanup(err)
+		return result, err
 	}
-	if opened.SessionID != id && (request.ResumeSessionID == "" || opened.SessionID != "") {
-		return cleanup(fmt.Errorf("Qwen ACP changed native session from %q to %q", id, opened.SessionID))
+	id := opened.SessionID
+	if request.ResumeSessionID != "" {
+		if id != "" && id != request.ResumeSessionID {
+			return result, fmt.Errorf("Qwen ACP changed requested native identity to %q", id)
+		}
+		id = request.ResumeSessionID
 	}
+	if strings.TrimSpace(id) == "" {
+		return result, errors.New("Qwen ACP omitted fresh native identity")
+	}
+	p.mu.Lock()
+	p.id = id
+	p.mu.Unlock()
 	if request.Open.PermissionMode == "bypassPermissions" && opened.Modes.CurrentModeID != "yolo" {
-		return cleanup(fmt.Errorf("Qwen ACP applied mode %q, expected %q", opened.Modes.CurrentModeID, "yolo"))
+		return result, fmt.Errorf("Qwen ACP applied mode %q, expected yolo", opened.Modes.CurrentModeID)
 	}
 	if request.Open.ReasoningEffort != "" {
 		var configured struct {
 			ConfigOptions []configOption `json:"configOptions"`
 		}
 		if err = client.call(ctx, "session/set_config_option", map[string]string{"sessionId": id, "configId": "reasoning_effort", "value": request.Open.ReasoningEffort}, &configured); err != nil {
-			return cleanup(err)
+			return result, err
 		}
 		if current(configured.ConfigOptions, "reasoning_effort") != request.Open.ReasoningEffort {
-			return cleanup(fmt.Errorf("Qwen ACP did not apply reasoning effort %q", request.Open.ReasoningEffort))
+			return result, errors.New("Qwen ACP did not apply requested reasoning effort")
 		}
 	}
 	if request.ResumeSessionID == "" {
 		var renamed struct{ Success bool }
-		if err = client.call(ctx, "renameSession", map[string]string{"sessionId": id, "title": name}, &renamed); err != nil || !renamed.Success {
-			if err == nil {
-				err = errors.New("Qwen ACP did not accept the session name")
-			}
-			return cleanup(err)
+		if err = client.call(ctx, "renameSession", map[string]string{"sessionId": id, "title": name}, &renamed); err != nil {
+			return result, err
+		}
+		if !renamed.Success {
+			return result, errors.New("Qwen ACP did not accept native session name")
 		}
 	}
+	select {
+	case <-ctx.Done():
+		return result, ctx.Err()
+	case <-p.ctx.Done():
+		return result, p.ctx.Err()
+	case <-endpoint.ready:
+	}
 	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.closing || p.ctx.Err() != nil || !endpoint.live() {
+		return result, errors.New("Qwen lane MCP ended before Open adoption")
+	}
 	p.opened = true
-	p.mu.Unlock()
 	return sessionkit.OpenResult{SessionID: id}, nil
 }
-
-func (p *Wrapper) Run(ctx context.Context, run *sessionkit.Run, seed sessionkit.RunInput) (sessionkit.TurnResult, error) {
-	// This mechanical interface migration does not add native wake support.
-	if seed.Delivery != nil {
-		if err := run.ReportDelivery(sessionkit.DeliveryReceipt{Disposition: "rejected", Reason: "unsupported_delivery_seed"}, nil); err != nil {
-			return sessionkit.TurnResult{}, err
-		}
-		return sessionkit.TurnResult{}, errors.New("delivery-seeded runs are not supported by this product")
-	}
-	if seed.Text == nil {
-		return sessionkit.TurnResult{}, errors.New("missing explicit run input")
-	}
-	input := *seed.Text
-	p.mu.Lock()
-	p.run = run
-	go p.retireRun(run)
-	p.mu.Unlock()
-	return p.handoff.Run(ctx, run, input, p.start)
+func laneMCPServer(path string) map[string]any {
+	return map[string]any{"name": "sessionbus", "command": PrivateAlias, "args": []string{}, "env": []any{map[string]string{"name": LaneEndpointEnv, "value": path}}}
 }
-
+func (p *Wrapper) lost(err error) {
+	p.mu.Lock()
+	client, cancel := p.client, p.cancel
+	p.mu.Unlock()
+	if client != nil {
+		client.fail(err)
+	}
+	if cancel != nil {
+		cancel()
+	}
+}
 func (p *Wrapper) retireRun(run *sessionkit.Run) {
 	<-run.Done()
 	p.mu.Lock()
@@ -207,141 +239,13 @@ func (p *Wrapper) retireRun(run *sessionkit.Run) {
 	}
 	p.mu.Unlock()
 }
-
-func (p *Wrapper) Interrupt(ctx context.Context, run *sessionkit.Run) error {
-	return p.handoff.Interrupt(ctx, run)
-}
-
-func (p *Wrapper) Deliver(ctx context.Context, request sessionkit.DeliveryRequest, _ *sessionkit.Run) (sessionkit.DeliveryReceipt, error) {
-	return p.handoff.Deliver(ctx, request, nil)
-}
-
-func (p *Wrapper) Close(ctx context.Context, _ sessionkit.SessionCloseRequest) error {
-	p.mu.Lock()
-	p.closing = true
-	child, client := p.child, p.client
-	p.mu.Unlock()
-	if child == nil {
-		return nil
-	}
-	return child.Close(ctx, func(context.Context) error { return client.close() })
-}
-
-func (p *Wrapper) start(ctx context.Context, prompt string) (host.Turn, error) {
-	if strings.TrimSpace(prompt) == "" {
-		return nil, errors.New("Qwen lane prompt is empty")
-	}
-	p.mu.Lock()
-	if p.active != nil {
-		p.mu.Unlock()
-		return nil, errors.New("Qwen lane is not idle")
-	}
-	t, client, id := &turn{owner: p}, p.client, p.id
-	p.active = t
-	p.mu.Unlock()
-	reply, err := client.start(ctx, "session/prompt", map[string]any{"sessionId": id, "prompt": []any{map[string]string{"type": "text", "text": prompt}}})
-	p.mu.Lock()
-	if err == nil {
-		t.reply = reply
-	} else if p.active == t {
-		p.active = nil
-	}
-	p.mu.Unlock()
-	return t, err
-}
-
-func (t *turn) Wait(ctx context.Context) (sessionkit.TurnResult, error) {
-	select {
-	case <-ctx.Done():
-		t.clear()
-		return sessionkit.TurnResult{}, ctx.Err()
-	case reply := <-t.reply:
-		output, interrupted := t.clear()
-		if reply.err != nil {
-			return sessionkit.TurnResult{}, reply.err
-		}
-		var result struct {
-			StopReason string `json:"stopReason"`
-		}
-		if err := json.Unmarshal(reply.result, &result); err != nil {
-			return sessionkit.TurnResult{}, fmt.Errorf("decode Qwen ACP prompt result: %w", err)
-		}
-		outcome := "completed"
-		if result.StopReason == "cancelled" || interrupted {
-			outcome = "interrupted"
-		}
-		return sessionkit.TurnResult{Outcome: outcome, Result: output, NativeStopReason: result.StopReason}, nil
-	}
-}
-
-func (t *turn) clear() (string, bool) {
-	t.owner.mu.Lock()
-	defer t.owner.mu.Unlock()
-	if t.owner.active == t {
-		t.owner.active = nil
-	}
-	return t.output.String(), t.interrupted
-}
-
-func (t *turn) Interrupt(ctx context.Context) error {
-	var ignored struct{ Cancelled bool }
-	if err := t.owner.client.call(ctx, "craft/cancelPendingPrompt", map[string]string{"sessionId": t.owner.id}, &ignored); err != nil {
-		return err
-	}
-	t.owner.mu.Lock()
-	if t.owner.active == t {
-		t.interrupted = true
-	}
-	t.owner.mu.Unlock()
-	return nil
-}
-
-func (p *Wrapper) receive(method string, raw json.RawMessage) {
-	if method != "session/update" {
-		return
-	}
-	var notification struct {
-		SessionID string `json:"sessionId"`
-		Update    struct {
-			Kind    string                `json:"sessionUpdate"`
-			Content struct{ Text string } `json:"content"`
-			Text    string
-		}
-	}
-	if json.Unmarshal(raw, &notification) != nil || notification.SessionID != p.id || notification.Update.Kind != "agent_message_chunk" {
-		return
-	}
-	p.mu.Lock()
-	if p.active != nil {
-		p.active.output.WriteString(first(notification.Update.Content.Text, notification.Update.Text))
-	}
-	p.mu.Unlock()
-}
-
-func (p *Wrapper) drain(sessionID string) ([]string, error) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	if sessionID != p.id {
-		return nil, errors.New("Qwen ACP drain requested the wrong session")
-	}
-	if p.active == nil {
-		return []string{}, nil
-	}
-	claimed := p.handoff.Claim()
-	messages := make([]string, len(claimed))
-	for index := range claimed {
-		messages[index] = string(claimed[index])
-	}
-	return messages, nil
-}
-
 func (p *Wrapper) watch(child *host.Child, drained <-chan struct{}) {
 	err := child.Wait()
-	<-drained
 	if err == nil {
 		err = errors.New("Qwen ACP exited")
 	}
 	p.client.fail(err)
+	<-drained
 	p.mu.Lock()
 	opened, closing, run := p.opened, p.closing, p.run
 	p.mu.Unlock()
@@ -354,7 +258,31 @@ func (p *Wrapper) watch(child *host.Child, drained <-chan struct{}) {
 		}
 	}
 }
-
+func (p *Wrapper) Close(ctx context.Context, _ sessionkit.SessionCloseRequest) error {
+	p.closeOnce.Do(func() {
+		p.mu.Lock()
+		p.closing = true
+		child, client, endpoint, cmd, cancel, lock := p.child, p.client, p.endpoint, p.command, p.cancel, p.lock
+		p.mu.Unlock()
+		if cancel != nil {
+			defer cancel()
+		}
+		if endpoint != nil {
+			p.closeErr = endpoint.Close()
+		}
+		if child != nil {
+			stop := context.AfterFunc(ctx, func() { _ = cmd.Process.Kill() })
+			defer stop()
+			_ = client.close()
+			p.closeErr = errors.Join(p.closeErr, child.Wait())
+			<-client.done
+		}
+		if lock != nil {
+			p.closeErr = errors.Join(p.closeErr, lock.Close())
+		}
+	})
+	return p.closeErr
+}
 func launchArguments(open sessionkit.OpenOptions) ([]string, error) {
 	if open.PermissionMode != "" && open.PermissionMode != "default" && open.PermissionMode != "bypassPermissions" {
 		return nil, fmt.Errorf("unsupported value permission_mode=%s", open.PermissionMode)
@@ -410,10 +338,6 @@ var qwenArgumentRules = func() []host.ArgumentRule {
 	return rules
 }()
 
-func mcpServer(socket string) map[string]any {
-	return map[string]any{"name": "sessionbus", "command": Product, "args": []string{"mcp"}, "env": []any{map[string]string{"name": mcp.LaneSocketEnv, "value": socket}}}
-}
-
 func current(options []configOption, id string) string {
 	for _, option := range options {
 		if option.ID == id {
@@ -441,10 +365,6 @@ func sessionID(resume string) (string, error) {
 	}
 	value[6], value[8] = value[6]&0x0f|0x40, value[8]&0x3f|0x80
 	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x", value[0:4], value[4:6], value[6:8], value[8:10], value[10:16]), nil
-}
-
-func closeLaunch(lock *host.SessionLock, endpoint *host.PrivateEndpoint, err error) error {
-	return errors.Join(err, endpoint.Close(), lock.Close())
 }
 
 func first(values ...string) string {
