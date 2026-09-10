@@ -140,6 +140,12 @@ func (o *laneToolOwner) Action(ctx context.Context, action string, args json.Raw
 func (o *laneToolOwner) End() {
 	p := o.endpoint.owner
 	p.mu.Lock()
+	if !p.closing && p.nativeFailure == nil {
+		p.nativeFailure = errors.New("Grok native helper disconnected")
+		if p.nativeFailed != nil {
+			close(p.nativeFailed)
+		}
+	}
 	closing, primary, child, run, shutdown := p.closing, p.primary, p.child, p.run, p.shutdown
 	p.mu.Unlock()
 	if closing {
@@ -212,9 +218,33 @@ func forwardLane(ctx context.Context, path string, native nativeHelperIdentity, 
 
 func (o *laneToolOwner) Initialized() { o.endpoint.readyOnce.Do(func() { close(o.endpoint.ready) }) }
 func (e *grokEndpoint) waitReady(ctx context.Context) error {
+	p := e.owner
+	p.mu.Lock()
+	primary, failed := p.primary, p.nativeFailed
+	p.mu.Unlock()
+	var nativeDone <-chan struct{}
+	if primary != nil {
+		nativeDone = primary.done
+	}
 	select {
 	case <-e.ready:
+		p.mu.Lock()
+		defer p.mu.Unlock()
+		if p.nativeFailure != nil {
+			return p.nativeFailure
+		}
+		select {
+		case <-nativeDone:
+			return errors.New("Grok primary ended before helper readiness")
+		default:
+		}
 		return nil
+	case <-failed:
+		p.mu.Lock()
+		defer p.mu.Unlock()
+		return p.nativeFailure
+	case <-nativeDone:
+		return errors.New("Grok primary ended before helper readiness")
 	case <-ctx.Done():
 		return ctx.Err()
 	}

@@ -57,6 +57,8 @@ type Wrapper struct {
 	opened        bool
 	shutdown      func()
 	lossOnce      sync.Once
+	nativeFailed  chan struct{}
+	nativeFailure error
 }
 
 func New(socket, token string) *Wrapper {
@@ -89,6 +91,7 @@ func (p *Wrapper) Open(ctx context.Context, request sessionkit.OpenRequest) (res
 		return result, errors.New("Grok worker already opened or closed")
 	}
 	p.ctx, p.cancel = context.WithCancel(context.WithoutCancel(ctx))
+	p.nativeFailed = make(chan struct{})
 	stopStartup := context.AfterFunc(ctx, func() {
 		p.mu.Lock()
 		if !p.opened {
@@ -101,7 +104,7 @@ func (p *Wrapper) Open(ctx context.Context, request sessionkit.OpenRequest) (res
 	defer func() {
 		if err != nil {
 			p.cancel()
-			_ = p.Close(context.Background(), sessionkit.SessionCloseRequest{})
+			err = errors.Join(err, p.Close(context.Background(), sessionkit.SessionCloseRequest{}))
 		}
 	}()
 
@@ -168,20 +171,35 @@ func (p *Wrapper) Open(ctx context.Context, request sessionkit.OpenRequest) (res
 	if err != nil {
 		return sessionkit.OpenResult{}, err
 	}
-	p.mu.Lock()
-	if err = ctx.Err(); err == nil {
-		err = p.ctx.Err()
-	}
-	if err == nil {
-		p.opened = true
-		stopStartup()
-	}
-	p.mu.Unlock()
+	err = p.commitOpen(ctx, stopStartup)
+
 	if err != nil {
 		return result, err
 	}
 	go p.watch(child)
 	return sessionkit.OpenResult{SessionID: p.sessionID}, nil
+}
+
+func (p *Wrapper) commitOpen(ctx context.Context, stopStartup func() bool) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := p.ctx.Err(); err != nil {
+		return err
+	}
+	if p.nativeFailure != nil {
+		return p.nativeFailure
+	}
+	select {
+	case <-p.primary.done:
+		return errors.New("Grok primary ended before Open commit")
+	default:
+	}
+	p.opened = true
+	stopStartup()
+	return nil
 }
 
 func (p *Wrapper) openSession(ctx context.Context, primary *acpClient, request sessionkit.OpenRequest, laneSocket string) error {

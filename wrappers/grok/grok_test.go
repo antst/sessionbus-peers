@@ -344,6 +344,7 @@ func TestResumeIdentityFailureRepliesBeforeCleanup(t *testing.T) {
 	writeWorkerRequest(t, reader, 1, "session.open", map[string]any{"name": "lane@local", "groups": []string{"group"}, "resume_session_id": testSessionID, "open": map[string]any{"cwd": root}})
 	response := readWorkerResponse(t, reader, 1)
 	check(t, strings.Contains(string(response.Error), `"message":"spawn_failed"`) && strings.Contains(string(response.Error), `Grok returned session identity`), "open error = %s", response.Error)
+	check(t, strings.Contains(string(response.Error), "signal: killed"), "Open dropped cleanup diagnostic: %s", response.Error)
 	_ = connection.Close()
 	<-worker.Closed()
 	p.mu.Lock()
