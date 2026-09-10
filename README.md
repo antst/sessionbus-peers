@@ -69,11 +69,11 @@ instead.
 Install the product peers from this repository:
 
 ```sh
-git clone https://github.com/antst/sessionbus-peers.git && cd sessionbus-peers && go test -race ./... && GOBIN="$HOME/.local/bin" go install ./cmd/qwen-peer ./cmd/opencode-peer
+git clone https://github.com/antst/sessionbus-peers.git && cd sessionbus-peers && go test -race ./... && GOBIN="$HOME/.local/bin" go install ./cmd/opencode-peer
 ```
 
-That command installs `qwen-peer` and `opencode-peer` in
-`~/.local/bin`. Claude, Codex and Grok use their bundled archive recipes below so
+That command installs `opencode-peer` in
+`~/.local/bin`. Claude, Codex, Grok and Qwen use their bundled archive recipes below so
 each launcher and native plugin share one installation.
 
 Claude's candidate is one Go binary with its bundled native plugin
@@ -98,8 +98,12 @@ and the archive installer in [`grok/README.md`](grok/README.md). Its private
 `grok-peer-mcp` alias shares the permanent binary with interactive and lane modes.
 The global native plugin starts an inert, zero-tool helper for ordinary Grok;
 managed launches activate it using the exact private native leader.
-Qwen's MCP manifest invokes `qwen-peer` from PATH; Sessionbus uses
-`opencode-peer` for the retained OpenCode lane source.
+Qwen uses `scripts/package-product qwen ./dist` and the same permanent archive
+installer in [`qwen/README.md`](qwen/README.md). Its lane private alias resolves
+the installed sibling `qwen-peer-mcp` binary. The extension contains one generic
+skill and no ordinary MCP server. Managed interactive launches supply native MCP
+configuration; lanes supply it per session. The accepted interactive session-switch
+limitation is documented there. Sessionbus uses `opencode-peer` for the retained OpenCode lane source.
 
 Complete each product hookup using only the retained integration:
 
@@ -107,7 +111,7 @@ Complete each product hookup using only the retained integration:
 - Codex: build with `scripts/package-codex ./dist` and use the archive's installer as documented in [`codex/README.md`](codex/README.md).
 - OpenCode: install the pkg.pr.new preview rooted at `opencode/`, then run its `sessionbus-opencode-install` executable from `bin.mjs`.
 - Grok: build with `scripts/package-product grok ./dist` and run the archive installer in [`grok/README.md`](grok/README.md).
-- Qwen: install or register the `qwen/` plugin directory.
+- Qwen: build the archive with `scripts/package-product qwen ./dist` and follow [`qwen/README.md`](qwen/README.md); registering only the plugin does not install the required private sibling alias.
 
 Product evidence and constraints are in `docs/products/claude.md`,
 `docs/products/codex.md`, `docs/products/opencode.md`,

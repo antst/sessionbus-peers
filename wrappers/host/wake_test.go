@@ -12,7 +12,6 @@ import (
 
 	"github.com/antst/sessionbus-peers/internal/testsocket"
 	"github.com/antst/sessionbus-peers/wrappers/opencode"
-	"github.com/antst/sessionbus-peers/wrappers/qwen"
 	kit "github.com/antst/sessionbus/bus/sdk/go"
 	"github.com/antst/sessionbus/bus/sdk/go/protocol"
 )
@@ -36,7 +35,6 @@ func TestUnimplementedWakeRejectedBeforeProductWork(t *testing.T) {
 		name    string
 		product kit.WorkerCallbacks
 	}{
-		{"qwen", (*qwen.Wrapper)(nil)},
 		{"opencode", (*opencode.Wrapper)(nil)},
 	} {
 		for _, mode := range []string{"reject-wake", "stage"} {

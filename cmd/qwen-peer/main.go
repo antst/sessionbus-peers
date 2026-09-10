@@ -4,44 +4,71 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 
 	"github.com/antst/sessionbus-peers/wrappers/host"
-	"github.com/antst/sessionbus-peers/wrappers/mcp"
 	"github.com/antst/sessionbus-peers/wrappers/qwen"
 	sessionkit "github.com/antst/sessionbus/bus/sdk/go"
 )
 
 func main() {
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer cancel()
-	if err := run(ctx, os.Args[1:]); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+	signals := []os.Signal{os.Interrupt, syscall.SIGTERM}
+	if filepath.Base(os.Args[0]) != qwen.PrivateAlias && !host.LaneMode() {
+		// Native TUI and launcher share the foreground process group. Native
+		// receives terminal SIGINT itself; do not turn that into a TERM or a
+		// duplicate interrupt. Notify (not Ignore) preserves child disposition.
+		interrupts := make(chan os.Signal, 1)
+		signal.Notify(interrupts, os.Interrupt)
+		defer signal.Stop(interrupts)
+		signals = []os.Signal{syscall.SIGTERM}
 	}
+	ctx, cancel := signal.NotifyContext(context.Background(), signals...)
+	defer cancel()
+	if err := runEntry(ctx, filepath.Base(os.Args[0]), os.Args[1:]); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		code := 1
+		var native *exec.ExitError
+		if errors.As(err, &native) && native.ExitCode() >= 0 {
+			code = native.ExitCode()
+		}
+		os.Exit(code)
+	}
+}
+
+func runEntry(ctx context.Context, basename string, arguments []string) error {
+	if basename == qwen.PrivateAlias {
+		if len(arguments) != 0 {
+			return errors.New("private MCP entry accepts no arguments")
+		}
+		endpoint := os.Getenv(qwen.LaneEndpointEnv)
+		interactive := os.Getenv(qwen.InteractiveEnv)
+		if endpoint != "" && interactive != "" {
+			return errors.New("Qwen MCP lane and interactive bindings conflict")
+		}
+		if endpoint != "" {
+			return qwen.ForwardLaneMCP(ctx, endpoint, os.Stdin, os.Stdout)
+		}
+		if interactive != "" {
+			return qwen.ServeInteractiveMCP(ctx, os.Stdin, os.Stdout)
+		}
+		return errors.New("Qwen MCP launch binding is missing")
+	}
+	return run(ctx, arguments)
 }
 
 func run(ctx context.Context, arguments []string) error {
 	if !host.LaneMode() {
-		if len(arguments) == 1 && arguments[0] == "mcp" {
-			return runMCP(ctx)
-		}
 		plan, err := qwen.InteractivePlan(arguments, os.Environ())
 		if err != nil {
 			return err
 		}
-		path, err := exec.LookPath(plan.Path)
-		if err != nil {
-			return err
-		}
-		return syscall.Exec(path, append([]string{path}, plan.Args...), plan.Env)
+		return qwen.RunInteractive(ctx, plan)
 	}
 	if len(arguments) != 0 {
 		return errors.New("lane mode accepts no arguments")
@@ -49,30 +76,6 @@ func run(ctx context.Context, arguments []string) error {
 	product := qwen.New(os.Getenv(host.SocketEnv))
 	worker := sessionkit.NewWorker(product)
 	product.SetShutdown(worker.Shutdown)
-	product.SetCall(func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-		var result json.RawMessage
-		err := worker.Call(ctx, method, params, &result)
-		return result, err
-	})
+	product.SetCaller(worker.Caller())
 	return worker.Serve(ctx)
-}
-
-func runMCP(ctx context.Context) error {
-	return serveMCP(ctx, os.Stdin, os.Stdout)
-}
-
-func serveMCP(ctx context.Context, input io.Reader, output io.Writer) error {
-	if os.Getenv(mcp.LaneSocketEnv) != "" {
-		backend, err := mcp.NewLaneBackend()
-		if err != nil {
-			return err
-		}
-		return (&mcp.Server{Backend: backend}).Serve(ctx, input, output)
-	}
-	backend := qwen.NewPeerBackend()
-	if err := backend.Start(); err != nil {
-		return err
-	}
-	defer backend.Shutdown()
-	return (&mcp.Server{Backend: backend}).Serve(ctx, input, output)
 }

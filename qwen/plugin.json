@@ -2,7 +2,7 @@
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "sessionbus",
   "version": "0.4.0",
-  "description": "Discover grouped Sessionbus peers and orchestrate durable Codex, Claude, Grok, and Qwen lanes from Qwen Code.",
+  "description": "Generic Sessionbus guidance for managed Qwen launches and lanes. Ordinary Qwen discovers the skill without starting a Sessionbus MCP helper.",
   "author": {
     "name": "Sessionbus contributors"
   },

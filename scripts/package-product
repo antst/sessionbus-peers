@@ -27,8 +27,8 @@ cp scripts/release/install-product "$stage/install"
 if [ -f "$product/README.md" ]; then cp "$product/README.md" "$stage/README.md"; else cp "docs/products/$product.md" "$stage/README.md"; fi
 printf '%s\n' "$product" > "$stage/ROLE"
 set -- "$product-peer"
-if [ "$product" = grok ]; then
- ln -s grok-peer "$stage/grok-peer-mcp"
- set -- "$@" grok-peer-mcp
+if [ "$product" = grok ] || [ "$product" = qwen ]; then
+ ln -s "$product-peer" "$stage/$product-peer-mcp"
+ set -- "$@" "$product-peer-mcp"
 fi
 tar -czf "$out/$product-peer-$platform-$arch.tar.gz" -C "$stage" "$@" plugin LICENSE THIRD-PARTY-NOTICES.txt README.md install ROLE

@@ -260,11 +260,26 @@ func TestRetainedManifestCommandReachability(t *testing.T) {
 		command string
 	}{
 		{"claude/.mcp.json", manifestCommand(t, "claude/.mcp.json")},
-		{"qwen/mcp.json", manifestCommand(t, "qwen/mcp.json")},
 	} {
 		if !installed[item.command] {
 			t.Errorf("%s names an unresolved installed command %q", item.path, item.command)
 		}
+	}
+	for _, path := range []string{"qwen/mcp.json", "qwen/.mcp.json"} {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Errorf("ordinary Qwen must not register a global MCP manifest: %s (%v)", path, err)
+		}
+	}
+	skills, err := filepath.Glob("qwen/skills/*/SKILL.md")
+	if err != nil || len(skills) != 1 || skills[0] != "qwen/skills/sessionbus/SKILL.md" {
+		t.Fatalf("Qwen generic skill inventory = %v (%v)", skills, err)
+	}
+	qwenLane := read(t, "wrappers/qwen/qwen.go")
+	if !bytes.Contains(qwenLane, []byte("InstalledMCPExecutable()")) || !bytes.Contains(qwenLane, []byte("laneMCPServer(endpoint.Path, mcpExecutable)")) {
+		t.Error("Qwen lane must resolve its permanent private alias into per-session MCP configuration")
+	}
+	if !bytes.Contains(read(t, "cmd/qwen-peer/main.go"), []byte("basename == qwen.PrivateAlias")) {
+		t.Error("Qwen private alias must dispatch through the same binary")
 	}
 	if command := manifestCommand(t, "grok/.mcp.json"); command != "${GROK_PLUGIN_ROOT}/scripts/native-entry" {
 		t.Errorf("Grok manifest command = %q", command)
@@ -309,7 +324,9 @@ func TestReadmeIsTheSourceInstallAuthority(t *testing.T) {
 	readme := read(t, "README.md")
 	for _, exact := range []string{
 		`git clone https://github.com/antst/sessionbus.git && cd sessionbus && GOBIN="$HOME/.local/bin" go install ./bus/cmd/...`,
-		`git clone https://github.com/antst/sessionbus-peers.git && cd sessionbus-peers && go test -race ./... && GOBIN="$HOME/.local/bin" go install ./cmd/qwen-peer ./cmd/opencode-peer`,
+		"scripts/package-product qwen ./dist",
+		"qwen/README.md",
+		"`qwen-peer-mcp`",
 		"scripts/package-codex ./dist",
 		"scripts/package-product grok ./dist",
 		"grok/README.md",
