@@ -116,6 +116,13 @@ func (t *nativePrompt) waitOwned(ctx context.Context) (kit.TurnResult, error) {
 		for _, s := range t.segments {
 			complete = complete && s.terminal
 		}
+		if complete && t.interrupt != nil {
+			select {
+			case <-t.interrupt.done:
+			default:
+				complete = false
+			}
+		}
 		if complete {
 			t.retiring = true
 			result := kit.TurnResult{Outcome: "completed", NativeStopReason: t.result.StopReason}
@@ -318,7 +325,16 @@ func (p *Wrapper) pendingFailure(err error) {
 func (t *nativePrompt) failOwned(err error) {
 	p := t.owner
 	p.mu.Lock()
+	t.retiring = true
+	operation := t.interrupt
 	unsettled := t.delivery != nil || t.failure != nil
+	if operation != nil {
+		select {
+		case <-operation.done:
+		default:
+			unsettled = true
+		}
+	}
 	for _, s := range t.segments {
 		unsettled = unsettled || !s.terminal
 	}
@@ -335,5 +351,8 @@ func (t *nativePrompt) failOwned(err error) {
 	p.mu.Unlock()
 	if unsettled {
 		t.abortAccounting(err)
+	}
+	if operation != nil {
+		<-operation.done
 	}
 }

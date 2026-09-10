@@ -463,7 +463,13 @@ func (p *Wrapper) executeRun(ctx context.Context, run *sessionkit.Run, seed sess
 	return result, err
 }
 
+type nativeInterrupt struct {
+	done chan struct{}
+	err  error
+}
+
 type nativePrompt struct {
+	interrupt   *nativeInterrupt
 	ctx         context.Context
 	changed     chan struct{}
 	segments    []*nativeSegment
@@ -523,7 +529,34 @@ func (t *nativePrompt) Wait(ctx context.Context) (sessionkit.TurnResult, error) 
 }
 
 func (t *nativePrompt) Interrupt(ctx context.Context) error {
-	return t.client.cancelContext(ctx, t.sessionID)
+	p := t.owner
+	p.mu.Lock()
+	if t.retiring || p.active != t || p.closing || p.nativeFailure != nil || len(t.segments) > 0 && t.segments[len(t.segments)-1].terminal {
+		p.mu.Unlock()
+		return nil
+	}
+	if operation := t.interrupt; operation != nil {
+		p.mu.Unlock()
+		<-operation.done
+		return operation.err
+	}
+	if err := ctx.Err(); err != nil {
+		p.mu.Unlock()
+		return err
+	}
+	operation := &nativeInterrupt{done: make(chan struct{})}
+	t.interrupt = operation
+	p.mu.Unlock()
+
+	// The callback and the startup fallback represent one SDK interrupt intent.
+	// Run completion joins this send before the SDK cancels its Run context.
+	err := t.client.cancelContext(ctx, t.sessionID)
+	p.mu.Lock()
+	operation.err = err
+	close(operation.done)
+	t.signal()
+	p.mu.Unlock()
+	return err
 }
 
 // Called under p.mu at admission. Shared Done, not a scheduled cleanup
