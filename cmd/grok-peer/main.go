@@ -87,7 +87,7 @@ func runMCP(ctx context.Context) error {
 		return err
 	}
 	defer backend.Shutdown()
-	return serveMCP(ctx, grokMCPOwner{action: backend.Caller().Action, end: backend.Shutdown}, os.Stdin, os.Stdout)
+	return serveMCP(ctx, backend, os.Stdin, os.Stdout)
 }
 
 // The native MCP process owns its stdin and the lifetime of its public calls.

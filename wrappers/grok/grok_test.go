@@ -148,6 +148,13 @@ func fakeGrok() {
 				reply(map[string]any{"jsonrpc": "2.0", "id": id, "result": map[string]any{"sessionId": session, "models": map[string]any{}}})
 			}
 		case "_x.ai/session/rename":
+			if path := os.Getenv("GROK_TEST_RENAME_BLOCK"); path != "" {
+				<-fileReady(path)
+			}
+			if os.Getenv("GROK_TEST_RENAME_ERROR") != "" {
+				reply(map[string]any{"jsonrpc": "2.0", "id": id, "error": map[string]any{"code": -32603, "message": "rename refused"}})
+				continue
+			}
 			title, _ = params["title"].(string)
 			reply(map[string]any{"jsonrpc": "2.0", "id": id, "result": map[string]any{"success": true}})
 		case "_x.ai/sessions/list":
@@ -164,7 +171,8 @@ func fakeGrok() {
 			if os.Getenv("GROK_TEST_ROSTER_DELAY") != "" {
 				titleIndex--
 			}
-			if titleIndex >= 0 && titleIndex < len(titles) && titles[titleIndex] != "" {
+			_, explicitTitles := os.LookupEnv("GROK_TEST_TITLES")
+			if explicitTitles && titleIndex >= 0 && titleIndex < len(titles) {
 				title = titles[titleIndex]
 			}
 			session := first(os.Getenv("GROK_TEST_SESSION_ID"), testSessionID)

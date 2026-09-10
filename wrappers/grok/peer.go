@@ -4,7 +4,6 @@ package grok
 
 import (
 	"context"
-	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -36,89 +35,38 @@ const ManagedEnv = "SESSIONBUS_GROK_MANAGED"
 const grokSessionIDEnv = "GROK_SESSION_ID"
 const grokLeaderSocketEnv = "GROK_LEADER_SOCKET"
 
-type PeerBackend struct {
-	peer       *sessionkit.Peer
-	identity   sessionkit.PeerIdentity
-	leader     string
-	cwd        string
-	deliveries chan peerDelivery
-	cancel     context.CancelFunc
-	done       chan struct{}
-}
-
-type peerDelivery struct {
-	ctx      context.Context
-	identity sessionkit.PeerIdentity
-	request  sessionkit.DeliveryRequest
-	reply    chan peerDeliveryResult
-}
-
-type peerDeliveryResult struct {
-	receipt sessionkit.DeliveryReceipt
-	err     error
-}
-
 func startPeerClient(lifetimeCtx, requestCtx context.Context, leaderPath, cwd string, notify func(acpFrame)) (*acpClient, *nativeProcess, error) {
 	cmd := command("grok", "--no-auto-update", "--leader-socket", leaderPath, "agent", "--leader", "stdio")
 	cmd.Dir, cmd.Env, cmd.Stderr, cmd.SysProcAttr = cwd, nativeEnvironment(), os.Stderr, &syscall.SysProcAttr{Setpgid: true}
 	return startObserverClient(lifetimeCtx, requestCtx, cmd, notify)
 }
 
-func NewPeerBackend(ctx context.Context, environment []string) (*PeerBackend, error) {
-	id := environmentValue(environment, grokSessionIDEnv)
-	leader := environmentValue(environment, grokLeaderSocketEnv)
-	if id == "" || leader == "" {
-		return nil, errors.New("Grok peer identity is unavailable; start Grok with grok-peer")
-	}
-	groups := []string{}
-	if raw := environmentValue(environment, host.GroupsEnv); raw != "" && json.Unmarshal([]byte(raw), &groups) != nil {
-		return nil, errors.New("SESSIONBUS_GROUPS must be a JSON array")
-	}
-	cwd, err := os.Getwd()
-	if err != nil {
-		return nil, err
-	}
-	deliveryCtx, cancel := context.WithCancel(ctx)
-	b := &PeerBackend{
-		identity:   sessionkit.PeerIdentity{Product: "grok", SessionID: id, Name: id, Groups: groups, Info: map[string]any{"cwd": cwd}},
-		leader:     leader,
-		cwd:        cwd,
-		deliveries: make(chan peerDelivery),
-		cancel:     cancel,
-		done:       make(chan struct{}),
-	}
-	peer, err := sessionkit.ConnectPeer(b.identity, b.deliver)
-	if err != nil {
-		cancel()
-		return nil, err
-	}
-	b.peer = peer
-	go b.serveDeliveries(deliveryCtx)
-	return b, nil
-}
-
 func RunInteractive(ctx context.Context, plan host.ExecPlan) error {
-	if environmentValue(plan.Env, host.SessionIDEnv) == "" {
+	if environmentValue(plan.Env, ManagedEnv) == "" {
 		path, err := exec.LookPath(plan.Path)
 		if err != nil {
 			return err
 		}
 		return syscall.Exec(path, append([]string{path}, plan.Args...), plan.Env)
 	}
-	identity, socket, err := peerIdentity(plan.Env)
-	if err != nil {
-		return err
-	}
-	key := host.LaunchTokenDigest(identity.SessionID)
+	socket := first(environmentValue(plan.Env, host.SocketEnv), sessionkit.Socket())
 	cwd, err := interactiveCwd(plan.Args)
 	if err != nil {
 		return err
 	}
-	leaderPath := leaderSocket(socket, key)
+	if err = os.MkdirAll(filepath.Dir(socket), 0700); err != nil {
+		return err
+	}
+	runtime, err := os.MkdirTemp(filepath.Dir(socket), "grok-launch-")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(runtime)
+	// A fresh resource directory for each launch, never a native/session ID.
+	privateSocket, key := filepath.Join(runtime, "presence.sock"), "native"
+	leaderPath := leaderSocket(privateSocket, key)
 	plan.Env = setEnvironment(plan.Env, ManagedEnv, leaderPath)
-	defer os.Remove(leaderPath)
-	defer os.Remove(strings.TrimSuffix(leaderPath, ".sock") + ".lock")
-	leader, err := startLeader(ctx, socket, key, cwd, interactivePermission(plan.Args), peerNativeEnvironment(plan.Env))
+	leader, err := startLeaderWithPolicy(ctx, privateSocket, key, cwd, interactivePolicy(plan.Args), peerNativeEnvironment(plan.Env))
 	if err != nil {
 		return err
 	}
@@ -128,7 +76,7 @@ func RunInteractive(ctx context.Context, plan host.ExecPlan) error {
 	if err != nil {
 		return errors.Join(err, closeNative("leader", leader))
 	}
-	plan.Args = insertBeforeSeparator(plan.Args, "--leader-socket", leaderPath)
+	plan.Args = append([]string{"--leader", "--leader-socket", leaderPath}, plan.Args...)
 	child := command(plan.Path, plan.Args...)
 	child.Env, child.Stdin, child.Stdout, child.Stderr = plan.Env, os.Stdin, os.Stdout, os.Stderr
 	if err = child.Start(); err != nil {
@@ -158,7 +106,7 @@ func RunInteractive(ctx context.Context, plan host.ExecPlan) error {
 
 func peerNativeEnvironment(environment []string) []string {
 	result := nativeEnvironment()
-	for _, name := range []string{host.SocketEnv, host.GroupsEnv, ManagedEnv} {
+	for _, name := range []string{host.SocketEnv, host.GroupsEnv, host.NameEnv, ManagedEnv} {
 		if value := environmentValue(environment, name); value != "" {
 			result = setEnvironment(result, name, value)
 		}
@@ -181,19 +129,6 @@ func interactiveSignal(ctx context.Context) os.Signal {
 	return syscall.SIGTERM
 }
 
-func peerIdentity(environment []string) (sessionkit.PeerIdentity, string, error) {
-	id, name := environmentValue(environment, host.SessionIDEnv), environmentValue(environment, host.NameEnv)
-	if id == "" {
-		return sessionkit.PeerIdentity{}, "", errors.New("Grok peer identity is unavailable; start Grok with grok-peer")
-	}
-	groups := []string{}
-	if raw := environmentValue(environment, host.GroupsEnv); raw != "" && json.Unmarshal([]byte(raw), &groups) != nil {
-		return sessionkit.PeerIdentity{}, "", errors.New("SESSIONBUS_GROUPS must be a JSON array")
-	}
-	socket := first(environmentValue(environment, host.SocketEnv), sessionkit.Socket())
-	return sessionkit.PeerIdentity{Product: "grok", SessionID: id, Name: first(name, id), Groups: groups}, socket, nil
-}
-
 func environmentValue(environment []string, name string) string {
 	for _, value := range environment {
 		if key, body, found := strings.Cut(value, "="); found && key == name {
@@ -209,91 +144,6 @@ func setEnvironment(environment []string, name, value string) []string {
 		return key == name
 	})
 	return append(result, name+"="+value)
-}
-
-func (b *PeerBackend) Call(ctx context.Context, method string, params any) (json.RawMessage, error) {
-	return b.peer.Call(ctx, method, params)
-}
-
-func (b *PeerBackend) Caller() *sessionkit.Caller { return b.peer.Caller }
-
-func (b *PeerBackend) Prepare(context.Context, json.RawMessage) error { return b.peer.Err() }
-
-func (b *PeerBackend) deliver(ctx context.Context, identity sessionkit.PeerIdentity, request sessionkit.DeliveryRequest) (sessionkit.DeliveryReceipt, error) {
-	delivery := peerDelivery{ctx: ctx, identity: identity, request: request, reply: make(chan peerDeliveryResult, 1)}
-	select {
-	case b.deliveries <- delivery:
-	case <-ctx.Done():
-		return sessionkit.DeliveryReceipt{}, ctx.Err()
-	case <-b.done:
-		return sessionkit.DeliveryReceipt{Disposition: "rejected", Reason: "shutting down"}, nil
-	}
-	select {
-	case result := <-delivery.reply:
-		return result.receipt, result.err
-	case <-ctx.Done():
-		return sessionkit.DeliveryReceipt{}, ctx.Err()
-	case <-b.done:
-		return sessionkit.DeliveryReceipt{Disposition: "rejected", Reason: "shutting down"}, nil
-	}
-}
-
-func (b *PeerBackend) serveDeliveries(ctx context.Context) {
-	defer close(b.done)
-	var observer *acpClient
-	var process *nativeProcess
-	defer func() { stopPeerClient(observer, process) }()
-	for {
-		select {
-		case delivery := <-b.deliveries:
-			if observer == nil {
-				var err error
-				observer, process, err = startPeerClient(ctx, delivery.ctx, b.leader, b.cwd, nil)
-				if err != nil {
-					delivery.reply <- peerDeliveryResult{err: fmt.Errorf("start Grok observer: %w", err)}
-					observer, process = nil, nil
-					continue
-				}
-			}
-			receipt, err := b.deliverOne(delivery.ctx, observer, delivery)
-			if ctx.Err() != nil {
-				receipt, err = sessionkit.DeliveryReceipt{Disposition: "rejected", Reason: "shutting down"}, nil
-			}
-			delivery.reply <- peerDeliveryResult{receipt: receipt, err: err}
-		case <-ctx.Done():
-			for {
-				select {
-				case delivery := <-b.deliveries:
-					delivery.reply <- peerDeliveryResult{receipt: sessionkit.DeliveryReceipt{Disposition: "rejected", Reason: "shutting down"}}
-				default:
-					return
-				}
-			}
-		}
-	}
-}
-
-func (b *PeerBackend) deliverOne(ctx context.Context, observer *acpClient, delivery peerDelivery) (sessionkit.DeliveryReceipt, error) {
-	row, err := roster(ctx, observer, delivery.identity.SessionID)
-	if err == nil {
-		name := first(row.Title, row.SessionID)
-		info := map[string]any{"cwd": row.Cwd}
-		err = b.peer.Rehello(ctx, name, info)
-	}
-	if errors.Is(err, errNoLeader) {
-		return sessionkit.DeliveryReceipt{Disposition: "rejected", Reason: "no_leader"}, nil
-	}
-	if err != nil {
-		return sessionkit.DeliveryReceipt{}, err
-	}
-	message, err := host.RenderNativeMessage(delivery.request)
-	if err != nil {
-		return sessionkit.DeliveryReceipt{}, err
-	}
-	if err = observer.interject(ctx, delivery.identity.SessionID, delivery.request.MessageID, message); err != nil {
-		return sessionkit.DeliveryReceipt{}, fmt.Errorf("Grok interject: %w", err)
-	}
-	return sessionkit.DeliveryReceipt{Disposition: "injected"}, nil
 }
 
 func roster(ctx context.Context, observer *acpClient, id string) (peerSession, error) {
@@ -349,12 +199,6 @@ func exactRoster(sessions []peerSession, id string) (peerSession, error) {
 	return found, nil
 }
 
-func (b *PeerBackend) Shutdown() {
-	b.cancel()
-	<-b.done
-	b.peer.Shutdown()
-}
-
 func stopPeerClient(client *acpClient, process *nativeProcess) {
 	if client != nil {
 		client.close()
@@ -363,32 +207,73 @@ func stopPeerClient(client *acpClient, process *nativeProcess) {
 }
 
 func InteractivePlan(arguments, environment []string) (host.ExecPlan, error) {
-	if grokPassthrough(arguments) {
-		return host.ExecPlan{Path: "grok", Args: slices.Clone(arguments), Env: slices.Clone(environment)}, nil
+	if environmentValue(environment, host.TokenEnv) != "" {
+		return host.ExecPlan{}, errors.New("interactive launch cannot consume a lane token")
 	}
-	if argument := grokHeadless(arguments); argument != "" {
-		return host.ExecPlan{}, fmt.Errorf("%s is headless; use a Sessionbus Grok lane", argument)
-	}
-	id, err := interactiveIdentity(arguments)
-	if err != nil {
-		return host.ExecPlan{}, err
-	}
-	if id == "" {
-		id, err = newSessionID()
-		if err != nil {
-			return host.ExecPlan{}, err
+	native := make([]string, 0, len(arguments))
+	groups := []string{}
+	name := ""
+	for i := 0; i < len(arguments); i++ {
+		arg := arguments[i]
+		if arg == "--" {
+			native = append(native, arguments[i:]...)
+			break
 		}
-		arguments = append([]string{"--session-id", id}, arguments...)
+		key, value, attached := strings.Cut(arg, "=")
+		switch key {
+		case "-g", "--group", "-n", "--name", "--peer-name":
+			if !attached {
+				if i+1 == len(arguments) || arguments[i+1] == "--" {
+					return host.ExecPlan{}, fmt.Errorf("%s requires a value", key)
+				}
+				i++
+				value = arguments[i]
+			}
+			if key == "-g" || key == "--group" {
+				if value != "" {
+					groups = append(groups, strings.Split(value, ",")...)
+				}
+			} else {
+				if value == "" {
+					return host.ExecPlan{}, errors.New("name must not be empty")
+				}
+				name = value
+			}
+		case "--yolo":
+			if attached {
+				native = append(native, arg)
+			} else {
+				native = append(native, "--always-approve")
+			}
+		default:
+			native = append(native, arg)
+		}
 	}
-	index := slices.Index(arguments, "--")
-	if index < 0 {
-		index = len(arguments)
+	env := slices.DeleteFunc(slices.Clone(environment), func(entry string) bool {
+		k, _, _ := strings.Cut(entry, "=")
+		return slices.Contains([]string{host.SessionIDEnv, host.NameEnv, host.GroupsEnv, ManagedEnv}, k)
+	})
+	if grokPassthrough(native) {
+		return host.ExecPlan{Path: "grok", Args: native, Env: env}, nil
 	}
-	arguments = slices.Insert(arguments, index, "--leader")
-	if !slices.ContainsFunc(environment, func(value string) bool { return strings.HasPrefix(value, host.SocketEnv+"=") }) {
-		environment = append(environment, host.SocketEnv+"="+sessionkit.Socket())
+	if flag := grokHeadless(native); flag != "" {
+		return host.ExecPlan{}, fmt.Errorf("%s is headless; use a Sessionbus Grok lane", flag)
 	}
-	return host.InteractivePlan("grok", arguments, environment, host.PeerIdentity{SessionID: id, Name: id}, grokOptionTakesValue)
+	for _, arg := range native {
+		if arg == "--" {
+			break
+		}
+		key, _, _ := strings.Cut(arg, "=")
+		if slices.Contains([]string{"--leader", "--no-leader", "--leader-socket"}, key) {
+			return host.ExecPlan{}, errors.New("grok-peer owns its private native leader; caller leader selection conflicts")
+		}
+	}
+	raw, _ := json.Marshal(groups)
+	env = setEnvironment(env, host.GroupsEnv, string(raw))
+	env = setEnvironment(env, host.NameEnv, name)
+	env = setEnvironment(env, host.SocketEnv, first(environmentValue(environment, host.SocketEnv), sessionkit.Socket()))
+	env = setEnvironment(env, ManagedEnv, "launch")
+	return host.ExecPlan{Path: "grok", Args: native, Env: env}, nil
 }
 
 func interactiveCwd(arguments []string) (string, error) {
@@ -402,109 +287,57 @@ func interactiveCwd(arguments []string) (string, error) {
 	return cwd, err
 }
 
-func interactivePermission(arguments []string) string {
-	mode := nativeOption(arguments, "--permission-mode")
-	if nativeOption(arguments, "--always-approve") != "" || nativeOption(arguments, "--yolo") != "" || mode == "always-approve" {
-		return "bypassPermissions"
-	}
-	return first(mode, "default")
-}
-
-func insertBeforeSeparator(arguments []string, values ...string) []string {
-	result := slices.Clone(arguments)
-	index := slices.Index(result, "--")
-	if index < 0 {
-		index = len(result)
-	}
-	return slices.Insert(result, index, values...)
-}
-
-func nativeOption(arguments []string, target string) string {
-	for index := 0; index < len(arguments); index++ {
-		argument := arguments[index]
-		if argument == "--" {
+// Mirror only the caller's explicit policy switches to its private leader.
+// Native Grok interprets their precedence; the wrapper does not choose a mode.
+func interactivePolicy(arguments []string) []string {
+	policy := []string{}
+	for i := 0; i < len(arguments); i++ {
+		arg := arguments[i]
+		if arg == "--" {
 			break
 		}
-		name, value, attached := strings.Cut(argument, "=")
-		if name == target {
-			if target == "--always-approve" || target == "--yolo" {
-				return "true"
-			}
-			if attached {
-				return value
-			}
-			if index+1 < len(arguments) {
-				return arguments[index+1]
-			}
+		key, _, attached := strings.Cut(arg, "=")
+		if key == "--always-approve" {
+			policy = append(policy, arg)
 		}
-		if !attached && grokOptionTakesValue(argument) {
-			index++
+		if key == "--permission-mode" {
+			policy = append(policy, arg)
+			if !attached && i+1 < len(arguments) {
+				i++
+				policy = append(policy, arguments[i])
+			}
 		}
 	}
-	return ""
+	return policy
+}
+func nativeOption(arguments []string, target string) string {
+	value := ""
+	for i, arg := range arguments {
+		if arg == "--" {
+			break
+		}
+		key, v, attached := strings.Cut(arg, "=")
+		if key == target {
+			if !attached && i+1 < len(arguments) {
+				v = arguments[i+1]
+			}
+			value = v
+		}
+	}
+	return value
 }
 
 func grokHeadless(arguments []string) string {
-	for index := 0; index < len(arguments); index++ {
-		argument := arguments[index]
-		if argument == "--" {
+	for _, arg := range arguments {
+		if arg == "--" {
 			break
 		}
-		name, _, attached := strings.Cut(argument, "=")
-		if slices.Contains([]string{"-p", "--single", "--prompt-file", "--prompt-json", "--output-format", "--json-schema", "--max-turns", "--include-partial-messages"}, name) || strings.HasPrefix(argument, "-p") && !strings.HasPrefix(argument, "--") {
-			return name
-		}
-		if !attached && grokOptionTakesValue(argument) {
-			index++
+		key, _, _ := strings.Cut(arg, "=")
+		if slices.Contains([]string{"-p", "--single", "--prompt-file", "--prompt-json", "--output-format", "--json-schema", "--max-turns", "--include-partial-messages"}, key) || strings.HasPrefix(arg, "-p") && !strings.HasPrefix(arg, "--") {
+			return key
 		}
 	}
 	return ""
-}
-
-func interactiveIdentity(arguments []string) (string, error) {
-	identity := ""
-	for index := 0; index < len(arguments); index++ {
-		argument := arguments[index]
-		if argument == "--" {
-			break
-		}
-		if argument == "--leader" || strings.HasPrefix(argument, "--leader=") || argument == "--no-leader" || strings.HasPrefix(argument, "--no-leader=") || strings.HasPrefix(argument, "--leader-socket") {
-			return "", errors.New("grok-peer requires the default leader")
-		}
-		if argument == "--continue" || strings.HasPrefix(argument, "--continue=") || argument == "-c" || argument == "--fork-session" || strings.HasPrefix(argument, "--fork-session=") {
-			return "", fmt.Errorf("%s cannot identify an exact managed Grok session", argument)
-		}
-		name, value, attached := strings.Cut(argument, "=")
-		resume := name == "--resume" || name == "--load" || name == "-r"
-		fresh := name == "--session-id" || name == "-s"
-		if !attached && strings.HasPrefix(argument, "-r") && argument != "-r" {
-			resume, value, attached = true, strings.TrimPrefix(argument, "-r"), true
-		}
-		if !attached && strings.HasPrefix(argument, "-s") && argument != "-s" {
-			fresh, value, attached = true, strings.TrimPrefix(argument, "-s"), true
-		}
-		if resume || fresh {
-			if !attached {
-				if index+1 == len(arguments) || strings.HasPrefix(arguments[index+1], "-") {
-					return "", errors.New(argument + " requires a value")
-				}
-				index++
-				value = arguments[index]
-			}
-			if strings.TrimSpace(value) == "" {
-				return "", errors.New(argument + " requires a value")
-			}
-			if identity != "" {
-				return "", errors.New("Grok session identity was specified more than once")
-			}
-			identity = value
-			continue
-		}
-		if grokOptionTakesValue(argument) {
-			index++
-		}
-	}
-	return identity, nil
 }
 
 var grokCommands = map[string]bool{
@@ -518,39 +351,18 @@ var grokCommands = map[string]bool{
 }
 
 func grokPassthrough(arguments []string) bool {
-	for index := 0; index < len(arguments); index++ {
-		argument := arguments[index]
-		if argument == "--" {
-			return false
+	if len(arguments) > 0 && grokCommands[arguments[0]] {
+		return true
+	}
+	for _, arg := range arguments {
+		if arg == "--" {
+			break
 		}
-		if argument == "-h" || argument == "--help" || argument == "-v" || argument == "--version" {
+		if slices.Contains([]string{"-h", "--help", "-v", "--version"}, arg) {
 			return true
-		}
-		if !strings.HasPrefix(argument, "-") {
-			return grokCommands[argument]
-		}
-		if grokOptionTakesValue(argument) {
-			index++
 		}
 	}
 	return false
-}
-
-func grokOptionTakesValue(argument string) bool {
-	name, _, attached := strings.Cut(argument, "=")
-	if attached {
-		return false
-	}
-	return slices.Contains([]string{"-g", "--group", "--agent", "--agents", "--allow", "--cwd", "--debug-file", "--deny", "--disallowed-tools", "--json-schema", "--leader-socket", "-m", "--model", "--max-turns", "--output-format", "--permission-mode", "--prompt-file", "--prompt-json", "-r", "--resume", "--load", "--reasoning-effort", "--effort", "--rules", "-s", "--session-id", "--sandbox", "--system-prompt-override", "--tools", "--worktree-ref", "--ref"}, name)
-}
-
-func newSessionID() (string, error) {
-	var value [16]byte
-	if _, err := rand.Read(value[:]); err != nil {
-		return "", err
-	}
-	value[6], value[8] = value[6]&0x0f|0x40, value[8]&0x3f|0x80
-	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x", value[0:4], value[4:6], value[6:8], value[8:10], value[10:16]), nil
 }
 
 func ManagedHelper(environment []string) bool {

@@ -252,15 +252,19 @@ func (p *Wrapper) startLeader(cwd, permission string) (*nativeProcess, error) {
 }
 
 func startLeader(ctx context.Context, socket, key, cwd, permission string, environment []string) (*nativeProcess, error) {
-	path := leaderSocket(socket, key)
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return nil, err
-	}
-	_ = os.Remove(path)
 	arguments := []string{}
 	if permission != "" {
 		arguments = append(arguments, "--permission-mode", permission)
 	}
+	return startLeaderWithPolicy(ctx, socket, key, cwd, arguments, environment)
+}
+func startLeaderWithPolicy(ctx context.Context, socket, key, cwd string, policy, environment []string) (*nativeProcess, error) {
+	path := leaderSocket(socket, key)
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		return nil, err
+	}
+	_ = os.Remove(path)
+	arguments := slices.Clone(policy)
 	arguments = append(arguments, "agent", "leader", "--leader-socket", path, "--relay-on-demand", "--no-auto-update")
 	cmd := command("grok", arguments...)
 	cmd.Dir, cmd.Env, cmd.Stdout, cmd.Stderr = cwd, environment, os.Stderr, os.Stderr
