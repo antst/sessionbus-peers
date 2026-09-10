@@ -743,7 +743,8 @@ func TestUnsubmittedOversizedCombinedPromptPreservesStaging(t *testing.T) {
 	check(t, countFrames(records(t, recordPath), "session/prompt") == 0, "oversized prompt was submitted")
 	writeWorkerRequest(t, reader, 21, "turn.execute", map[string]any{"session_id": testSessionID + "@local", "run_id": "g/2", "input": "small"})
 	check(t, readWorkerResponse(t, reader, 21).Error == nil, "small run refused")
-	check(t, readWorkerReadyID(t, reader, "g/2")["state"] == "done", "small run did not complete")
+	ready := readWorkerReadyID(t, reader, "g/2")
+	check(t, ready["state"] == "done", "small run did not complete: %#v", ready)
 	frames := records(t, recordPath)
 	check(t, countFrames(frames, "session/prompt") == 1, "unexpected prompt count")
 	prompt := string(findFrame(frames, "session/prompt"))
@@ -752,4 +753,46 @@ func TestUnsubmittedOversizedCombinedPromptPreservesStaging(t *testing.T) {
 	}
 	writeWorkerRequest(t, reader, 22, "session.close", map[string]string{"session_id": testSessionID + "@local"})
 	check(t, readWorkerResponse(t, reader, 22).Error == nil, "close failed")
+}
+
+func TestCompletedWorkerRunIsRetiredAtNextAdmission(t *testing.T) {
+	for _, mode := range []string{"direct", "stage", "seed"} {
+		t.Run(mode, func(t *testing.T) {
+			recordPath := filepath.Join(t.TempDir(), "record")
+			t.Setenv("GROK_TEST_RECORD", recordPath)
+			p, _, reader := startGrokWorker(t, testsocket.Directory(t))
+			writeWorkerRequest(t, reader, 10, "turn.execute", map[string]any{"session_id": testSessionID + "@local", "run_id": "g/1", "input": "first"})
+			check(t, readWorkerResponse(t, reader, 10).Error == nil, "first run refused")
+			check(t, readWorkerReadyID(t, reader, "g/1")["state"] == "done", "first run incomplete")
+			p.mu.Lock()
+			previous := p.run
+			p.mu.Unlock()
+			check(t, previous != nil, "completed owner was not retained for synchronous admission")
+			<-previous.Done() // Real Worker publication, no synthetic Run/private SDK fields.
+			if mode == "stage" {
+				writeWorkerRequest(t, reader, 11, "message.deliver", delivery("after-completed-run"))
+				response := readWorkerResponse(t, reader, 11)
+				check(t, response.Error == nil && strings.Contains(string(response.Result), "queued_for_next_turn"), "completed owner prevented stage: %s %s", response.Error, response.Result)
+				check(t, countFrames(records(t, recordPath), "_x.ai/interject") == 0, "idle stage called native interject")
+			}
+			if mode == "seed" {
+				d := delivery("second-seeded")
+				d.RunID = "g/2"
+				writeWorkerRequest(t, reader, 12, "message.deliver", d)
+				response := readWorkerResponse(t, reader, 12)
+				check(t, response.Error == nil && strings.Contains(string(response.Result), "injected"), "seeded run refused: %s %s", response.Error, response.Result)
+			} else {
+				writeWorkerRequest(t, reader, 12, "turn.execute", map[string]any{"session_id": testSessionID + "@local", "run_id": "g/2", "input": "second"})
+				check(t, readWorkerResponse(t, reader, 12).Error == nil, "second run refused")
+			}
+			ready := readWorkerReadyID(t, reader, "g/2")
+			check(t, ready["state"] == "done", "second run failed: %#v", ready)
+			p.mu.Lock()
+			replacement := p.run
+			p.mu.Unlock()
+			check(t, replacement != nil && replacement != previous, "old completion cleared replacement owner")
+			writeWorkerRequest(t, reader, 13, "session.close", map[string]string{"session_id": testSessionID + "@local"})
+			check(t, readWorkerResponse(t, reader, 13).Error == nil, "close failed")
+		})
+	}
 }

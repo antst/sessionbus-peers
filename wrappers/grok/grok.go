@@ -404,13 +404,13 @@ func (p *Wrapper) executeRun(ctx context.Context, run *sessionkit.Run, seed sess
 	}
 
 	p.mu.Lock()
+	p.retireCompletedRunLocked()
 	if p.primary == nil || p.run != nil || p.closing || p.nativeFailure != nil {
 		p.mu.Unlock()
 		return reject(errors.New("Grok lane is not idle"))
 	}
 	p.run, p.answers = run, map[string]*strings.Builder{}
 	primary, id := p.primary, p.sessionID
-	go p.retireRun(run)
 	p.mu.Unlock()
 
 	if run.Interrupted() {
@@ -526,13 +526,16 @@ func (t *nativePrompt) Interrupt(ctx context.Context) error {
 	return t.client.cancelContext(ctx, t.sessionID)
 }
 
-func (p *Wrapper) retireRun(run *sessionkit.Run) {
-	<-run.Done()
-	p.mu.Lock()
-	if p.run == run {
-		p.run = nil
+// Called under p.mu at admission. Shared Done, not a scheduled cleanup
+// goroutine or the native terminal alone, makes the previous owner replaceable.
+func (p *Wrapper) retireCompletedRunLocked() {
+	if p.run != nil {
+		select {
+		case <-p.run.Done():
+			p.run = nil
+		default:
+		}
 	}
-	p.mu.Unlock()
 }
 
 func (p *Wrapper) receive(frame acpFrame) {
@@ -599,6 +602,7 @@ func (p *Wrapper) Deliver(ctx context.Context, request sessionkit.DeliveryReques
 		return sessionkit.DeliveryReceipt{}, err
 	}
 	p.mu.Lock()
+	p.retireCompletedRunLocked()
 	if p.closing || p.primary == nil || p.nativeFailure != nil {
 		p.mu.Unlock()
 		return sessionkit.DeliveryReceipt{Disposition: "rejected", Reason: "lane_unavailable"}, nil

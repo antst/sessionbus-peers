@@ -26,7 +26,7 @@ the available native leader route; it creates no Sessionbus owner or observer.
 Stage retains at most64 never-submitted messages/1MiB, in worker memory only.
 ACP frames/output are bounded1MiB, pending correlations and continuation
 segments256. The common MCP engine bounds frames2MiB, response work256,
-retained input32MiB and encoded result8MiB. Actual process observations and
+retained payload32MiB and encoded result8MiB. Actual process observations and
 linked/source/dependency/installed costs are recorded in SIZE.json; maxima are
 capacity limits, not measured idle RSS.
 
