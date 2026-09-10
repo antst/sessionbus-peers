@@ -43,19 +43,36 @@ func TestPackageInstallAndPrivateEntryUseOneBinary(t *testing.T) {
 	target, err := os.Readlink(filepath.Join(stage, PrivateAlias))
 	must(t, err)
 	check(t, target == Product, "archive alias=%q", target)
+	assertGenericSkillPayload(t, filepath.Join(stage, "plugin"), root)
 	home, bin := filepath.Join(stage, "home"), filepath.Join(stage, "bin")
 	must(t, os.MkdirAll(bin, 0700))
 	must(t, os.WriteFile(filepath.Join(bin, "qwen"), []byte(`#!/bin/sh
 set -eu
 test "$1" = extensions
 case "$2" in
- install) test "$4" = --consent; test "$5" = --scope; test "$6" = user; mkdir -p "$HOME/.qwen/extensions/sessionbus";;
+ install) test "$4" = --consent; test "$5" = --scope; test "$6" = user; test ! -e "$HOME/.qwen/extensions/sessionbus"; mkdir -p "$HOME/.qwen/extensions/sessionbus"; cp -R "$3/." "$HOME/.qwen/extensions/sessionbus/";;
  uninstall) test "$3" = sessionbus; rm -rf "$HOME/.qwen/extensions/sessionbus";;
  *) exit 9;;
 esac
 `), 0700))
 	permanent := filepath.Join(home, ".local/libexec/sessionbus/qwen")
+	extension := filepath.Join(home, ".qwen/extensions/sessionbus")
+	unrelated := filepath.Join(home, ".qwen/extensions/unrelated/skills/keep/SKILL.md")
+	history := filepath.Join(home, ".qwen/projects/fixture/chats/keep.jsonl")
+	for _, path := range []string{unrelated, history} {
+		must(t, os.MkdirAll(filepath.Dir(path), 0700))
+		must(t, os.WriteFile(path, []byte("preserve"), 0600))
+	}
 	for i := 0; i < 2; i++ {
+		// Exercise an upgrade and a reinstall with stale payload in both owned
+		// copies. A copy-over install would leave these discoverable.
+		for _, owned := range []string{filepath.Join(permanent, "plugin"), extension} {
+			for _, name := range []string{"claude-lane", "codex-lane", "grok-lane", "qwen-lane", "obsolete"} {
+				path := filepath.Join(owned, "skills", name, "SKILL.md")
+				must(t, os.MkdirAll(filepath.Dir(path), 0700))
+				must(t, os.WriteFile(path, []byte("obsolete skill"), 0600))
+			}
+		}
 		install := exec.Command("sh", filepath.Join(stage, "install"))
 		install.Env = append(os.Environ(), "HOME="+home, "PATH="+bin+":"+os.Getenv("PATH"))
 		if out, err := install.CombinedOutput(); err != nil {
@@ -64,6 +81,13 @@ esac
 		target, err = os.Readlink(filepath.Join(permanent, PrivateAlias))
 		must(t, err)
 		check(t, target == Product, "installed alias=%q", target)
+		assertGenericSkillPayload(t, filepath.Join(permanent, "plugin"), root)
+		assertGenericSkillPayload(t, extension, root)
+		for _, path := range []string{unrelated, history} {
+			data, err := os.ReadFile(path)
+			must(t, err)
+			check(t, string(data) == "preserve", "unrelated data changed: %s", path)
+		}
 	}
 	public := filepath.Join(home, ".local/bin", Product)
 	alias, err := installedMCPExecutable(public)
@@ -71,17 +95,33 @@ esac
 	canonical, err := filepath.EvalSymlinks(permanent)
 	must(t, err)
 	check(t, alias == filepath.Join(canonical, PrivateAlias), "resolved alias=%q", alias)
-	// This checkpoint deliberately retains legacy assets; changing activation is separate.
+	// The skill migration does not change the separately selected activation path.
 	native, err := os.ReadFile(filepath.Join(permanent, "plugin/mcp.json"))
 	must(t, err)
 	original, err := os.ReadFile(filepath.Join(root, "qwen/mcp.json"))
 	must(t, err)
 	check(t, string(native) == string(original), "unexpected activation change")
-	skills, err := os.ReadDir(filepath.Join(permanent, "plugin/skills"))
-	must(t, err)
-	check(t, len(skills) == 5, "unexpected skill migration: %v", skills)
 	for _, mode := range []string{"eof", "term-open-input", "term-undrained-output"} {
 		t.Run(mode, func(t *testing.T) { exercisePackagedPrivateEntry(t, alias, stage, mode) })
+	}
+}
+
+func assertGenericSkillPayload(t *testing.T, plugin, root string) {
+	t.Helper()
+	skills, err := os.ReadDir(filepath.Join(plugin, "skills"))
+	must(t, err)
+	if len(skills) != 1 || skills[0].Name() != "sessionbus" || !skills[0].IsDir() {
+		t.Fatalf("expected only generic skill at %s, got %v", plugin, skills)
+	}
+	files, err := os.ReadDir(filepath.Join(plugin, "skills/sessionbus"))
+	must(t, err)
+	check(t, len(files) == 1 && files[0].Name() == "SKILL.md", "unexpected generic skill files: %v", files)
+	for _, name := range []string{"skills/sessionbus/SKILL.md", "mcp.json", "plugin.json", "README.md"} {
+		got, err := os.ReadFile(filepath.Join(plugin, name))
+		must(t, err)
+		want, err := os.ReadFile(filepath.Join(root, "qwen", name))
+		must(t, err)
+		check(t, string(got) == string(want), "payload differs from source: %s", name)
 	}
 }
 

@@ -1,5 +1,16 @@
 # Qwen Code — verified product facts
 
+> Current rewrite checkpoint (2026-09-10): [Qwen package and lane interface](../../qwen/README.md)
+> and its [single generic skill](../../qwen/skills/sessionbus/SKILL.md) supersede
+> the historical wrapper/skill designs below. The current ACP lane adopts native
+> IDs, uses shared non-consuming run cursors with explicit acknowledgments, and
+> reports written rather than injected for native request/response writes.
+> Close retires the worker without archiving native history. Interactive
+> in-process switching has an accepted initial-session attribution limitation
+> in both directions; see the package README. Final ordinary activation and
+> interactive implementation remain in progress. Historical evidence below is
+> retained as evidence of its cited versions, not the current implementation.
+
 > Historical source note: citations to pre-split Sessionbus paths resolve in
 > the Forgejo `ai/sessionbus` repository through its `legacy-*` branches.
 > Citations to product source resolve in the external repository and full
