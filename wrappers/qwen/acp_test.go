@@ -195,3 +195,30 @@ func TestACPAttemptedWriteCancellationClosesAndJoins(t *testing.T) {
 	}
 	<-c.done
 }
+
+func TestACPNativeRequestBytesBoundBeforeWorkSlots(t *testing.T) {
+	c, remote, _ := duplexFixture(t, nil, func(string, json.RawMessage) (*acpResponse, error) {
+		return &acpResponse{Result: map[string]bool{"ok": true}}, nil
+	})
+	// Keep responses unread, allowing admitted requests to queue behind the one
+	// blocked writer. Large but individually valid requests hit the byte limit
+	// before the 256-request count ceiling, then real EOF joins all writers.
+	padding := strings.Repeat("x", 200000)
+	var admitted int
+	for i := 0; i < maxACPPending; i++ {
+		body, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": i, "method": "held", "params": map[string]string{"padding": padding}})
+		if _, err := remote.Write(append(body, '\n')); err != nil {
+			break
+		}
+		admitted++
+	}
+	<-c.done
+	if !errors.Is(c.failure(), errACPCapacity) || admitted >= maxACPPending {
+		t.Fatalf("admitted=%d failure=%v", admitted, c.failure())
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.retained != 0 || len(c.requests) != 0 {
+		t.Fatalf("retained=%d work=%d", c.retained, len(c.requests))
+	}
+}

@@ -422,3 +422,44 @@ func TestWorkerHeldDrainWriteJoinsTerminalWithoutReplay(t *testing.T) {
 	f.terminal(t, next, "end_turn")
 	<-f.ready
 }
+
+func TestWorkerCancellationBeforePullRemovesOnlyUnsubmittedMessage(t *testing.T) {
+	f := newLaneFixture(t, false)
+	prompt := f.execute(t, 1, "active")
+	ctx, cancel := context.WithCancel(context.Background())
+	returned := make(chan error, 1)
+	go func() { _, err := f.p.Deliver(ctx, delivery("cancel-before-pull"), nil); returned <- err }()
+	<-f.p.admitted
+	cancel()
+	if err := <-returned; err != context.Canceled {
+		t.Fatal(err)
+	}
+	acpWrite(t, f.native, `{"jsonrpc":"2.0","id":92,"method":"craft/drainMidTurnQueue","params":{"sessionId":"`+fixtureID+`"}}`)
+	response := acpRead(t, f.reader)
+	if strings.Contains(string(response.Result), "cancel-before-pull") {
+		t.Fatal("cancelled unsent input submitted")
+	}
+	f.terminal(t, prompt, "end_turn")
+	<-f.ready
+	next := f.execute(t, 2, "next")
+	if strings.Contains(string(next.Params), "cancel-before-pull") {
+		t.Fatal("cancelled input staged")
+	}
+	f.terminal(t, next, "end_turn")
+	<-f.ready
+}
+func TestWorkerStagingCapacityIsBounded(t *testing.T) {
+	f := newLaneFixture(t, false)
+	for i := 0; i < maxACPPending; i++ {
+		receipt, err := f.p.Deliver(context.Background(), delivery("small"), nil)
+		must(t, err)
+		if receipt.Disposition != "queued_for_next_turn" {
+			t.Fatalf("item %d: %#v", i, receipt)
+		}
+	}
+	receipt, err := f.p.Deliver(context.Background(), delivery("overflow"), nil)
+	must(t, err)
+	if receipt.Disposition != "rejected" || receipt.Reason != "delivery_capacity" {
+		t.Fatal(receipt)
+	}
+}
