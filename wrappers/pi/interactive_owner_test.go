@@ -372,3 +372,68 @@ func TestInteractiveOwnerOldGenerationCannotUseSameIDReplacement(t *testing.T) {
 		t.Fatalf("old generation call = %v", err)
 	}
 }
+
+func TestInteractiveOwnerCloseJoinsUnadmittedHelloWatcher(t *testing.T) {
+	listener := interactiveBusListener(t)
+	owner, err := newInteractiveOwner(context.Background(), listener.Addr().String(), t.TempDir(), "", []string{"team"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	published := make(chan error, 1)
+	go func() { published <- owner.publish(context.Background(), "native-one", "title", "/work") }()
+	bus := interactiveAccept(t, listener)
+	scanner := bufio.NewScanner(bus)
+	frame := interactiveFrame(t, scanner)
+	if !frame.Request || frame.Method != "session.hello" {
+		t.Fatalf("held hello = %+v", frame)
+	}
+	closed := make(chan error, 1)
+	go func() { closed <- owner.Close() }()
+	select {
+	case err = <-closed:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Close did not join the unadmitted public watcher")
+	}
+	select {
+	case err = <-published:
+		if err == nil {
+			t.Fatal("held hello was admitted after Close")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("held hello did not settle")
+	}
+}
+
+func TestInteractiveOwnerRejectsPoisonedDeliveryBeforeExistingQueue(t *testing.T) {
+	owner, err := newInteractiveOwner(context.Background(), "/bus.sock", t.TempDir(), "", []string{"team"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	left, right := net.Pipe()
+	defer right.Close()
+	connection := kit.NewConnection(left, func(context.Context, *kit.Request) {})
+	defer owner.Close()
+	owner.mu.Lock()
+	owner.conn = connection
+	owner.sessionID = "native-one"
+	owner.generation = 9
+	owner.queue = []interactiveQueuedDelivery{{messageID: "older", body: "older", bytes: 10}}
+	owner.queueBytes = 10
+	owner.mu.Unlock()
+	for _, request := range []kit.DeliveryRequest{
+		{MessageID: strings.Repeat(" ", 257), From: kit.DeliverySource{SessionID: "sender", Product: "fixture"}, Body: "body"},
+		{MessageID: "new", From: kit.DeliverySource{SessionID: "sender", Product: "fixture"}, Body: strings.Repeat("x", maxInteractiveTextBytes)},
+	} {
+		if _, err = owner.deliver(context.Background(), 9, request); err == nil {
+			t.Fatalf("poisoned delivery accepted: id=%d body=%d", len(request.MessageID), len(request.Body))
+		}
+	}
+	owner.mu.Lock()
+	defer owner.mu.Unlock()
+	if len(owner.queue) != 1 || owner.queue[0].messageID != "older" || owner.queueBytes != 10 {
+		t.Fatalf("queue changed after rejected delivery: %+v bytes=%d", owner.queue, owner.queueBytes)
+	}
+}

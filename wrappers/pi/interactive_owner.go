@@ -92,7 +92,7 @@ type interactiveOwner struct {
 	groups                         []string
 
 	mu                   sync.Mutex
-	conn                 *kit.Connection
+	conn, connecting     *kit.Connection
 	sessionID, name, cwd string
 	generation           uint64
 	everReady, ending    bool
@@ -166,14 +166,17 @@ func (o *interactiveOwner) fail(err error) {
 func (o *interactiveOwner) Close() error {
 	o.mu.Lock()
 	o.ending = true
-	conn := o.conn
-	o.conn = nil
+	conn, connecting := o.conn, o.connecting
+	o.conn, o.connecting = nil, nil
 	o.sessionID, o.name, o.cwd = "", "", ""
 	o.queue, o.queueBytes = nil, 0
 	o.mu.Unlock()
 	o.cancel()
 	if conn != nil {
 		_ = conn.Close()
+	}
+	if connecting != nil && connecting != conn {
+		_ = connecting.Close()
 	}
 	o.work.Wait()
 	return o.Err()
@@ -382,27 +385,42 @@ func (o *interactiveOwner) connectPublic(ctx context.Context, identity kit.PeerI
 		o.handlePublic(callCtx, conn, generation, request)
 	})
 	close(assigned)
+	// Register the watcher while Close is excluded. A concurrent Close can now
+	// close an unadmitted hello and must wait for this watcher to finish.
+	o.mu.Lock()
+	if o.ending || o.conn != nil || o.connecting != nil {
+		o.mu.Unlock()
+		_ = conn.Close()
+		return errors.New("Pi public owner changed before connection admission")
+	}
+	o.connecting = conn
+	o.work.Add(1)
+	o.mu.Unlock()
+	go func() {
+		defer o.work.Done()
+		o.watchPublic(conn, generation)
+	}()
 	var response json.RawMessage
 	err = conn.CallObserved(ctx, "session.hello", identity, &response, func() error {
 		o.mu.Lock()
 		defer o.mu.Unlock()
-		if o.ending || o.conn != nil || o.sessionID != "" {
+		if o.ending || o.conn != nil || o.connecting != conn || o.sessionID != "" {
 			return errors.New("Pi public owner changed before hello")
 		}
-		o.conn, o.sessionID, o.name, o.cwd = conn, identity.SessionID, identity.Name, identity.Info["cwd"].(string)
+		o.conn, o.connecting, o.sessionID, o.name, o.cwd = conn, nil, identity.SessionID, identity.Name, identity.Info["cwd"].(string)
 		o.everReady = true
 		o.readyOnce.Do(func() { close(o.readySignal) })
 		return nil
 	})
 	if err != nil {
+		o.mu.Lock()
+		if o.connecting == conn {
+			o.connecting = nil
+		}
+		o.mu.Unlock()
 		_ = conn.Close()
 		return err
 	}
-	o.work.Add(1)
-	go func() {
-		defer o.work.Done()
-		o.watchPublic(conn, generation)
-	}()
 	return nil
 }
 
@@ -416,9 +434,15 @@ func (o *interactiveOwner) nextGeneration() uint64 {
 func (o *interactiveOwner) watchPublic(conn *kit.Connection, generation uint64) {
 	<-conn.Done()
 	o.mu.Lock()
-	unexpected := !o.ending && o.conn == conn && o.generation == generation
+	owned := o.conn == conn || o.connecting == conn
+	unexpected := !o.ending && owned && o.generation == generation
 	if unexpected {
-		o.conn = nil
+		if o.conn == conn {
+			o.conn = nil
+		}
+		if o.connecting == conn {
+			o.connecting = nil
+		}
 	}
 	o.mu.Unlock()
 	if unexpected {
@@ -486,6 +510,9 @@ func (o *interactiveOwner) deliver(ctx context.Context, generation uint64, reque
 	if err != nil {
 		return kit.DeliveryReceipt{}, err
 	}
+	if err = validateInteractiveAppend(request.MessageID, body); err != nil {
+		return kit.DeliveryReceipt{}, err
+	}
 	if err = o.acquire(ctx); err != nil {
 		if ctx.Err() != nil {
 			return kit.DeliveryReceipt{}, fmt.Errorf("%w: %v", errInteractiveDeliveryCanceled, ctx.Err())
@@ -542,8 +569,11 @@ func (o *interactiveOwner) queueDelivery(ctx context.Context, generation uint64,
 }
 
 func (o *interactiveOwner) appendNative(ctx context.Context, sessionID, messageID, body string) (bool, error) {
-	if !validEntryID(sessionID) || !validOpaqueMessageID(messageID) || !validInteractiveText(body, maxInteractiveTextBytes) {
+	if !validEntryID(sessionID) {
 		return false, errors.New("invalid Pi native append")
+	}
+	if err := validateInteractiveAppend(messageID, body); err != nil {
+		return false, err
 	}
 	bridge := o.currentBridge()
 	if bridge == nil {
@@ -631,6 +661,20 @@ func validInteractiveText(value string, limit int) bool {
 
 func validOpaqueMessageID(value string) bool {
 	return value != "" && utf8.ValidString(value) && len(value) <= 256
+}
+
+func validateInteractiveAppend(messageID, body string) error {
+	if !validOpaqueMessageID(messageID) || !validInteractiveText(body, maxInteractiveTextBytes) {
+		return errors.New("invalid Pi native append")
+	}
+	params, err := json.Marshal(interactiveAppendRequest{SessionID: "x", MessageID: messageID, Body: body})
+	// Reserve room for the maximum native session ID and the bridge request
+	// envelope/sequence. This check runs before the current session is read so a
+	// queued item can never exceed the later native.append frame.
+	if err != nil || len(params) > pifamily.DefaultBridgeLimits.MaxFrameBytes-1024 {
+		return errors.New("Pi native append exceeds the private bridge frame")
+	}
+	return nil
 }
 
 func validInteractiveCWD(value string) bool {
