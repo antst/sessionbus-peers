@@ -362,6 +362,91 @@ func TestOwnerRegistryKeepsLanePrimaryAndChildCallersDistinct(t *testing.T) {
 	}
 }
 
+func TestOwnerRegistryAcceptsCleanBridgeEOFOnlyAfterAcknowledgedEnd(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		priorErr error
+	}{
+		{name: "clean"},
+		{name: "preserves earlier failure", priorErr: errors.New("earlier registry failure")},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			directory := t.TempDir()
+			caller := kit.NewCaller(func(context.Context, string, any) (json.RawMessage, error) {
+				return json.RawMessage(`{}`), nil
+			})
+			fixture := &ownerNativeFixture{descriptions: map[string]ownerDescribeResult{
+				"main-token": {OwnerToken: "main-token", SessionID: "main-session", CWD: "/work/main"},
+			}}
+			registry, native := ownerRegistryPair(t, OwnerRegistryOptions{
+				Topology: ownerTopologyLane, Socket: filepath.Join(directory, "bus.sock"), Directory: directory,
+				PrimaryCaller: caller,
+			}, fixture)
+			if err := native.Call(ownerTestContext(t), "owner.ready", ownerReadyRequest{
+				Topology: ownerTopologyLane, Directory: directory, Scope: ownerScopePrimary, Mode: ownerModeRPC,
+				OwnerToken: "main-token", SessionID: "main-session",
+			}, nil); err != nil {
+				t.Fatal(err)
+			}
+			if test.priorErr != nil {
+				registry.recordError(test.priorErr)
+			}
+			if err := native.Call(ownerTestContext(t), "session_end", ownerEndRequest{
+				Topology: ownerTopologyLane, Scope: ownerScopePrimary, Mode: ownerModeRPC,
+				OwnerToken: "main-token", SessionID: "main-session", Reason: "quit",
+			}, nil); err != nil {
+				t.Fatal(err)
+			}
+			if err := native.Close(); err != nil {
+				t.Fatal(err)
+			}
+			select {
+			case <-registry.Done():
+			case <-ownerTestContext(t).Done():
+				t.Fatal("clean bridge EOF did not settle registry")
+			}
+			err := registry.Close()
+			if test.priorErr == nil && err != nil {
+				t.Fatalf("clean acknowledged end = %v", err)
+			}
+			if test.priorErr != nil && !errors.Is(err, test.priorErr) {
+				t.Fatalf("earlier registry failure was lost: %v", err)
+			}
+		})
+	}
+}
+
+func TestOwnerRegistryRejectsBridgeEOFBeforeAcknowledgedEnd(t *testing.T) {
+	directory := t.TempDir()
+	caller := kit.NewCaller(func(context.Context, string, any) (json.RawMessage, error) {
+		return json.RawMessage(`{}`), nil
+	})
+	fixture := &ownerNativeFixture{descriptions: map[string]ownerDescribeResult{
+		"main-token": {OwnerToken: "main-token", SessionID: "main-session", CWD: "/work/main"},
+	}}
+	registry, native := ownerRegistryPair(t, OwnerRegistryOptions{
+		Topology: ownerTopologyLane, Socket: filepath.Join(directory, "bus.sock"), Directory: directory,
+		PrimaryCaller: caller,
+	}, fixture)
+	if err := native.Call(ownerTestContext(t), "owner.ready", ownerReadyRequest{
+		Topology: ownerTopologyLane, Directory: directory, Scope: ownerScopePrimary, Mode: ownerModeRPC,
+		OwnerToken: "main-token", SessionID: "main-session",
+	}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := native.Close(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-registry.Done():
+	case <-ownerTestContext(t).Done():
+		t.Fatal("unacknowledged bridge EOF did not retire registry")
+	}
+	if err := registry.Close(); err == nil || !strings.Contains(err.Error(), "OMP private bridge ended") {
+		t.Fatalf("unacknowledged bridge EOF = %v", err)
+	}
+}
+
 func TestOwnerRegistryStagesInteractiveDeliveryAndConfirmsExactBatch(t *testing.T) {
 	listener := ownerBusListener(t)
 	directory := t.TempDir()

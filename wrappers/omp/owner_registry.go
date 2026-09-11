@@ -282,11 +282,19 @@ func (registry *OwnerRegistry) AssignBridge(bridge *pifamily.Bridge) error {
 	go func() {
 		defer registry.work.Done()
 		<-bridge.Done()
+		bridgeErr := bridge.Err()
 		registry.mu.Lock()
 		unexpected := !registry.ending && registry.bridge == bridge
+		graceful := unexpected && errors.Is(bridgeErr, pifamily.ErrBridgeClosed) && registry.everPrimary && registry.primaryToken == "" &&
+			registry.lastPrimaryReason != "" && len(registry.bindings) == 0
 		registry.mu.Unlock()
-		if unexpected {
-			registry.fail(errors.Join(errors.New("OMP private bridge ended"), bridge.Err()))
+		if graceful {
+			// The native process closes its bridge after every admitted factory has
+			// acknowledged session_end. NativeOwner still owns the process join, but
+			// the registry itself has reached an orderly terminal state.
+			registry.cancel()
+		} else if unexpected {
+			registry.fail(errors.Join(errors.New("OMP private bridge ended"), bridgeErr))
 		}
 	}()
 	return nil
@@ -1041,6 +1049,8 @@ func (registry *OwnerRegistry) remove(state *ownerRegistryState, reason string) 
 func (registry *OwnerRegistry) Close() error {
 	registry.closeOnce.Do(func() {
 		registry.mu.Lock()
+		gracefulBridgeEOF := registry.everPrimary && registry.primaryToken == "" &&
+			registry.lastPrimaryReason != "" && len(registry.bindings) == 0
 		registry.ending = true
 		bridge := registry.bridge
 		connections := make([]*kit.Connection, 0, len(registry.bindings))
@@ -1059,7 +1069,7 @@ func (registry *OwnerRegistry) Close() error {
 				_ = conn.Close()
 			}
 			if bridge != nil {
-				if err := bridge.Close(); err != nil {
+				if err := bridge.Close(); err != nil && !(gracefulBridgeEOF && errors.Is(err, pifamily.ErrBridgeClosed)) {
 					registry.recordError(err)
 				}
 			}
