@@ -245,3 +245,29 @@ func TestConfigurePluginPreservesConfigSymlinkAndRejectsConcurrentChange(t *test
 		t.Fatal("overwrote concurrent edit", err)
 	}
 }
+
+func TestConfigurePluginRejectsCrossGroupHardLinks(t *testing.T) {
+	for _, name := range []string{"tui.jsonc", "tui.json"} {
+		t.Run(name, func(t *testing.T) {
+			options := installerFixture(t)
+			first := putInstallConfig(t, options, "config.json", `{"plugin":["other","@sessionbus/opencode@old"]}`)
+			second := filepath.Join(options.Directory, name)
+			if err := os.Link(first, second); err != nil {
+				t.Fatal(err)
+			}
+			before := readInstalledConfig(t, first)
+			changed, err := ConfigurePlugin(options)
+			if err == nil || changed {
+				t.Fatalf("hard-link accepted: changed=%v error=%v", changed, err)
+			}
+			if readInstalledConfig(t, first) != before || readInstalledConfig(t, second) != before {
+				t.Fatal("rejection changed bytes")
+			}
+			a, _ := os.Stat(first)
+			b, _ := os.Stat(second)
+			if !os.SameFile(a, b) {
+				t.Fatal("rejection broke hard link")
+			}
+		})
+	}
+}

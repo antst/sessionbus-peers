@@ -62,7 +62,7 @@ func configurePlugin(options InstallOptions, commit func([]configChange) error) 
 	}
 	groups := [][]string{{"opencode.jsonc", "opencode.json", "config.json"}, {"tui.jsonc", "tui.json"}}
 	var changes []configChange
-	physical := map[string]bool{}
+	var identities []os.FileInfo
 	for group, names := range groups {
 		var docs []*configDocument
 		for _, name := range names {
@@ -74,10 +74,12 @@ func configurePlugin(options InstallOptions, commit func([]configChange) error) 
 			if err != nil {
 				return false, err
 			}
-			if physical[doc.physical] {
-				return false, errors.New("native config files alias the same physical file")
+			for _, identity := range identities {
+				if os.SameFile(identity, doc.info) {
+					return false, errors.New("native config files alias the same physical file")
+				}
 			}
-			physical[doc.physical] = true
+			identities = append(identities, doc.info)
 			doc.tui = group == 1
 			docs = append(docs, doc)
 		}
