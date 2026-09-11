@@ -128,6 +128,17 @@ type publicLaunchCapture struct {
 	LeakedIdentity bool
 }
 
+// Directory observers must see complete fixture records at their final names;
+// a later child-file write need not produce another directory notification.
+func publishPublicFixtureFile(path string, data []byte) error {
+	temporary := path + ".tmp"
+	defer os.Remove(temporary)
+	if err := os.WriteFile(temporary, data, 0600); err != nil {
+		return err
+	}
+	return os.Rename(temporary, path)
+}
+
 // A compiled Go child stands in for native Qwen only in this production-entry
 // test. It records actual argv/owned files, waits for stdin EOF, and exits 37.
 func TestInteractivePublicNativeFixture(t *testing.T) {
@@ -139,7 +150,7 @@ func TestInteractivePublicNativeFixture(t *testing.T) {
 	signal.Notify(interrupts, os.Interrupt)
 	go func() {
 		for range interrupts {
-			if os.WriteFile(path+".interrupt", []byte("native interrupt received"), 0600) != nil {
+			if publishPublicFixtureFile(path+".interrupt", []byte("native interrupt received")) != nil {
 				os.Exit(95)
 			}
 		}
@@ -172,7 +183,7 @@ func TestInteractivePublicNativeFixture(t *testing.T) {
 	if e != nil {
 		os.Exit(93)
 	}
-	if os.WriteFile(path, data, 0600) != nil {
+	if publishPublicFixtureFile(path, data) != nil {
 		os.Exit(94)
 	}
 	_, _ = io.Copy(io.Discard, os.Stdin)
