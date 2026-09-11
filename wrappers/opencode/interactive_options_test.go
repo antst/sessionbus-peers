@@ -67,18 +67,20 @@ func TestManagedGroupsAndNativeSelectorPreservation(t *testing.T) {
 
 func TestResumeAliasBecomesNativeSessionInPlace(t *testing.T) {
 	for _, tc := range []struct{ in, want []string }{
-		{[]string{"--resume", "ses_a", "--agent", "build"}, []string{"--session", "ses_a", "--agent", "build"}},
-		{[]string{"--agent", "build", "--resume=ses_a"}, []string{"--agent", "build", "--session=ses_a"}},
-		{[]string{"-g", "one", "--resume", "ses_a", "-n", "named", "--", "--resume", "literal"}, []string{"--session", "ses_a", "--", "--resume", "literal"}},
-		{[]string{"--session", "ses_native", "--resume", "ses_a"}, []string{"--session", "ses_native", "--session", "ses_a"}},
+		{[]string{"--resume", "ses_a", "--agent", "build"}, []string{"-s", "ses_a", "--agent", "build"}},
+		{[]string{"--agent", "build", "--resume=ses_a"}, []string{"--agent", "build", "-s", "ses_a"}},
+		{[]string{"-g", "one", "--resume", "ses_a", "-n", "named", "--", "--resume", "literal"}, []string{"-s", "ses_a", "--", "--resume", "literal"}},
+		{[]string{"--session", "ses_native", "--resume", "ses_a"}, []string{"--session", "ses_native", "-s", "ses_a"}},
 		{[]string{"--", "--resume=ses_a"}, []string{"--", "--resume=ses_a"}},
+		{[]string{"-n", "--resume", "--resume", "ses_a"}, []string{"-s", "ses_a"}},
+		{[]string{"--group", "--resume", "-s", "--resume", "--resume=ses_a"}, []string{"-s", "--resume", "-s", "ses_a"}},
 	} {
 		plan, native, err := InteractivePlan(tc.in, nil)
 		if err != nil || native || !slices.Equal(plan.Args, tc.want) {
 			t.Fatalf("%v: got %v native=%v err=%v, want %v", tc.in, plan.Args, native, err, tc.want)
 		}
 	}
-	for _, args := range [][]string{{"--resume"}, {"--resume", ""}, {"--resume", " "}, {"--resume="}} {
+	for _, args := range [][]string{{"--resume"}, {"--resume", ""}, {"--resume", " "}, {"--resume="}, {"--resume", "--", "x"}} {
 		if _, _, err := InteractivePlan(args, nil); err == nil || !strings.Contains(err.Error(), "--resume") {
 			t.Fatalf("%v: expected --resume value error, got %v", args, err)
 		}
