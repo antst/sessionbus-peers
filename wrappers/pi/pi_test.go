@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -146,6 +147,10 @@ func runPiNativeHelper(mode string) error {
 	if err = reader.Err(); err != nil {
 		return err
 	}
+	if mode == "malformed-shutdown" {
+		_, err = fmt.Fprintln(os.Stdout, `{"id":"pi:999","type":"response","command":"get_state","success":true,"data":{}}`)
+		return err
+	}
 	var ended struct {
 		SessionID string `json:"session_id"`
 	}
@@ -266,6 +271,92 @@ func TestPiCancelledCloseForcesAndJoinsExactChild(t *testing.T) {
 	}
 	if _, statErr := os.Stat(launchDirectory); !errors.Is(statErr, os.ErrNotExist) {
 		t.Fatalf("private launch directory survived forced Close: %v", statErr)
+	}
+}
+
+func TestPiCloseWaitsForStartupResourceAdmission(t *testing.T) {
+	wrapper, cwd := newPiTestWrapper(t, "normal")
+	entered, release := make(chan struct{}), make(chan struct{})
+	previous := piStartProcess
+	piStartProcess = func(socket, provisional, executable, cwd string, arguments []string) (*piProcess, error) {
+		close(entered)
+		<-release
+		return startPiProcess(socket, provisional, executable, cwd, arguments)
+	}
+	t.Cleanup(func() { piStartProcess = previous })
+	opened := make(chan error, 1)
+	go func() {
+		_, err := wrapper.Open(context.Background(), sessionkit.OpenRequest{
+			Name: "managed@local", Open: sessionkit.OpenOptions{Cwd: cwd},
+		})
+		opened <- err
+	}()
+	<-entered
+	closed := make(chan error, 1)
+	go func() { closed <- wrapper.Close(context.Background(), sessionkit.SessionCloseRequest{}) }()
+	for {
+		wrapper.mu.Lock()
+		closing := wrapper.closing
+		wrapper.mu.Unlock()
+		if closing {
+			break
+		}
+		runtime.Gosched()
+	}
+	select {
+	case err := <-closed:
+		t.Fatalf("Close returned before startup resource ownership settled: %v", err)
+	default:
+	}
+	close(release)
+	if err := <-opened; err == nil {
+		t.Fatal("Open succeeded across Close")
+	}
+	if err := <-closed; err == nil {
+		t.Fatal("Close did not retain canceled startup failure")
+	}
+	if wrapper.process == nil {
+		t.Fatal("held process was not published for cleanup")
+	}
+	if _, err := os.Stat(wrapper.process.directory); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("held startup directory survived Close: %v", err)
+	}
+}
+
+func TestPiClosePreservesMalformedTerminalWire(t *testing.T) {
+	wrapper, cwd := newPiTestWrapper(t, "malformed-shutdown")
+	if _, err := wrapper.Open(context.Background(), sessionkit.OpenRequest{
+		Name: "managed@local", Open: sessionkit.OpenOptions{Cwd: cwd},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	err := wrapper.Close(context.Background(), sessionkit.SessionCloseRequest{})
+	if !errors.Is(err, errNativeRPCProtocol) {
+		t.Fatalf("Close error %v omitted terminal protocol failure", err)
+	}
+}
+
+func TestPiCloseJoinsLossShutdownWork(t *testing.T) {
+	wrapper, cwd := newPiTestWrapper(t, "normal")
+	entered, release := make(chan struct{}), make(chan struct{})
+	wrapper.SetShutdown(func() { close(entered); <-release })
+	if _, err := wrapper.Open(context.Background(), sessionkit.OpenRequest{
+		Name: "managed@local", Open: sessionkit.OpenOptions{Cwd: cwd},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	wrapper.lose(errors.New("controlled owner loss"))
+	<-entered
+	closed := make(chan error, 1)
+	go func() { closed <- wrapper.Close(context.Background(), sessionkit.SessionCloseRequest{}) }()
+	select {
+	case <-closed:
+		t.Fatal("Close returned before loss shutdown work joined")
+	default:
+	}
+	close(release)
+	if err := <-closed; !strings.Contains(err.Error(), "controlled owner loss") {
+		t.Fatalf("Close error %v omitted owner loss", err)
 	}
 }
 
