@@ -18,8 +18,9 @@ const InteractiveLaunchEnv = "SESSIONBUS_PI_LAUNCH"
 var interactiveValueOptions = []string{
 	"--provider", "--model", "--api-key", "--system-prompt", "--append-system-prompt",
 	"--mode", "--session", "--session-id", "--fork", "--session-dir", "--name",
-	"--models", "--tools", "--exclude-tools", "--thinking", "--extension", "-e",
+	"--models", "--tools", "-t", "--exclude-tools", "-xt", "--thinking", "--extension", "-e",
 	"--skill", "--prompt-template", "--theme", "--use-theme", "--export",
+	"--tui-mode",
 }
 
 var passthroughCommands = []string{"install", "remove", "uninstall", "update", "list", "config", "auth"}
@@ -27,25 +28,15 @@ var passthroughCommands = []string{"install", "remove", "uninstall", "update", "
 // InteractivePlan classifies native maintenance/help before adding managed
 // identity. Passthrough retains the original argv and environment byte values.
 func InteractivePlan(arguments, environment []string) (host.ExecPlan, bool, error) {
-	positional := false
-	plan, native, err := host.ClassifiedInteractivePlan("pi", arguments, environment, host.PeerIdentity{}, func(value string) bool {
+	if nativeNonTUI(arguments) {
+		return host.ExecPlan{Path: "pi", Args: arguments, Env: environment}, true, nil
+	}
+	plan, _, err := host.ClassifiedInteractivePlan("pi", arguments, environment, host.PeerIdentity{}, func(value string) bool {
 		if strings.Contains(value, "=") {
 			return false
 		}
 		return slices.Contains(interactiveValueOptions, value)
-	}, func(value string) bool {
-		if value == "-h" || value == "--help" || value == "-v" || value == "--version" {
-			return true
-		}
-		if strings.HasPrefix(value, "-") || positional {
-			return false
-		}
-		positional = true
-		return slices.Contains(passthroughCommands, value)
-	})
-	if native {
-		return host.ExecPlan{Path: plan.Path, Args: arguments, Env: environment}, true, err
-	}
+	}, nil)
 	if err != nil {
 		return host.ExecPlan{}, false, err
 	}
@@ -66,6 +57,40 @@ func InteractivePlan(arguments, environment []string) (host.ExecPlan, bool, erro
 		plan.Env = setInteractiveEnvironment(plan.Env, host.SocketEnv, sessionkit.Socket())
 	}
 	return plan, false, nil
+}
+
+func nativeNonTUI(arguments []string) bool {
+	if len(arguments) > 0 && slices.Contains(passthroughCommands, arguments[0]) {
+		return true
+	}
+	for index := 0; index < len(arguments); index++ {
+		argument := arguments[index]
+		if argument == "--" {
+			return false
+		}
+		switch argument {
+		case "-h", "--help", "-v", "--version", "-p", "--print", "--list-models":
+			return true
+		case "--export":
+			// A value is required before Pi selects its one-shot export path.
+			if index+1 < len(arguments) {
+				return true
+			}
+		}
+		if slices.Contains(interactiveValueOptions, argument) {
+			if index+1 < len(arguments) {
+				index++
+			}
+			continue
+		}
+		// Extension flags are long options. Pi consumes their following plain
+		// value, so a word such as "install" there is not a native command.
+		if strings.HasPrefix(argument, "--") && !strings.Contains(argument, "=") && index+1 < len(arguments) &&
+			!strings.HasPrefix(arguments[index+1], "-") && !strings.HasPrefix(arguments[index+1], "@") {
+			index++
+		}
+	}
+	return false
 }
 
 func interactiveEnvironmentValue(environment []string, name string) string {

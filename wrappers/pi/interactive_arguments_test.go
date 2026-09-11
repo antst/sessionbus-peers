@@ -36,6 +36,9 @@ func TestInteractivePlanNativeValueAndBoundaryProtectWrapperFlags(t *testing.T) 
 	for _, args := range [][]string{
 		{"--model", "-g", "prompt"},
 		{"--model", "--mode", "prompt"},
+		{"-t", "-g", "prompt"},
+		{"-xt", "--peer-name", "prompt"},
+		{"--tui-mode", "-g", "prompt"},
 		{"--model=-g", "prompt"},
 		{"--", "-g", "--mode"},
 	} {
@@ -50,7 +53,10 @@ func TestInteractivePlanNativeMaintenancePassthroughIsBytePreserving(t *testing.
 	for _, args := range [][]string{
 		{"--help", "-g"},
 		{"install", "-g", "package"},
-		{"--offline", "auth", "print-api-key", "-g"},
+		{"--print", "-g"},
+		{"-p", "prompt", "-g"},
+		{"--export", "session.jsonl", "output.html"},
+		{"--list-models", "deepseek"},
 	} {
 		environment := []string{"BAD WRAPPER ENV", "OTHER=value"}
 		plan, passthrough, err := InteractivePlan(args, environment)
@@ -60,6 +66,49 @@ func TestInteractivePlanNativeMaintenancePassthroughIsBytePreserving(t *testing.
 		if !reflect.DeepEqual(plan.Args, args) || !reflect.DeepEqual(plan.Env, environment) {
 			t.Fatalf("passthrough changed: %#v", plan)
 		}
+	}
+}
+
+func TestInteractivePlanDoesNotTreatExtensionFlagValueAsCommand(t *testing.T) {
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+	for _, args := range [][]string{
+		{"--extension-flag", "auth", "prompt"},
+		{"--extension-flag", "install", "prompt"},
+		{"--model", "--help", "prompt"},
+		{"--export"},
+	} {
+		plan, passthrough, err := InteractivePlan(args, nil)
+		if err != nil || passthrough || !reflect.DeepEqual(plan.Args, args) {
+			t.Fatalf("%#v -> %#v passthrough=%v err=%v", args, plan.Args, passthrough, err)
+		}
+	}
+}
+
+func TestInteractivePlanRecognizesMaintenanceOnlyAsFirstArgument(t *testing.T) {
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+	plan, passthrough, err := InteractivePlan([]string{"--offline", "auth", "print-api-key", "-g", "team"}, nil)
+	if err != nil || passthrough {
+		t.Fatalf("passthrough=%v err=%v", passthrough, err)
+	}
+	if !reflect.DeepEqual(plan.Args, []string{"--offline", "auth", "print-api-key"}) {
+		t.Fatalf("args = %#v", plan.Args)
+	}
+	if got := interactiveEnvironmentValue(plan.Env, host.GroupsEnv); got != `["team"]` {
+		t.Fatalf("groups = %q", got)
+	}
+}
+
+func TestInteractivePlanSelectsPeerShortNameAndNativeLongName(t *testing.T) {
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+	plan, passthrough, err := InteractivePlan([]string{"-n", "peer name", "--name", "native title"}, nil)
+	if err != nil || passthrough {
+		t.Fatalf("passthrough=%v err=%v", passthrough, err)
+	}
+	if !reflect.DeepEqual(plan.Args, []string{"--name", "native title"}) {
+		t.Fatalf("args = %#v", plan.Args)
+	}
+	if got := interactiveEnvironmentValue(plan.Env, host.NameEnv); got != "peer name" {
+		t.Fatalf("peer name = %q", got)
 	}
 }
 
