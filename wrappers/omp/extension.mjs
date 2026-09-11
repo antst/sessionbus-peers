@@ -378,10 +378,12 @@ export function createOMPExtension({ launch, connect = connectBridge, createToke
     return bridgePromise;
   }
 
-  async function callHost(state, method, params, signal = undefined) {
+  async function callHost(state, method, params, signal = undefined, { ending = false } = {}) {
     throwIfAborted(signal);
     const owner = await connection();
-    return owner.call(method, params, { signal: combinedSignal(lifetime.signal, state?.controller.signal, signal) });
+    return owner.call(method, params, {
+      signal: combinedSignal(lifetime.signal, ending ? undefined : state?.controller.signal, signal),
+    });
   }
 
   function reportBytes(method, params) {
@@ -405,7 +407,7 @@ export function createOMPExtension({ launch, connect = connectBridge, createToke
       failState(state, new Error("OMP owner report capacity is exhausted"));
       return false;
     }
-    factory.reports.push({ state, method, params, validate, bytes });
+    factory.reports.push({ state, method, params, validate, bytes, ending });
     reportItems += 1;
     startReportWorker(factory);
     return true;
@@ -426,16 +428,22 @@ export function createOMPExtension({ launch, connect = connectBridge, createToke
     while (factory.reports.length > 0) {
       const work = factory.reports.shift();
       try {
-        const result = await callHost(work.state, work.method, work.params);
+        const result = await callHost(work.state, work.method, work.params, undefined, { ending: work.ending });
         work.validate(result);
       } catch (error) {
         failState(work.state, error);
         if (factory.current !== work.state) failState(factory.current, error);
+        const endingReports = [];
         while (factory.reports.length > 0) {
           const abandoned = factory.reports.shift();
+          if (abandoned.ending) {
+            endingReports.push(abandoned);
+            continue;
+          }
           reportItems -= 1;
           release(abandoned.bytes);
         }
+        factory.reports.unshift(...endingReports);
         throw error;
       } finally {
         reportItems -= 1;

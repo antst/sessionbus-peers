@@ -121,7 +121,8 @@ class FakeOwner {
     this.failures.set(method, error);
   }
 
-  async call(method, params) {
+  async call(method, params, { signal } = {}) {
+    if (signal?.aborted) throw signal.reason;
     const record = { method, params: structuredClone(params) };
     this.calls.push(record);
     for (const waiter of this.waiters.splice(0)) waiter();
@@ -130,6 +131,7 @@ class FakeOwner {
       this.holds.delete(method);
       hold.entered.resolve(record);
       await hold.gate.promise;
+      if (signal?.aborted) throw signal.reason;
     }
     const failure = this.failures.get(method);
     if (failure) {
@@ -503,7 +505,9 @@ test("failed Task child reports its end without retiring the healthy primary", a
     message_id: "child-delivery",
     body: "child body",
   })).queued, true);
+  const heldReport = owner.hold("delivery.observe");
   const injected = await child.emit("before_agent_start", { type: "before_agent_start", prompt: "child prompt" }, child.context());
+  await heldReport.entered;
   const altered = nativeCustom({
     ...injected.message,
     content: "changed body",
@@ -512,8 +516,12 @@ test("failed Task child reports its end without retiring the healthy primary", a
   assert.equal(child.aborts(), 1);
   assert.equal(child.shutdowns(), 0);
 
+  const ending = child.emit("session_shutdown", { type: "session_shutdown" }, child.context());
+  await flush();
+  assert.equal(owner.calls.some((call) => call.method === "session_end"), false);
+  heldReport.release();
   await assert.rejects(
-    child.emit("session_shutdown", { type: "session_shutdown" }, child.context()),
+    ending,
     /changed Sessionbus delivery identity/,
   );
   const end = owner.calls.find((call) => call.method === "session_end" && call.params.scope === "child");
