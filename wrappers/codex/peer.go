@@ -115,7 +115,7 @@ func (b *PeerBackend) Prepare(ctx context.Context, meta json.RawMessage) error {
 	// Prepare runs inside the active turn that is waiting for this tool call.
 	// thread/read is the only native call allowed here; resume and name/set can
 	// wait for that turn and therefore belong only to out-of-band delivery.
-	identity := sessionkit.PeerIdentity{Product: "codex", SessionID: id, Name: first(b.requestedName, strings.TrimSpace(thread.Name), id), Groups: append([]string{}, b.groups...), Info: map[string]any{"cwd": strings.TrimSpace(thread.Cwd)}}
+	identity := sessionkit.PeerIdentity{Product: Product, SessionID: id, Name: first(b.requestedName, strings.TrimSpace(thread.Name), id), Groups: append([]string{}, b.groups...), Info: map[string]any{"cwd": strings.TrimSpace(thread.Cwd)}}
 	b.mu.Lock()
 	peer, old := b.peer, b.identity
 	b.mu.Unlock()

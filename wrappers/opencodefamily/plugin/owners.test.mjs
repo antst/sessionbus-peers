@@ -154,11 +154,16 @@ test("native blank title stays absent; same-ID title updates use rehello", { tim
     firstHello.resolve(request.params); await wire.result(request, {});
   } });
   await f.action("ses_title");
+  assert.equal((await firstHello.promise).product, {
+    "@sessionbus/opencode": "opencode-peer", "@sessionbus/kilo": "kilo-peer",
+  }[nativeProduct.packageName]);
   assert.equal(Object.hasOwn(await firstHello.promise, "name"), false);
   const wire = f.wires.get("ses_title");
   const renamed = once(f.hello, "ses_title");
   f.events.emit("session.updated", { properties: { info: info("ses_title", "native title") } });
-  assert.equal((await renamed)[0].name, "native title");
+  const renamedIdentity = (await renamed)[0];
+  assert.equal(renamedIdentity.name, "native title");
+  assert.equal(renamedIdentity.product, (await firstHello.promise).product);
   assert.equal(f.wires.get("ses_title"), wire);
   const blank = once(f.hello, "ses_title");
   f.events.emit("session.updated", { properties: { info: info("ses_title", "") } });

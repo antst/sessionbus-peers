@@ -87,7 +87,7 @@ export class NativeOwners {
   }
   #identity(record) {
     const info = record.info;
-    const identity = { product: nativeProduct.product, session_id: record.id, groups: [...this.#binding.groups], info: { cwd: info.directory }, ...(info.title ? { name: info.title } : {}) };
+    const identity = { product: `${nativeProduct.product}-peer`, session_id: record.id, groups: [...this.#binding.groups], info: { cwd: info.directory }, ...(info.title ? { name: info.title } : {}) };
     if (!validate("SessionHelloRequest", { protocol: 1, ...identity })) throw Object.assign(new Error("native title is outside the Sessionbus identity grammar"), { code: `${nativeProduct.product.toUpperCase()}_IDENTITY` });
     return identity;
   }
