@@ -92,7 +92,8 @@ old AgentSession and extension runner; the old Peer is withdrawn, then the new
 native ID is reported. Rename updates the same identity, including clearing a
 name. Existing native titles win over a wrapper's initial name. Whenever the
 current native title is empty, including after replacement or title clearing,
-the public Peer uses the wrapper's initial name to satisfy the hello protocol.
+the public Peer uses the wrapper's initial name. This is the wrapper's display
+policy; the daemon also accepts an empty Peer name.
 
 OMP also has one selected main session, but replaces it in place. Its
 `session_switch` event covers new, fork and resume; reload switches to the
