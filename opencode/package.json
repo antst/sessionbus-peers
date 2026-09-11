@@ -5,7 +5,7 @@
   "type": "module",
   "main": "./server.mjs",
   "scripts": {
-    "test": "node --test forward.test.mjs readiness.test.mjs endpoint.test.mjs server.test.mjs peer.test.mjs owners.test.mjs delivery.test.mjs tui.test.mjs review-delivery-*.test.mjs"
+    "test": "../scripts/test-native-plugin opencode"
   },
   "exports": {
     ".": "./server.mjs",

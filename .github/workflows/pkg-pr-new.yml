@@ -16,11 +16,16 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.x'
       - name: Verify package boundary
         working-directory: opencode
         run: |
           npm install --ignore-scripts --no-package-lock
           npm test
+          go run ../internal/cmd/stage-native-plugin -repo .. -product opencode -output "$RUNNER_TEMP/native-plugin/opencode"
+          cd "$RUNNER_TEMP/native-plugin/opencode"
           npm pack --dry-run --json > /tmp/sessionbus-opencode-pack.json
           node - <<'NODE'
           const report = require('/tmp/sessionbus-opencode-pack.json')[0]
@@ -50,7 +55,7 @@ jobs:
             throw new Error('OpenCode repository metadata is invalid')
           }
           NODE
-      - run: npx --yes pkg-pr-new publish ./opencode
+      - run: npx --yes pkg-pr-new publish "$RUNNER_TEMP/native-plugin/opencode"
 
   claude-package:
     runs-on: ubuntu-latest

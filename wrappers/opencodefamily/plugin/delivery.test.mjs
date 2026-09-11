@@ -77,7 +77,7 @@ test("owned cancellation joins an attempted native handoff without replay", asyn
 
 // Unchanged shared expected bytes preserve the historical renderer contract.
 test("native delivery matches the retained shared message envelope", async () => {
-  const fixture = JSON.parse(await readFile(new URL("../wrappers/host/testdata/native-message-envelope.json", import.meta.url), "utf8"));
+  const fixture = JSON.parse(await readFile(new URL("./native-message-envelope.json", import.meta.url), "utf8"));
   assert.equal(renderDelivery(fixture.message), fixture.rendered);
 });
 

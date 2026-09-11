@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/antst/sessionbus-peers/internal/pluginstage"
 	"github.com/antst/sessionbus-peers/internal/testsocket"
 	"github.com/antst/sessionbus-peers/wrappers/mcp"
 )
@@ -49,6 +50,10 @@ func TestNativeForwarderAgainstCommonEngine(t *testing.T) {
 			if err != nil {
 				t.Skip("development Node unavailable")
 			}
+			stage := t.TempDir()
+			if err := pluginstage.Stage("../..", "opencode", stage, true); err != nil {
+				t.Fatal(err)
+			}
 			path := filepath.Join(testsocket.Directory(t), "mcp.sock")
 			listener, err := net.Listen("unix", path)
 			if err != nil {
@@ -57,7 +62,7 @@ func TestNativeForwarderAgainstCommonEngine(t *testing.T) {
 			defer listener.Close()
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
-			cmd := exec.CommandContext(ctx, node, "../../opencode/forward-fixture.mjs", path, mode)
+			cmd := exec.CommandContext(ctx, node, filepath.Join(stage, "forward-fixture.mjs"), path, mode)
 			var output bytes.Buffer
 			cmd.Stdout, cmd.Stderr = &output, &output
 			input, err := cmd.StdinPipe()

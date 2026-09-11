@@ -20,7 +20,8 @@ mkdir "$stage/plugin"
 if [ "$product" = opencode ]; then
  # The build uses npm to select the published native plugin payload and resolve
  # its pinned kit. Target installation uses Go; native hooks run existing Bun.
- packed=$(cd opencode && npm pack --ignore-scripts --silent --pack-destination "$stage")
+ go run ./internal/cmd/stage-native-plugin -repo "$repo" -product "$product" -output "$stage/npm-source"
+ packed=$(cd "$stage/npm-source" && npm pack --ignore-scripts --silent --pack-destination "$stage")
  tar -xzf "$stage/$packed" -C "$stage/plugin" --strip-components=1
  cp opencode/package-lock.json "$stage/plugin/"
  npm ci --prefix "$stage/plugin" --omit=dev --ignore-scripts

@@ -57,11 +57,11 @@ func TestRepositoryBoundary(t *testing.T) {
 	if !equalStrings(gotCommands, wantCommands) {
 		t.Errorf("peer command roots = %v, want %v", gotCommands, wantCommands)
 	}
-	if got := directoryNames(t, "internal"); !equalStrings(got, []string{"cmd", "testsocket"}) {
-		t.Errorf("internal roots = %v, want [cmd testsocket]", got)
+	if got := directoryNames(t, "internal"); !equalStrings(got, []string{"cmd", "pluginstage", "testsocket"}) {
+		t.Errorf("internal roots = %v, want [cmd pluginstage testsocket]", got)
 	}
-	if got := directoryNames(t, "internal/cmd"); !equalStrings(got, []string{"gen-opencode-tool"}) {
-		t.Errorf("internal commands = %v, want only the shared native declaration generator", got)
+	if got := directoryNames(t, "internal/cmd"); !equalStrings(got, []string{"gen-opencode-tool", "stage-native-plugin"}) {
+		t.Errorf("internal commands = %v, want the shared native declaration generator and build stager", got)
 	}
 	if _, err := os.Stat(".github/workflows/release.yml"); !os.IsNotExist(err) {
 		t.Fatal("initial peers root must not contain a release workflow")
@@ -222,7 +222,7 @@ func TestOpenCodePackageBoundary(t *testing.T) {
 		t.Errorf("OpenCode kit dependency is not exact: %q", manifest.Dependencies["@sessionbus/kit"])
 	}
 	workflow := read(t, ".github/workflows/pkg-pr-new.yml")
-	if !bytes.Contains(workflow, []byte("publish ./opencode")) || bytes.Contains(workflow, []byte("integrations/opencode")) {
+	if !bytes.Contains(workflow, []byte(`publish "$RUNNER_TEMP/native-plugin/opencode"`)) || bytes.Contains(workflow, []byte("integrations/opencode")) {
 		t.Fatal("pkg.pr.new does not publish only the rehomed OpenCode package")
 	}
 }
@@ -300,7 +300,7 @@ func TestRetainedManifestCommandReachability(t *testing.T) {
 	if err := json.Unmarshal(read(t, "opencode/package.json"), &openCode); err != nil {
 		t.Fatal(err)
 	}
-	if len(openCode.Bin) != 0 || !regular(t, "opencode/server.mjs") || !regular(t, "opencode/tui.mjs") {
+	if len(openCode.Bin) != 0 || !regular(t, "wrappers/opencodefamily/plugin/server.mjs") || !regular(t, "wrappers/opencodefamily/plugin/tui.mjs") {
 		t.Error("OpenCode native entries are missing or Node installer remains")
 	}
 	installer := read(t, "scripts/release/install-product")
