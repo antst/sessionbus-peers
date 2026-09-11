@@ -2,9 +2,18 @@
 
 Status: implementation in progress. Native prerequisites are installed and
 version/help checked. Pi's first permanent build passed zero-input Worker
-Open/Close and persisted interactive resume/quit. Run implementation review and
-model acceptance remain in progress. OMP's native executable resolver is
-implemented; its wrapper lifecycle remains to be built. The source base is peers
+Open/Close and persisted interactive resume/quit. Its first installed normal
+Run/list/result/close also passed. With the UI-admission correction installed,
+idle lane delivery, one explicit Run and Forget preserving native history
+passed. Interactive idle delivery and native session replacement also passed
+on the subsequent permanent build. The remaining native acceptance rows are
+still pending.
+OMP's native executable resolver, argument routing, process/RPC components,
+owner registry, native extension and joined process owner are integrated as
+components. The process owner separates terminal and RPC transport and joins
+startup, cancellation and shutdown cleanup in local subprocess tests. Its public
+Wrapper, command and package integration remain to be wired; no native OMP
+acceptance is claimed. The source base is peers
 `75866839b7f024edf2c7f9d2d3af647a343f4987`.
 
 ## Native versions and implementation cost
@@ -65,6 +74,13 @@ native transcript. Pi has no session-deletion RPC. Its interactive picker is
 the native deletion surface, and the wrapper does not imitate that operation
 with filesystem removal.
 
+OMP likewise exposes no session-deletion RPC or extension operation. Its ordinary
+fresh RPC startup persists lazily: without an assistant entry, zero-input Close
+leaves no resumable file. Explicit native `new_session` instead ensures an empty
+session header is on disk. After a reply, native Close retains the conversation.
+The wrapper does not delete or rewrite transcripts; native resume can still
+migrate their contents or relocate a session whose original directory is missing.
+
 One managed launch has a Go owner, its direct native child and a private
 0700 launch directory. The native extension is supplied per launch. Ordinary
 native launches do not acquire a Peer or Sessionbus tool. Managed metadata is
@@ -79,7 +95,10 @@ context. No stale captured context may execute a tool or receive a delivery.
 Pi has one current native session per process. New/resume/fork tears down the
 old AgentSession and extension runner; the old Peer is withdrawn, then the new
 native ID is reported. Rename updates the same identity, including clearing a
-name. Existing native titles win over a wrapper's initial name.
+name. Existing native titles win over a wrapper's initial name. Whenever the
+current native title is empty, including after replacement or title clearing,
+the public Peer uses the wrapper's initial name. This is the wrapper's display
+policy; the daemon also accepts an empty Peer name.
 
 OMP also has one selected main session, but replaces it in place. Its
 `session_switch` event covers new, fork and resume; reload switches to the
@@ -92,6 +111,15 @@ same process launch binding. Each enabled child instance adopts its own native
 ID and owns separate Peer/queue state. A restricted child with no extensions
 does not acquire a Sessionbus tool. Shared module state must not merge these
 instances or substitute the parent's identity.
+
+OMP uses one owner registry and private bridge per launch. Every factory/session
+binding has a bounded opaque owner token, rotated synchronously on a switch,
+including a switch back to the same native ID. Requests carry both that token
+and the live native session ID so delayed reports cannot affect a replacement
+binding. The token is not a public identity. Each child has its own daemon
+Peer and Caller; it never borrows the main Worker's Caller. Task factories run
+in native print mode, while the main binding uses RPC or TUI mode. Adoption
+must not infer the main owner from whichever readiness report arrives first.
 
 The Go owner holds the bus Caller. Each native tool request carries its actual
 session context and native tool call ID; the private connection binds them to
@@ -228,6 +256,20 @@ initialization. Adoption requires protocol-2 negotiation, a correlated
 and cwd checks. Physical and assembled frames need separate bounds because
 protocol 2 supports chunked messages.
 
+The transport pins the advertised limits to this native version: 1 MiB per
+physical frame and 64 MiB per assembled frame. A native `rpc_frame_error`
+reports a dropped oversized event; retiring on it preserves attribution rather
+than treating missing event content as success. An oversized response remains
+a native failed response. An elided `agent_end` with empty messages is not
+evidence that no assistant ran and cannot replace the required terminal flag.
+OMP does not redirect unrelated stdout writes as Pi does; an ambient extension
+writing non-protocol text can therefore retire the managed transport.
+
+One-way UI cancellation enters the ordered writer queue atomically, then
+releases the admission lock before awaiting its write. A blocked UI write must
+not prevent a separately canceled call from reaching its cancellation check.
+The same ownership rule applies to Pi's native RPC writer.
+
 OMP has an explicit same-request `prompt_result`, including
 `agentInvoked:false`. Its immediate RPC success acknowledges the command,
 not admission or completion; a later error with the same request ID can follow.
@@ -263,6 +305,12 @@ returns one custom message through that hook, without a bridge await. This
 message lands after the native user prompt, queued next-turn messages and any
 earlier hook messages.
 
+An explicit, correlated `queue_full` rejection removes only an unclaimed Go
+reservation and leaves the owner usable. A missing staging boolean, malformed
+reply or rejection after a native claim is a protocol failure. A failed bridge
+call cannot establish rejection: the submission remains uncertain and is not
+replayed.
+
 Returning the batch alone does not prove injection. Exact native
 `message_start`/`message_end` events confirm that it entered the run's prompt
 messages; the subsequent `context` hook proves presence at that hook. Later
@@ -272,10 +320,32 @@ synchronously, with exact message IDs and session ownership. Subsequent owner
 reports are bounded, tracked and joined or canceled with their lifetime.
 Native persistence follows the message-end hook and has its own generation
 guard; a hook observation is not a disk-flush receipt.
+Each claimed batch has a per-factory token and an exact ordered message-ID
+list. Reports bind that batch and owner generation; claiming alone gives no
+injection credit. Lane preflight witnesses likewise capture synchronously and
+report through bounded owned work, reconciled with the separate RPC stream.
+Per-binding report sequence numbers preserve native ordering across concurrent
+bridge handlers. The Go registry accounts for at most 32 MiB of retained
+payloads across bindings, queued deliveries and reports; consumed evidence is
+evicted. This is separate from transport accounting and is not a peak heap or
+RSS bound.
 The wrapper starts no run to flush it. A batch submitted without confirmation
 is not replayed; replacement never transfers it to a different identity.
 OMP does not promise Pi's immediate idle `written` receipt. Installed tests must
 prove this explicit difference, including replacement and cancellation.
+
+Shutdown is a narrow exception to nonawaited generic hook reporting. The
+extension closes its binding synchronously, then awaits its end-report
+acknowledgement under OMP's existing dedicated two-second shutdown-hook bound.
+No wrapper timer is added. Missing acknowledgement or native timeout is not a
+graceful-end receipt; Go still joins the actual process and private connection.
+An earlier factory failure must not cancel or discard its ending report.
+Cleanup remains bound to the process connection, joins prior report work and
+preserves the original failure after ending the public binding. In particular,
+a failed Task child must not leave its Peer registered while the parent lives.
+The private native-shutdown method is main-owner-only: Task children bind that
+native method to a no-op. A main shutdown response means only that shutdown
+was requested, never that the process has exited.
 
 OMP loads its explicit CLI extension after ambient extensions, so Pi's first
 settled-handler guard does not transfer. OMP marks a prompt in flight before
@@ -339,6 +409,44 @@ with Ctrl-D; the fixture verified unchanged session history. These rows made
 no Run or model request and do not establish delivery or terminal-result
 behavior. The original process-detector timeout and retained-name collision
 remain separate failed fixture attempts in the evidence record.
+
+The installed `e946fb1` checkpoint passed one normal Run using the model Pi
+reported at native startup, `deepseek/deepseek-v4-pro`. Copied native history
+and public controller records bind one actual Sessionbus list call, its tool
+result and self identity, the final assistant JSON, and equal wait/status
+results followed by acknowledgement and close. The subsequent separate
+persisted interactive resume/Ctrl-D row passed with unchanged history.
+Root review is in `review-pi-normal-run-installed-root` under the evidence
+directory. Private config equality and private startup-probe output remain
+host-side observations; native startup fallback is not independently exposed
+by the model snapshot. This row does not establish delivery, interrupt,
+Forget, replacement or the later UI-admission correction on the native host.
+
+The installed `399de2f` checkpoint passed one idle lane delivery followed by
+one explicit Run and `session.close` with `forget:true`. Explicit fixture
+handshakes captured the queued, idle public state before Run and the native
+transcript before Forget. The sole native user message contained the exact
+staged sender envelope before the prompt; one Sessionbus list call and final
+JSON matched the full public identity. Wait/status agreed. Forget removed the
+bus row while the same native file retained all eight entries and identical
+6,822 bytes. Owned processes and the private directory were gone after close.
+Root review is in `review-pi-delivery-forget-installed-root`. Pre-Run disk
+absence remains corroboration only because fresh Pi entries can be held in
+memory. This row does not establish interactive delivery or interrupt recovery.
+
+The installed `aa096e8` checkpoint passed the separate zero-model interactive
+delivery/replacement row. A resumed session received one exact custom message
+with a `written` receipt. Native `/new` withdrew that Peer and reported a new
+native ID with the explicit wrapper fallback name in the same wrapper and
+Node process generations. A second delivery returned `written`; Ctrl-D exited
+normally, both Peers disappeared, and owned processes/private resources were
+gone. The old transcript retained its custom entry and identical 7,416 bytes
+through replacement and quit. The new session's receipt proves the native leaf
+append, not persistence or model consumption. Root review is in
+`review-pi-interactive-installed-root`. The preceding observer hello failure
+was a fixture product label over the daemon's 32-character limit, before any
+native launch; it remains a separate retained outcome. Busy delivery and
+interrupt recovery are still separate acceptance rows.
 
 The first installed Pi checkpoint must distinguish these authorities:
 
