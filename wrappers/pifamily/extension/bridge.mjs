@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 import net from "node:net";
 
 export const BRIDGE_PROTOCOL_VERSION = 1;
