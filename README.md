@@ -27,17 +27,18 @@ curl -fsSL https://raw.githubusercontent.com/antst/sessionbus-peers/develop/scri
 curl -fsSL https://raw.githubusercontent.com/antst/sessionbus-peers/develop/scripts/install-grok.sh | sh
 curl -fsSL https://raw.githubusercontent.com/antst/sessionbus-peers/develop/scripts/install-qwen.sh | sh
 curl -fsSL https://raw.githubusercontent.com/antst/sessionbus-peers/develop/scripts/install-opencode.sh | sh
+curl -fsSL https://raw.githubusercontent.com/antst/sessionbus-peers/develop/scripts/install-kilo.sh | sh
 ```
 
 Each command installs only that peer and its plugin into your normal user
 installation under `~/.local`; it does not install the native vendor product,
 daemon or hub. Use your normal login shell with `~/.local/bin` on PATH. Linux
 and macOS, amd64 and arm64 archives are provided. No Go or npm is needed on the
-target. OpenCode uses its Go installer and small plugin in the native product's
-existing Bun runtime; no separate Node or Bun installation is required. Its
+target. OpenCode and Kilo use their Go installer and small plugin in the native product's
+existing Bun runtime; no separate Node or Bun installation is required. Their
 only JavaScript runtime dependency is the bundled pinned Sessionbus kit.
 Grok/Qwen install their native plugin globally; Claude/Codex retain their
-documented managed-launch activation. OpenCode registers tiny server/TUI hooks
+documented managed-launch activation. OpenCode and Kilo register tiny server/TUI hooks
 that stay inert in ordinary launches, plus one globally discoverable skill.
 
 Downloads are verified against `SHA256SUMS`. The default is the **development
@@ -59,7 +60,7 @@ the current adapters; the per-product facts still define their accepted scope
 Maintainers build Claude/Codex using `scripts/package-claude` and
 `scripts/package-codex`. For other products use
 `scripts/package-product PRODUCT OUTPUT_DIRECTORY`. The `Binary releases`
-workflow builds all five for four platforms, publishes development after its tests and builds pass, and publishes a stable release when a new `vX.Y.Z` tag is pushed. Release
+workflow builds all six for four platforms, publishes development after its tests and builds pass, and publishes a stable release when a new `vX.Y.Z` tag is pushed. Release
 archives record their exact source in the accompanying `SOURCE.txt`.
 
 ## Interactive CLI aliases
@@ -75,7 +76,7 @@ not change the typed lane `permission_mode` API.
 | `qwen-peer` | `--yolo` | `--resume VALUE` | Native picker |
 | `grok-peer` | `--always-approve` | `--resume VALUE` (ID or title) | Most recent native session |
 | `opencode-peer` | `--yolo` | `-s ID` | Requires an ID |
-| `kilo-peer` (in development) | `--yolo` | `-s ID` | Requires an ID |
+| `kilo-peer` | `--yolo` | `-s ID` | Requires an ID |
 
 Native `--continue` remains separate. Tokens after literal `--`, attached
 native values such as `--model=--yolo`, and the first required value of recognized native
@@ -148,6 +149,7 @@ Complete each product hookup using only the retained integration:
 - Claude: use the bundled candidate recipe and scoped status in [`claude/README.md`](claude/README.md).
 - Codex: build with `scripts/package-codex ./dist` and use the archive's installer as documented in [`codex/README.md`](codex/README.md).
 - OpenCode: build with `scripts/package-product opencode ./dist` and run the archive installer in [`opencode/README.md`](opencode/README.md). The npm preview contains native hooks, not an installer executable.
+- Kilo: `kilo-peer` supplies managed native sessions and daemon-owned lanes through the permanent Go installer and native-hook package in [`kilo/README.md`](kilo/README.md). See the [Kilo 7.6.2 installed acceptance and limits](docs/designs/kilo-0.5.0/ACCEPTANCE.md).
 - Grok: build with `scripts/package-product grok ./dist` and run the archive installer in [`grok/README.md`](grok/README.md).
 - Qwen: build the archive with `scripts/package-product qwen ./dist` and follow [`qwen/README.md`](qwen/README.md); registering only the plugin does not install the required private sibling alias.
 

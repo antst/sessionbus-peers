@@ -58,6 +58,17 @@ children. Sessionbus activation variables are captured and scrubbed in both
 native contexts. An empty exclusive claim and empty readiness marker live only
 in the unique launch directory; a failed claim is never transferred.
 
+The shared OpenCode/Kilo readiness wait subscribes to a process-local
+BroadcastChannel before checking the marker. The TUI publishes a wake only
+after its endpoint listens and the empty marker has been created and closed.
+Every wake rechecks the marker; its payload grants no authority. Synchronous
+subscription closes the startup window left by asynchronous macOS filesystem
+watch registration. Late subscribers find the marker directly. Disposal closes
+the subscription and joins the current check. This uses the native TUI/Worker
+process boundary, at most eight existing server-instance subscriptions and one
+transient publisher; it adds no dependency, process, polling or timer. Ordinary
+inactive launches and lane mode do not create these channels.
+
 ## Lane and delivery boundaries
 
 One shared Run owns a legacy synchronous POST /session/id/message, its active

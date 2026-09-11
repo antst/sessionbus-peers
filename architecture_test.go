@@ -36,7 +36,7 @@ func TestRepositoryBoundary(t *testing.T) {
 		".golangci.yml": true, "LICENSE": true, "README.md": true,
 		"architecture_test.go": true, "claude": true, "codex": true, "cmd": true,
 		"docs": true, "go.mod": true, "go.sum": true, "grok": true,
-		"internal": true, "opencode": true, "qwen": true, "scripts": true, "wrappers": true,
+		"internal": true, "kilo": true, "opencode": true, "qwen": true, "scripts": true, "wrappers": true,
 	}
 	entries, err := os.ReadDir(".")
 	if err != nil {
@@ -52,16 +52,16 @@ func TestRepositoryBoundary(t *testing.T) {
 			t.Errorf("legacy or cross-repository path remains: %s", path)
 		}
 	}
-	wantCommands := []string{"claude-peer", "codex-peer", "grok-peer", "opencode-peer", "qwen-peer"}
+	wantCommands := []string{"claude-peer", "codex-peer", "grok-peer", "kilo-peer", "opencode-peer", "qwen-peer"}
 	gotCommands := directoryNames(t, "cmd")
 	if !equalStrings(gotCommands, wantCommands) {
 		t.Errorf("peer command roots = %v, want %v", gotCommands, wantCommands)
 	}
-	if got := directoryNames(t, "internal"); !equalStrings(got, []string{"cmd", "testsocket"}) {
-		t.Errorf("internal roots = %v, want [cmd testsocket]", got)
+	if got := directoryNames(t, "internal"); !equalStrings(got, []string{"cmd", "pluginstage", "testsocket"}) {
+		t.Errorf("internal roots = %v, want [cmd pluginstage testsocket]", got)
 	}
-	if got := directoryNames(t, "internal/cmd"); !equalStrings(got, []string{"gen-opencode-tool"}) {
-		t.Errorf("internal commands = %v, want only the shared native declaration generator", got)
+	if got := directoryNames(t, "internal/cmd"); !equalStrings(got, []string{"gen-opencode-tool", "stage-native-plugin"}) {
+		t.Errorf("internal commands = %v, want the shared native declaration generator and build stager", got)
 	}
 	if _, err := os.Stat(".github/workflows/release.yml"); !os.IsNotExist(err) {
 		t.Fatal("initial peers root must not contain a release workflow")
@@ -192,7 +192,10 @@ func TestSPDXAndLicenseCoverage(t *testing.T) {
 	}
 }
 
-func TestOpenCodePackageBoundary(t *testing.T) {
+func TestOpenCodePackageBoundary(t *testing.T) { testNativePackageBoundary(t, "opencode") }
+func TestKiloPackageBoundary(t *testing.T)     { testNativePackageBoundary(t, "kilo") }
+func testNativePackageBoundary(t *testing.T, product string) {
+	t.Helper()
 	var manifest struct {
 		Name       string            `json:"name"`
 		Bin        map[string]string `json:"bin"`
@@ -204,31 +207,33 @@ func TestOpenCodePackageBoundary(t *testing.T) {
 		} `json:"repository"`
 		Dependencies map[string]string `json:"dependencies"`
 	}
-	if err := json.Unmarshal(read(t, "opencode/package.json"), &manifest); err != nil {
+	if err := json.Unmarshal(read(t, product+"/package.json"), &manifest); err != nil {
 		t.Fatal(err)
 	}
-	if manifest.Name != "@sessionbus/opencode" || len(manifest.Bin) != 0 {
-		t.Fatalf("OpenCode native package unexpectedly requires a Node installer: %#v", manifest)
+	if manifest.Name != "@sessionbus/"+product || len(manifest.Bin) != 0 {
+		t.Fatalf("Native package unexpectedly requires a Node installer: %#v", manifest)
 	}
-	wantFiles := []string{"README.md", "activation.mjs", "delivery.mjs", "endpoint.mjs", "forward.mjs", "gate.mjs", "owners.mjs", "peer.mjs", "readiness.mjs", "server.mjs", "sessionbus-tool.json", "skills", "tui.mjs"}
+	wantFiles := []string{"README.md", "activation.mjs", "delivery.mjs", "endpoint.mjs", "forward.mjs", "gate.mjs", "owners.mjs", "peer.mjs", "profile.mjs", "readiness.mjs", "server.mjs", "sessionbus-tool.json", "skills", "tui.mjs"}
 	sort.Strings(manifest.Files)
 	if !equalStrings(manifest.Files, wantFiles) {
-		t.Errorf("OpenCode package files = %v, want %v", manifest.Files, wantFiles)
+		t.Errorf("Native package files = %v, want %v", manifest.Files, wantFiles)
 	}
-	if manifest.Repository.Type != "git" || manifest.Repository.URL != "git+https://github.com/antst/sessionbus-peers.git" || manifest.Repository.Directory != "opencode" {
-		t.Errorf("OpenCode repository metadata is invalid: %#v", manifest.Repository)
+	if manifest.Repository.Type != "git" || manifest.Repository.URL != "git+https://github.com/antst/sessionbus-peers.git" || manifest.Repository.Directory != product {
+		t.Errorf("Native repository metadata is invalid: %#v", manifest.Repository)
 	}
 	if len(manifest.Dependencies) != 1 || manifest.Dependencies["@sessionbus/kit"] != "https://pkg.pr.new/@sessionbus/kit@0b35c99" || strings.HasPrefix(manifest.Dependencies["@sessionbus/kit"], "file:") {
-		t.Errorf("OpenCode kit dependency is not exact: %q", manifest.Dependencies["@sessionbus/kit"])
+		t.Errorf("Native kit dependency is not exact: %q", manifest.Dependencies["@sessionbus/kit"])
 	}
 	workflow := read(t, ".github/workflows/pkg-pr-new.yml")
-	if !bytes.Contains(workflow, []byte("publish ./opencode")) || bytes.Contains(workflow, []byte("integrations/opencode")) {
-		t.Fatal("pkg.pr.new does not publish only the rehomed OpenCode package")
+	if !bytes.Contains(workflow, []byte(`for PRODUCT in opencode kilo; do`)) ||
+		!bytes.Contains(workflow, []byte(`pkg-pr-new publish "$RUNNER_TEMP/native-plugin/opencode" "$RUNNER_TEMP/native-plugin/kilo"`)) ||
+		bytes.Count(workflow, []byte("pkg-pr-new publish ")) != 1 || bytes.Contains(workflow, []byte("integrations/opencode")) {
+		t.Fatal("pkg.pr.new does not publish the fixed native product stages")
 	}
 }
 
 func TestRepositoryURLsAndRemovedPaths(t *testing.T) {
-	for _, root := range []string{"claude", "grok", "opencode", "qwen", "scripts", "wrappers/README.md"} {
+	for _, root := range []string{"claude", "grok", "kilo", "opencode", "qwen", "scripts", "wrappers/README.md"} {
 		if err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
 			if err != nil {
 				return err
@@ -300,7 +305,7 @@ func TestRetainedManifestCommandReachability(t *testing.T) {
 	if err := json.Unmarshal(read(t, "opencode/package.json"), &openCode); err != nil {
 		t.Fatal(err)
 	}
-	if len(openCode.Bin) != 0 || !regular(t, "opencode/server.mjs") || !regular(t, "opencode/tui.mjs") {
+	if len(openCode.Bin) != 0 || !regular(t, "wrappers/opencodefamily/plugin/server.mjs") || !regular(t, "wrappers/opencodefamily/plugin/tui.mjs") {
 		t.Error("OpenCode native entries are missing or Node installer remains")
 	}
 	installer := read(t, "scripts/release/install-product")
@@ -345,7 +350,7 @@ func TestReadmeIsTheSourceInstallAuthority(t *testing.T) {
 			t.Errorf("root README lacks required install statement %q", exact)
 		}
 	}
-	for _, binary := range []string{"claude-peer", "codex-peer", "grok-peer", "qwen-peer", "opencode-peer"} {
+	for _, binary := range []string{"claude-peer", "codex-peer", "grok-peer", "qwen-peer", "opencode-peer", "kilo-peer"} {
 		if !bytes.Contains(readme, []byte(binary)) {
 			t.Errorf("root README omits installed binary %s", binary)
 		}

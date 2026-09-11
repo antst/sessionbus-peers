@@ -17,8 +17,8 @@ separately from source compatibility.
 
 The installer edits only owned entries in native global server/TUI JSON/JSONC
 configuration, preserving comments and unrelated settings/plugins. Repeat
-installation converges. It installs one generic Sessionbus skill; ordinary
-OpenCode still discovers the tiny plugin and skill, but exposes no Sessionbus
+installation converges. Local package installation registers the bundled generic
+Sessionbus skill for native discovery. Ordinary OpenCode exposes no Sessionbus
 tool, peer, queue or action listener without a valid managed launch.
 
 The same executable provides explicit maintenance:
@@ -118,3 +118,13 @@ pinned reconnect scheduler boundary; a failed attempt is never hello admission.
 The rewrite's verified acceptance scopes and retained limitations are recorded in
 [the acceptance index](https://github.com/antst/sessionbus-peers/blob/develop/docs/designs/opencode-0.5.0/ACCEPTANCE.md). Historical
 product probes remain separately identified in the product facts.
+
+Local package installation (`--plugin-dir` or a validated `file:` package directory)
+registers the bundled generic Sessionbus skill through native `skills.paths`.
+A fresh native instance discovers it; installation does not restart an existing
+native process. Other native skill paths and permissions remain in effect.
+Uninstall removes the identity-validated owned path alongside plugin entries.
+Run `--sessionbus-install --remove` before deleting the package directory; its
+manifest is needed to recognize owned local registrations.
+Npm and tarball `--specifier` installs register the plugin only: without a local
+extracted package directory they do not register a bundled skill path.

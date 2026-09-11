@@ -30,7 +30,9 @@ jobs:
         with:
           node-version: 24
           cache: npm
-          cache-dependency-path: opencode/package.json
+          cache-dependency-path: |
+            opencode/package-lock.json
+            kilo/package-lock.json
       - name: Download modules
         env:
           GOWORK: 'off'
@@ -65,11 +67,12 @@ jobs:
         run: ./scripts/package-codex "${RUNNER_TEMP}/codex archive"
       - name: Historical Codex installer fixture
         run: ./scripts/test-codex-mcp
-      - name: OpenCode installer and plugin
-        working-directory: opencode
+      - name: Native family plugins
         run: |
-          npm install --ignore-scripts --no-package-lock
-          npm test
+          for product in opencode kilo; do
+            npm ci --prefix "$product" --ignore-scripts
+            npm test --prefix "$product"
+          done
 
   workflow-guard:
     runs-on: ubuntu-latest

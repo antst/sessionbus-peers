@@ -16,11 +16,11 @@ func TestNativeDeclarationEqualsSharedTool(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := os.ReadFile("../../opencode/sessionbus-tool.json")
+	got, err := os.ReadFile("../opencodefamily/plugin/sessionbus-tool.json")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !bytes.Equal(got, append(want, '\n')) {
-		t.Fatal("run go run ./internal/cmd/gen-opencode-tool opencode/sessionbus-tool.json")
+		t.Fatal("run go run ./internal/cmd/gen-opencode-tool wrappers/opencodefamily/plugin/sessionbus-tool.json")
 	}
 }
