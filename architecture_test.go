@@ -225,7 +225,9 @@ func testNativePackageBoundary(t *testing.T, product string) {
 		t.Errorf("Native kit dependency is not exact: %q", manifest.Dependencies["@sessionbus/kit"])
 	}
 	workflow := read(t, ".github/workflows/pkg-pr-new.yml")
-	if !bytes.Contains(workflow, []byte(`product: [opencode, kilo]`)) || !bytes.Contains(workflow, []byte(`publish "$RUNNER_TEMP/native-plugin/$PRODUCT"`)) || bytes.Contains(workflow, []byte("integrations/opencode")) {
+	if !bytes.Contains(workflow, []byte(`for PRODUCT in opencode kilo; do`)) ||
+		!bytes.Contains(workflow, []byte(`pkg-pr-new publish "$RUNNER_TEMP/native-plugin/opencode" "$RUNNER_TEMP/native-plugin/kilo"`)) ||
+		bytes.Count(workflow, []byte("pkg-pr-new publish ")) != 1 || bytes.Contains(workflow, []byte("integrations/opencode")) {
 		t.Fatal("pkg.pr.new does not publish the fixed native product stages")
 	}
 }
