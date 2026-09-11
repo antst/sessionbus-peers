@@ -5,10 +5,15 @@ version/help checked. Pi's first permanent build passed zero-input Worker
 Open/Close and persisted interactive resume/quit. Its first installed normal
 Run/list/result/close also passed. With the UI-admission correction installed,
 idle lane delivery, one explicit Run and Forget preserving native history
-passed. The remaining native acceptance rows are still pending.
+passed. Interactive idle delivery and native session replacement also passed
+on the subsequent permanent build. The remaining native acceptance rows are
+still pending.
 OMP's native executable resolver, argument routing, process/RPC components,
-owner registry and native extension are integrated as components. Its public
-Wrapper and joined launch orchestration remain to be wired. The source base is peers
+owner registry, native extension and joined process owner are integrated as
+components. The process owner separates terminal and RPC transport and joins
+startup, cancellation and shutdown cleanup in local subprocess tests. Its public
+Wrapper, command and package integration remain to be wired; no native OMP
+acceptance is claimed. The source base is peers
 `75866839b7f024edf2c7f9d2d3af647a343f4987`.
 
 ## Native versions and implementation cost
