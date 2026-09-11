@@ -8,7 +8,9 @@ mkdir -p "$out"
 out=$(CDPATH='' cd "$out" && pwd -P)
 repo=$(CDPATH='' cd "$(dirname "$0")/.." && pwd -P)
 cd "$repo"
-stage=$(mktemp -d)
+# Physical path: npm ci treats a symlinked project path (macOS /var -> /private/var)
+# as a link and reports "Missing: <dir>@<version> from lock file".
+stage=$(CDPATH='' cd "$(mktemp -d)" && pwd -P)
 trap 'rm -rf "$stage"' 0
 trap 'exit 1' HUP INT TERM
 platform=${GOOS:-$(go env GOOS)}

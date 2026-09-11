@@ -19,7 +19,18 @@ import (
 
 func TestLiteralArchiveInstallsTwiceWithoutNodeAndImportsNativeEntries(t *testing.T) {
 	out := t.TempDir()
+	// Stage under a symlinked TMPDIR: macOS runners resolve /var to /private/var,
+	// and npm ci through a symlinked project path fails lockfile validation.
+	physical := filepath.Join(t.TempDir(), "physical")
+	if err := os.Mkdir(physical, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	linked := filepath.Join(t.TempDir(), "linked")
+	if err := os.Symlink(physical, linked); err != nil {
+		t.Fatal(err)
+	}
 	build := exec.Command("sh", "../../scripts/package-product", "opencode", out)
+	build.Env = append(os.Environ(), "TMPDIR="+linked)
 	if output, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("archive build: %v\n%s", err, output)
 	}
