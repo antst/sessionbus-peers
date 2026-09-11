@@ -94,7 +94,8 @@ func (c *laneHTTP) remove(ctx context.Context, id string) error {
 	if e != nil {
 		return e
 	}
-	if string(b) != "true" {
+	var deleted bool
+	if json.Unmarshal(b, &deleted) != nil || !deleted {
 		return errors.New("OpenCode did not confirm session deletion")
 	}
 	return nil

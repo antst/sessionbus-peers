@@ -186,13 +186,13 @@ func (p *Wrapper) Open(ctx context.Context, request kit.OpenRequest) (result kit
 		_ = cmd.Process.Kill()
 		_ = output.Close()
 		p.mu.Lock()
-		run, opened, shutdown := p.run, p.opened, p.shutdown
+		run, opened, closing, shutdown := p.run, p.opened, p.closing, p.shutdown
 		p.mu.Unlock()
 		if run != nil {
 			<-run.Done()
 			p.clearRun(run)
 		}
-		if opened && shutdown != nil {
+		if opened && !closing && shutdown != nil {
 			shutdown()
 		}
 	}()
