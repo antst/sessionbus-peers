@@ -340,8 +340,8 @@ func TestObserverWriteGateCannotSubmitAfterNativeTerminal(t *testing.T) {
 	returned := make(chan error, 1)
 	go func() { _, e := h.p.Deliver(context.Background(), delivery("never-attempted"), nil); returned <- e }()
 	h.p.mu.Lock()
-	for h.p.active.delivery == nil {
-		changed := h.p.active.changed
+	for h.p.pendingPrompt.delivery == nil {
+		changed := h.p.pendingPrompt.changed
 		h.p.mu.Unlock()
 		<-changed
 		h.p.mu.Lock()
