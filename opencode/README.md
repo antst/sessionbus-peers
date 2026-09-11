@@ -124,5 +124,7 @@ registers the bundled generic Sessionbus skill through native `skills.paths`.
 A fresh native instance discovers it; installation does not restart an existing
 native process. Other native skill paths and permissions remain in effect.
 Uninstall removes the identity-validated owned path alongside plugin entries.
+Run `--sessionbus-install --remove` before deleting the package directory; its
+manifest is needed to recognize owned local registrations.
 Npm and tarball `--specifier` installs register the plugin only: without a local
 extracted package directory they do not register a bundled skill path.
