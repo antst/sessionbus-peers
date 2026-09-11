@@ -6,9 +6,9 @@ Open/Close and persisted interactive resume/quit. Its first installed normal
 Run/list/result/close also passed. With the UI-admission correction installed,
 idle lane delivery, one explicit Run and Forget preserving native history
 passed. The remaining native acceptance rows are still pending.
-OMP's native executable resolver, argument routing, process/RPC components and
-owner registry are integrated; its public Wrapper, native extension and joined
-launch orchestration remain to be wired. The source base is peers
+OMP's native executable resolver, argument routing, process/RPC components,
+owner registry and native extension are integrated as components. Its public
+Wrapper and joined launch orchestration remain to be wired. The source base is peers
 `75866839b7f024edf2c7f9d2d3af647a343f4987`.
 
 ## Native versions and implementation cost
@@ -331,6 +331,10 @@ extension closes its binding synchronously, then awaits its end-report
 acknowledgement under OMP's existing dedicated two-second shutdown-hook bound.
 No wrapper timer is added. Missing acknowledgement or native timeout is not a
 graceful-end receipt; Go still joins the actual process and private connection.
+An earlier factory failure must not cancel or discard its ending report.
+Cleanup remains bound to the process connection, joins prior report work and
+preserves the original failure after ending the public binding. In particular,
+a failed Task child must not leave its Peer registered while the parent lives.
 The private native-shutdown method is main-owner-only: Task children bind that
 native method to a no-op. A main shutdown response means only that shutdown
 was requested, never that the process has exited.
