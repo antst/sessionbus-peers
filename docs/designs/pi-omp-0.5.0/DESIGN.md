@@ -296,6 +296,12 @@ returns one custom message through that hook, without a bridge await. This
 message lands after the native user prompt, queued next-turn messages and any
 earlier hook messages.
 
+An explicit, correlated `queue_full` rejection removes only an unclaimed Go
+reservation and leaves the owner usable. A missing staging boolean, malformed
+reply or rejection after a native claim is a protocol failure. A failed bridge
+call cannot establish rejection: the submission remains uncertain and is not
+replayed.
+
 Returning the batch alone does not prove injection. Exact native
 `message_start`/`message_end` events confirm that it entered the run's prompt
 messages; the subsequent `context` hook proves presence at that hook. Later
