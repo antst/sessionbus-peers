@@ -28,6 +28,7 @@ curl -fsSL https://raw.githubusercontent.com/antst/sessionbus-peers/develop/scri
 curl -fsSL https://raw.githubusercontent.com/antst/sessionbus-peers/develop/scripts/install-qwen.sh | sh
 curl -fsSL https://raw.githubusercontent.com/antst/sessionbus-peers/develop/scripts/install-opencode.sh | sh
 curl -fsSL https://raw.githubusercontent.com/antst/sessionbus-peers/develop/scripts/install-kilo.sh | sh
+curl -fsSL https://raw.githubusercontent.com/antst/sessionbus-peers/develop/scripts/install-pi.sh | sh
 ```
 
 Each command installs only that peer and its plugin into your normal user
@@ -35,7 +36,9 @@ installation under `~/.local`; it does not install the native vendor product,
 daemon or hub. Use your normal login shell with `~/.local/bin` on PATH. Linux
 and macOS, amd64 and arm64 archives are provided. No Go or npm is needed on the
 target. OpenCode and Kilo use their Go installer and small plugin in the native product's
-existing Bun runtime; no separate Node or Bun installation is required. Their
+existing Bun runtime; no separate Node or Bun installation is required. Pi's
+managed extension runs inside its native product's existing Node process, with
+no sidecar or global extension registration. The OpenCode-family plugins'
 only JavaScript runtime dependency is the bundled pinned Sessionbus kit.
 Grok/Qwen install their native plugin globally; Claude/Codex retain their
 documented managed-launch activation. OpenCode and Kilo register tiny server/TUI hooks
@@ -60,7 +63,7 @@ the current adapters; the per-product facts still define their accepted scope
 Maintainers build Claude/Codex using `scripts/package-claude` and
 `scripts/package-codex`. For other products use
 `scripts/package-product PRODUCT OUTPUT_DIRECTORY`. The `Binary releases`
-workflow builds all six for four platforms, publishes development after its tests and builds pass, and publishes a stable release when a new `vX.Y.Z` tag is pushed. Release
+workflow builds all seven for four platforms, publishes development after its tests and builds pass, and publishes a stable release when a new `vX.Y.Z` tag is pushed. Release
 archives record their exact source in the accompanying `SOURCE.txt`.
 
 ## Interactive CLI aliases
@@ -152,10 +155,13 @@ Complete each product hookup using only the retained integration:
 - Kilo: `kilo-peer` supplies managed native sessions and daemon-owned lanes through the permanent Go installer and native-hook package in [`kilo/README.md`](kilo/README.md). See the [Kilo 7.6.2 installed acceptance and limits](docs/designs/kilo-0.5.0/ACCEPTANCE.md).
 - Grok: build with `scripts/package-product grok ./dist` and run the archive installer in [`grok/README.md`](grok/README.md).
 - Qwen: build the archive with `scripts/package-product qwen ./dist` and follow [`qwen/README.md`](qwen/README.md); registering only the plugin does not install the required private sibling alias.
+- Pi: build the archive with `scripts/package-product pi ./dist` and follow [`pi/README.md`](pi/README.md); its fixed extension is activated only by managed launches.
 
 Product evidence and constraints are in `docs/products/claude.md`,
 `docs/products/codex.md`, `docs/products/opencode.md`,
-`docs/products/grok.md`, and `docs/products/qwen.md`. Held Claude lane references are outside the activated plugin under
+`docs/products/grok.md`, and `docs/products/qwen.md`. Pi's in-progress contract
+is in [`docs/designs/pi-omp-0.5.0/DESIGN.md`](docs/designs/pi-omp-0.5.0/DESIGN.md).
+Held Claude lane references are outside the activated plugin under
 `docs/designs/claude-0.5.0/held-lane-skills/` as historical references;
 this README is the installation authority until then.
 
@@ -172,7 +178,7 @@ GOWORK=off go test ./...
 Standalone command builds are useful for development checks:
 
 ```sh
-GOWORK=off go build ./cmd/grok-peer ./cmd/qwen-peer ./cmd/opencode-peer
+GOWORK=off go build ./cmd/grok-peer ./cmd/qwen-peer ./cmd/opencode-peer ./cmd/pi-peer
 ```
 
 Use the archive installers for a runnable product integration. The binary
@@ -194,7 +200,7 @@ Development checks also require Node.js 24 for the Node packages and
 - Claude interactive uses one Go artifact, public Connection/Caller, native exec and a private MCP alias; no Node runtime.
 - `wrappers/<product>` and `cmd/<product>-peer` contain the Go adapters and
   commands.
-- `claude/`, `codex/`, `grok/`, `qwen/`, `opencode/`, and the retained plugin manifests
+- `claude/`, `codex/`, `grok/`, `qwen/`, `opencode/`, `pi/`, and the retained plugin manifests
   contain product integration assets.
 - `docs/products/` preserves verified facts and immutable historical
   citations.

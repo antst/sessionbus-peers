@@ -36,7 +36,7 @@ func TestRepositoryBoundary(t *testing.T) {
 		".golangci.yml": true, "LICENSE": true, "README.md": true,
 		"architecture_test.go": true, "claude": true, "codex": true, "cmd": true,
 		"docs": true, "go.mod": true, "go.sum": true, "grok": true,
-		"internal": true, "kilo": true, "opencode": true, "qwen": true, "scripts": true, "wrappers": true,
+		"internal": true, "kilo": true, "opencode": true, "pi": true, "qwen": true, "scripts": true, "wrappers": true,
 	}
 	entries, err := os.ReadDir(".")
 	if err != nil {
@@ -52,7 +52,7 @@ func TestRepositoryBoundary(t *testing.T) {
 			t.Errorf("legacy or cross-repository path remains: %s", path)
 		}
 	}
-	wantCommands := []string{"claude-peer", "codex-peer", "grok-peer", "kilo-peer", "opencode-peer", "qwen-peer"}
+	wantCommands := []string{"claude-peer", "codex-peer", "grok-peer", "kilo-peer", "opencode-peer", "pi-peer", "qwen-peer"}
 	gotCommands := directoryNames(t, "cmd")
 	if !equalStrings(gotCommands, wantCommands) {
 		t.Errorf("peer command roots = %v, want %v", gotCommands, wantCommands)
@@ -233,7 +233,7 @@ func testNativePackageBoundary(t *testing.T, product string) {
 }
 
 func TestRepositoryURLsAndRemovedPaths(t *testing.T) {
-	for _, root := range []string{"claude", "grok", "kilo", "opencode", "qwen", "scripts", "wrappers/README.md"} {
+	for _, root := range []string{"claude", "grok", "kilo", "opencode", "pi", "qwen", "scripts", "wrappers/README.md"} {
 		if err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
 			if err != nil {
 				return err
@@ -341,6 +341,8 @@ func TestReadmeIsTheSourceInstallAuthority(t *testing.T) {
 		"`qwen-peer-mcp`",
 		"scripts/package-codex ./dist",
 		"scripts/package-product grok ./dist",
+		"scripts/package-product pi ./dist",
+		"pi/README.md",
 		"grok/README.md",
 		"codex/README.md",
 		"`go install <pkg>@version` is not available",
@@ -350,7 +352,7 @@ func TestReadmeIsTheSourceInstallAuthority(t *testing.T) {
 			t.Errorf("root README lacks required install statement %q", exact)
 		}
 	}
-	for _, binary := range []string{"claude-peer", "codex-peer", "grok-peer", "qwen-peer", "opencode-peer", "kilo-peer"} {
+	for _, binary := range []string{"claude-peer", "codex-peer", "grok-peer", "qwen-peer", "opencode-peer", "kilo-peer", "pi-peer"} {
 		if !bytes.Contains(readme, []byte(binary)) {
 			t.Errorf("root README omits installed binary %s", binary)
 		}

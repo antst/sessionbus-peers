@@ -3,7 +3,7 @@
 set -eu
 product=${1:?usage: scripts/package-product PRODUCT OUTPUT_DIRECTORY}
 out=${2:?usage: scripts/package-product PRODUCT OUTPUT_DIRECTORY}
-case "$product" in grok|qwen|opencode|kilo) ;; *) echo 'Use package-claude or package-codex for those products.' >&2; exit 1;; esac
+case "$product" in grok|qwen|opencode|kilo|pi) ;; *) echo 'Use package-claude or package-codex for those products.' >&2; exit 1;; esac
 mkdir -p "$out"
 out=$(CDPATH='' cd "$out" && pwd -P)
 repo=$(CDPATH='' cd "$(dirname "$0")/.." && pwd -P)
@@ -26,6 +26,10 @@ if [ "$product" = opencode ] || [ "$product" = kilo ]; then
  tar -xzf "$stage/$packed" -C "$stage/plugin" --strip-components=1
  cp "$product/package-lock.json" "$stage/plugin/"
  npm ci --prefix "$stage/plugin" --omit=dev --ignore-scripts
+elif [ "$product" = pi ]; then
+ mkdir -p "$stage/plugin/pi" "$stage/plugin/pifamily/extension"
+ cp wrappers/pi/extension.mjs wrappers/pi/native.mjs "$stage/plugin/pi/"
+ cp wrappers/pifamily/extension/bridge.mjs "$stage/plugin/pifamily/extension/"
 else
  cp -R "$product/." "$stage/plugin/"
 fi
