@@ -3,8 +3,9 @@
 Status: implementation in progress. Native prerequisites are installed and
 version/help checked. Pi's first permanent build passed zero-input Worker
 Open/Close and persisted interactive resume/quit. Its first installed normal
-Run/list/result/close also passed. The UI-admission correction is installed;
-the remaining native acceptance rows are still pending.
+Run/list/result/close also passed. With the UI-admission correction installed,
+idle lane delivery, one explicit Run and Forget preserving native history
+passed. The remaining native acceptance rows are still pending.
 OMP's native executable resolver, argument routing, process/RPC components and
 owner registry are integrated; its public Wrapper, native extension and joined
 launch orchestration remain to be wired. The source base is peers
@@ -408,6 +409,18 @@ directory. Private config equality and private startup-probe output remain
 host-side observations; native startup fallback is not independently exposed
 by the model snapshot. This row does not establish delivery, interrupt,
 Forget, replacement or the later UI-admission correction on the native host.
+
+The installed `399de2f` checkpoint passed one idle lane delivery followed by
+one explicit Run and `session.close` with `forget:true`. Explicit fixture
+handshakes captured the queued, idle public state before Run and the native
+transcript before Forget. The sole native user message contained the exact
+staged sender envelope before the prompt; one Sessionbus list call and final
+JSON matched the full public identity. Wait/status agreed. Forget removed the
+bus row while the same native file retained all eight entries and identical
+6,822 bytes. Owned processes and the private directory were gone after close.
+Root review is in `review-pi-delivery-forget-installed-root`. Pre-Run disk
+absence remains corroboration only because fresh Pi entries can be held in
+memory. This row does not establish interactive delivery or interrupt recovery.
 
 The first installed Pi checkpoint must distinguish these authorities:
 
