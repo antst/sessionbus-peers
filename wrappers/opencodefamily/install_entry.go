@@ -11,6 +11,14 @@ import (
 // InstallOpenCodePlugin is the same-binary maintenance entry used by the archive's
 // installer. It never launches native OpenCode or creates a Sessionbus owner.
 func InstallOpenCodePlugin(arguments []string) error {
+	return installPluginFor(openCodeNative, arguments)
+}
+
+func InstallKiloPlugin(arguments []string) error {
+	return installPluginFor(kiloNative, arguments)
+}
+
+func installPluginFor(kind nativeKind, arguments []string) error {
 	options := InstallOptions{}
 	switch {
 	case len(arguments) == 1 && arguments[0] == "--remove":
@@ -23,8 +31,8 @@ func InstallOpenCodePlugin(arguments []string) error {
 		}
 		options.Specifier = (&url.URL{Scheme: "file", Path: arguments[1]}).String()
 	default:
-		return errors.New("usage: opencode-peer --sessionbus-install (--plugin-dir ABSOLUTE_PATH | --specifier SPECIFIER | --remove)")
+		return errors.New("usage: " + kind.name() + "-peer --sessionbus-install (--plugin-dir ABSOLUTE_PATH | --specifier SPECIFIER | --remove)")
 	}
-	_, err := ConfigureOpenCodePlugin(options)
+	_, err := configurePluginFor(kind, options, commitConfigChanges)
 	return err
 }

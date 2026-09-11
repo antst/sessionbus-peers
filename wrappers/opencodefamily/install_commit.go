@@ -46,19 +46,22 @@ func commitConfigChangesWithHook(changes []configChange, afterInstall func(int) 
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return err
 		}
-		f, err := os.CreateTemp(dir, ".sessionbus-*.new")
-		if err != nil {
-			return err
-		}
-		item := &stagedConfig{change: change, temporary: f.Name()}
+		item := &stagedConfig{change: change}
 		staged = append(staged, item)
-		if err := f.Chmod(change.doc.mode); err != nil {
-			return errors.Join(err, f.Close())
-		}
-		_, writeErr := f.Write(change.body)
-		syncErr := f.Sync()
-		if err := errors.Join(writeErr, syncErr, f.Close()); err != nil {
-			return err
+		if !change.removeFile {
+			f, err := os.CreateTemp(dir, ".sessionbus-*.new")
+			if err != nil {
+				return err
+			}
+			item.temporary = f.Name()
+			if err := f.Chmod(change.doc.mode); err != nil {
+				return errors.Join(err, f.Close())
+			}
+			_, writeErr := f.Write(change.body)
+			syncErr := f.Sync()
+			if err := errors.Join(writeErr, syncErr, f.Close()); err != nil {
+				return err
+			}
 		}
 		if change.doc.info != nil {
 			backup, err := os.CreateTemp(dir, ".sessionbus-*.old")
@@ -75,6 +78,11 @@ func commitConfigChangesWithHook(changes []configChange, afterInstall func(int) 
 	// not a claim of locking out native/user writers during subsequent renames.
 	for _, item := range staged {
 		doc := item.change.doc
+		if item.change.removeFile {
+			if err := validateRemovedConfig(doc); err != nil {
+				return err
+			}
+		}
 		if doc.info == nil {
 			if _, err := os.Lstat(doc.physical); !errors.Is(err, os.ErrNotExist) {
 				return fmt.Errorf("%s: configuration appeared during installation", doc.file)
@@ -87,14 +95,21 @@ func commitConfigChangesWithHook(changes []configChange, afterInstall func(int) 
 		}
 	}
 	for i, item := range staged {
+		if item.change.removeFile {
+			if err := validateRemovedConfig(item.change.doc); err != nil {
+				return err
+			}
+		}
 		if item.backup != "" {
 			if err := os.Rename(item.change.doc.physical, item.backup); err != nil {
 				return err
 			}
 			item.backedUp = true
 		}
-		if err := os.Rename(item.temporary, item.change.doc.physical); err != nil {
-			return err
+		if !item.change.removeFile {
+			if err := os.Rename(item.temporary, item.change.doc.physical); err != nil {
+				return err
+			}
 		}
 		item.installed = true
 		if afterInstall != nil {

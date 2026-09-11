@@ -25,6 +25,7 @@ type InstallOptions struct {
 }
 
 type configDocument struct {
+	kind           nativeKind
 	file, physical string
 	body           []byte
 	mode           os.FileMode
@@ -35,8 +36,9 @@ type configDocument struct {
 }
 
 type configChange struct {
-	doc  *configDocument
-	body []byte
+	doc        *configDocument
+	body       []byte
+	removeFile bool
 }
 
 // ConfigureOpenCodePlugin reconciles both native global server and TUI registrations.
@@ -45,7 +47,15 @@ func ConfigureOpenCodePlugin(options InstallOptions) (bool, error) {
 	return configurePlugin(options, commitConfigChanges)
 }
 
+func ConfigureKiloPlugin(options InstallOptions) (bool, error) {
+	return configurePluginFor(kiloNative, options, commitConfigChanges)
+}
+
 func configurePlugin(options InstallOptions, commit func([]configChange) error) (bool, error) {
+	return configurePluginFor(openCodeNative, options, commit)
+}
+
+func configurePluginFor(kind nativeKind, options InstallOptions, commit func([]configChange) error) (bool, error) {
 	if options.Directory == "" {
 		root := os.Getenv("XDG_CONFIG_HOME")
 		if root == "" {
@@ -55,12 +65,12 @@ func configurePlugin(options InstallOptions, commit func([]configChange) error) 
 			}
 			root = filepath.Join(home, ".config")
 		}
-		options.Directory = filepath.Join(root, "opencode")
+		options.Directory = filepath.Join(root, kind.name())
 	}
-	if !options.Remove && (!validInstallText(options.Specifier) || !installableSpecifier(options.Specifier, options.Directory)) {
-		return false, errors.New("specifier is not an installable @sessionbus/opencode package")
+	if !options.Remove && (!validInstallText(options.Specifier) || !installableSpecifier(kind, options.Specifier, options.Directory)) {
+		return false, fmt.Errorf("specifier is not an installable %s package", kind.installPackage())
 	}
-	groups := [][]string{{"opencode.jsonc", "opencode.json", "config.json"}, {"tui.jsonc", "tui.json"}}
+	groups := kind.installConfigNames()
 	var changes []configChange
 	var identities []os.FileInfo
 	for group, names := range groups {
@@ -80,6 +90,7 @@ func configurePlugin(options InstallOptions, commit func([]configChange) error) 
 				}
 			}
 			identities = append(identities, doc.info)
+			doc.kind = kind
 			doc.tui = group == 1
 			docs = append(docs, doc)
 		}
@@ -89,7 +100,7 @@ func configurePlugin(options InstallOptions, commit func([]configChange) error) 
 			}
 			file := filepath.Join(options.Directory, names[0])
 			tree, _ := parseConfig([]byte("{}\n"))
-			docs = append(docs, &configDocument{file: file, physical: file, body: []byte("{}\n"), mode: 0o600, tree: tree, tui: group == 1})
+			docs = append(docs, &configDocument{kind: kind, file: file, physical: file, body: []byte("{}\n"), mode: 0o600, tree: tree, tui: group == 1})
 		}
 		docs[0].selected = true
 		owned, exact := 0, false
@@ -114,7 +125,7 @@ func configurePlugin(options InstallOptions, commit func([]configChange) error) 
 					if err != nil {
 						return false, fmt.Errorf("%s: %w", doc.file, err)
 					}
-					if ownedInstallSpecifier(spec, doc.file) {
+					if ownedInstallSpecifier(kind, spec, doc.file) {
 						owned++
 						exact = doc.selected && index == len(targets)-1 && entry.kind == '"' && spec == options.Specifier
 					}
@@ -132,6 +143,20 @@ func configurePlugin(options InstallOptions, commit func([]configChange) error) 
 			if !bytes.Equal(body, doc.body) {
 				changes = append(changes, configChange{doc: doc, body: body})
 			}
+		}
+	}
+	if kind == kiloNative {
+		legacy, err := readKiloLegacyEntry(options.Directory)
+		if err != nil {
+			return false, err
+		}
+		if legacy != nil {
+			for _, identity := range identities {
+				if os.SameFile(identity, legacy.info) {
+					return false, errors.New("legacy plugin aliases native config")
+				}
+			}
+			changes = append(changes, configChange{doc: legacy, removeFile: true})
 		}
 	}
 	if len(changes) == 0 {
@@ -192,8 +217,10 @@ func validInstallText(value string) bool {
 	return value != "" && len(value) <= maxInstallConfig && !strings.ContainsAny(value, "\x00\r\n")
 }
 
-func ownedInstallSpecifier(spec, configFile string) bool {
-	if spec == "@sessionbus/opencode" || strings.HasPrefix(spec, "@sessionbus/opencode@") && !strings.ContainsAny(spec, " \t\r\n") && len(spec) > len("@sessionbus/opencode@") {
+func ownedInstallSpecifier(kind nativeKind, spec, configFile string) bool {
+	pkg := kind.installPackage()
+	archive := "sessionbus-" + kind.name() + "-"
+	if spec == pkg || strings.HasPrefix(spec, pkg+"@") && !strings.ContainsAny(spec, " \t\r\n") && len(spec) > len(pkg+"@") {
 		return true
 	}
 	location := strings.FieldsFunc(spec, func(r rune) bool { return r == '?' || r == '#' })
@@ -202,7 +229,7 @@ func ownedInstallSpecifier(spec, configFile string) bool {
 	}
 	clean := strings.ReplaceAll(location[0], "\\", "/")
 	name := filepath.Base(clean)
-	if strings.HasPrefix(name, "sessionbus-opencode-") && strings.HasSuffix(name, ".tgz") && len(name) > len("sessionbus-opencode-.tgz") {
+	if strings.HasPrefix(name, archive) && strings.HasSuffix(name, ".tgz") && len(name) > len(archive+".tgz") {
 		return true
 	}
 	if !strings.HasPrefix(clean, "file:") {
@@ -223,11 +250,11 @@ func ownedInstallSpecifier(spec, configFile string) bool {
 	var manifest struct {
 		Name string `json:"name"`
 	}
-	return err == nil && json.Unmarshal(body, &manifest) == nil && manifest.Name == "@sessionbus/opencode"
+	return err == nil && json.Unmarshal(body, &manifest) == nil && manifest.Name == pkg
 }
 
-func installableSpecifier(spec, directory string) bool {
-	return (strings.HasPrefix(spec, "@sessionbus/opencode") || strings.HasPrefix(spec, "file:") || strings.HasPrefix(spec, "https://") || strings.HasPrefix(spec, "http://")) && ownedInstallSpecifier(spec, filepath.Join(directory, "opencode.jsonc"))
+func installableSpecifier(kind nativeKind, spec, directory string) bool {
+	return (strings.HasPrefix(spec, kind.installPackage()) || strings.HasPrefix(spec, "file:") || strings.HasPrefix(spec, "https://") || strings.HasPrefix(spec, "http://")) && ownedInstallSpecifier(kind, spec, filepath.Join(directory, kind.name()+".jsonc"))
 }
 
 func configEntrySpecifier(entry *configNode) (string, error) {
@@ -284,7 +311,7 @@ func editPluginConfig(doc *configDocument, spec string, remove bool) ([]byte, er
 			if err != nil {
 				return nil, err
 			}
-			if ownedInstallSpecifier(value, doc.file) {
+			if ownedInstallSpecifier(doc.kind, value, doc.file) {
 				edits = append(edits, configEdit{entry.start, entry.end, nil})
 				if plugin.commas[i] >= 0 {
 					edits = append(edits, configEdit{plugin.commas[i], plugin.commas[i] + 1, nil})
