@@ -34,7 +34,7 @@ export class SessionbusForwarder {
   #pending = new Map();
   #operations = 0;
   #writeBytes = 0;
-  #writes = new Set();
+  #writes = new Map();
   #frame = Buffer.alloc(0);
   #readBytes = 0;
 
@@ -51,7 +51,13 @@ export class SessionbusForwarder {
     const end = () => this.#fail(new Error("MCP connection ended"));
     this.#socket.on("error", (error) => this.#fail(error));
     this.#socket.on("end", end);
-    this.#socket.on("close", () => { end(); lifetime?.removeEventListener("abort", cancel); });
+    this.#socket.on("close", () => {
+      end();
+      // Bun may omit callbacks for buffered writes destroyed with the socket.
+      // Actual close ends transport ownership; destroy() alone does not.
+      for (const complete of this.#writes.values()) complete(this.#failure);
+      lifetime?.removeEventListener("abort", cancel);
+    });
     this.#socket.on("data", (chunk) => this.#receive(chunk));
     const cancel = () => this.#fail(aborted(lifetime));
     lifetime?.addEventListener("abort", cancel, { once: true });
@@ -104,7 +110,7 @@ export class SessionbusForwarder {
     this.#fail(new Error("Sessionbus forwarder disposed"));
     await this.#closed;
     await this.#initializing;
-    await Promise.allSettled([...this.#writes]);
+    await Promise.allSettled([...this.#writes.keys()]);
   }
 
   #request(method, params, signal) {
@@ -136,7 +142,6 @@ export class SessionbusForwarder {
     this.#writeBytes += frame.length;
     let done;
     const writing = new Promise((resolve) => { done = resolve; });
-    this.#writes.add(writing);
     let settled = false;
     const complete = (error) => {
       if (settled) return;
@@ -146,6 +151,7 @@ export class SessionbusForwarder {
       done();
       if (error) this.#fail(error);
     };
+    this.#writes.set(writing, complete);
     try { this.#socket.write(frame, complete); }
     catch (error) { complete(error); throw error; }
   }

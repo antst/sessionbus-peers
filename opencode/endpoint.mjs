@@ -87,7 +87,7 @@ class EndpointConnection {
   #used = 0;
   #pending = new Map();
   #tasks = new Set();
-  #writes = new Set();
+  #writes = new Map();
   closed;
 
   constructor(socket, endpoint) {
@@ -97,7 +97,10 @@ class EndpointConnection {
     this.closed = (async () => {
       await closed;
       this.stop();
-      await Promise.allSettled([...this.#tasks, ...this.#writes]);
+      // Actual socket close releases buffered write ownership even when Bun
+      // omits its callbacks. Later callbacks share the same idempotent guard.
+      for (const done of this.#writes.values()) done(this.#controller.signal.reason);
+      await Promise.allSettled([...this.#tasks, ...this.#writes.keys()]);
     })();
     socket.on("error", () => this.stop());
     socket.on("end", () => this.stop());
@@ -186,17 +189,17 @@ class EndpointConnection {
     const frame = Buffer.from(JSON.stringify(value) + "\n");
     if (frame.length > bridgeLimits.response) throw new Error("MCP response exceeds 8 MiB");
     this.#endpoint.reserve(frame.length);
-    const writing = new Promise((resolve, reject) => {
-      let complete = false;
-      const done = (error) => {
-        if (complete) return;
-        complete = true;
-        this.#endpoint.release(frame.length);
-        if (error) reject(error); else resolve();
-      };
-      try { this.#socket.write(frame, done); } catch (error) { done(error); }
-    });
-    this.#writes.add(writing);
+    let resolve, reject;
+    const writing = new Promise((yes, no) => { resolve = yes; reject = no; });
+    let complete = false;
+    const done = (error) => {
+      if (complete) return;
+      complete = true;
+      this.#endpoint.release(frame.length);
+      if (error) reject(error); else resolve();
+    };
+    this.#writes.set(writing, done);
+    try { this.#socket.write(frame, done); } catch (error) { done(error); }
     writing.finally(() => this.#writes.delete(writing)).catch(() => {});
     return writing;
   }

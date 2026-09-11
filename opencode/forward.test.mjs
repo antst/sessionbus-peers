@@ -116,3 +116,54 @@ test("native work capacity rejects admission and disposal settles all admitted c
   await forward.dispose();
   assert.equal((await all).filter((result) => result.status === "rejected").length, bridgeLimits.work);
 });
+
+test("actual close settles writes when runtime omits callbacks; destroy alone does not", async () => {
+  const { EventEmitter } = await import("node:events");
+  const { setImmediate: nextTurn } = await import("node:timers/promises");
+  class HeldSocket extends EventEmitter {
+    destroyed = false;
+    held = [];
+    write(frame, callback) {
+      const value = JSON.parse(frame.toString());
+      if (value.method === "tools/call") { this.held.push(callback); return false; }
+      queueMicrotask(() => {
+        callback();
+        const result = value.method === "initialize"
+          ? { protocolVersion: "2024-11-05", capabilities: { tools: {} } }
+          : value.method === "tools/list" ? { tools: [{ name: "sessionbus" }] } : undefined;
+        if (result) this.emit("data", Buffer.from(JSON.stringify({ jsonrpc: "2.0", id: value.id, result }) + "\n"));
+      });
+      return true;
+    }
+    destroy() { this.destroyed = true; return this; }
+  }
+  const socket = new HeldSocket();
+  const connect = net.createConnection;
+  let forward;
+  net.createConnection = () => socket;
+  try { forward = new SessionbusForwarder("/fixture/held"); }
+  finally { net.createConnection = connect; }
+  socket.emit("connect");
+  await forward.ready();
+  const rejected = assert.rejects(forward.action("list", {}, identity), /disposed/);
+  await nextTurn();
+  assert.equal(socket.held.length, 1);
+  let settled = false;
+  const disposing = forward.dispose().then(() => { settled = true; });
+  try {
+    await nextTurn();
+    assert.equal(socket.destroyed, true);
+    assert.equal(settled, false, "destroy invocation is not actual close");
+    socket.emit("close");
+    await nextTurn();
+    assert.equal(settled, true, "actual close must settle write ownership without runtime callbacks");
+    for (const callback of socket.held) { callback(new Error("late callback")); callback(); }
+    await forward.dispose();
+    await rejected;
+  } finally {
+    socket.emit("close");
+    for (const callback of socket.held) callback();
+    await disposing;
+    await rejected;
+  }
+});

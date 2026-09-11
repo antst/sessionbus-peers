@@ -2,6 +2,8 @@
 import assert from "node:assert/strict";
 import { mkdtemp, stat, rm } from "node:fs/promises";
 import test from "node:test";
+import net from "node:net";
+import { once } from "node:events";
 import { InteractiveEndpoint } from "./endpoint.mjs";
 import { SessionbusForwarder } from "./forward.mjs";
 
@@ -85,4 +87,47 @@ test("global work budget spans resident connections", async (t) => {
   await f.endpoint.dispose();
   assert.equal(cancelled, 256);
   assert.equal((await settled).filter((result) => result.status === "rejected").length, 256);
+});
+
+test('actual endpoint close settles writes when runtime omits callbacks', {timeout:3000}, async () => {
+  const directory = await mkdtemp('/tmp/oc-review-close-');
+  const original = net.createServer;
+  const held = [];
+  let serverSocket, signalWrite;
+  const written = new Promise(resolve => { signalWrite=resolve; });
+  net.createServer = (listener) => original(socket => {
+    serverSocket=socket;
+    const write=socket.write;
+    socket.write=function(frame, callback) {
+      return write.call(this, frame, (...args) => { held.push(() => callback(...args)); signalWrite(); });
+    };
+    listener(socket);
+  });
+  let endpoint;
+  try { endpoint=new InteractiveEndpoint(directory+'/actions.sock', async()=>({})); }
+  finally { net.createServer=original; }
+  let client, timer, closing;
+  try {
+    await endpoint.ready();
+    client=net.createConnection(directory+'/actions.sock');
+    client.on('error',()=>{}); client.resume();
+    await once(client,'connect');
+    client.write(JSON.stringify({jsonrpc:'2.0',id:1,method:'ping',params:{}})+'\n');
+    await written;
+    const closed=once(serverSocket,'close');
+    closing=endpoint.dispose();
+    await closed;
+    assert.equal(serverSocket.destroyed,true);
+    const result=await Promise.race([closing.then(()=>true),new Promise(resolve=>{timer=setTimeout(()=>resolve(false),500);})]);
+    assert.equal(result,true,'endpoint disposal remained pending after actual socket close with callback omitted');
+    for(const callback of held) callback();
+    await endpoint.dispose();
+  } finally {
+    clearTimeout(timer);
+    for(const callback of held.splice(0)) callback();
+    client?.destroy();
+    await closing;
+    await endpoint.dispose();
+    await rm(directory,{recursive:true,force:true});
+  }
 });
