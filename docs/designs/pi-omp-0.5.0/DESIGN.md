@@ -1,7 +1,10 @@
 # Pi and OMP integration
 
 Status: implementation in progress. Native prerequisites are installed and
-version/help checked; installed wrapper and model acceptance remain pending. The source base is peers `75866839b7f024edf2c7f9d2d3af647a343f4987`.
+version/help checked. Pi's first permanent Open/Close build is installed;
+Run implementation review and native acceptance remain in progress. OMP's
+wrapper is not yet implemented. The source base is peers
+`75866839b7f024edf2c7f9d2d3af647a343f4987`.
 
 ## Native versions and implementation cost
 
@@ -31,9 +34,10 @@ after actual version/help commands under the real login environment. These are
 logical file lengths, not RSS measurements. OMP retains its optional Transformers, CPU ONNX and Sharp
 dependencies. Ignoring lifecycle scripts omits optional CUDA setup; required
 CPU payloads are present in the staged packages. CUDA acceptance is not claimed.
-The integrated private transport currently has 991 Go and 722 JavaScript
+At the architecture checkpoint `ccfa25d`, the private transport had 991 Go and 722 JavaScript
 physical source lines, including comments and blank lines. Pi's separate native
-RPC transport has another 754 Go lines. The historical 650-line shared estimate
+RPC transport had another 754 Go lines. These are checkpoint counts, not final
+implementation totals. The historical 650-line shared estimate
 is not met. Ordered bounded writes, retained responses, cancellation and joined
 closure remain required behavior; the estimate cannot be met by deleting those
 semantics. Final accounting will count shared source once, each shipped copy
@@ -46,6 +50,12 @@ extensions. These source counts do not measure linked bytes or runtime memory.
 executable names remain `pi` and `omp`. The real native session ID is the
 identity authority; a display name, wrapper request ID or bus run ID cannot
 replace it. Open/resume must verify the returned native ID and directory.
+
+`Close` joins the native lifetime. `Forget` additionally asks the daemon to
+remove its retained lane row after the Worker stops; it does not delete the
+native transcript. Pi has no session-deletion RPC. Its interactive picker is
+the native deletion surface, and the wrapper does not imitate that operation
+with filesystem removal.
 
 One managed launch has a Go owner, its direct native child and a private
 0700 launch directory. The native extension is supplied per launch. Ordinary
@@ -126,8 +136,10 @@ The native correlated `prompt` success is admission, not completion. Pi's
 `agent_settled` event has no messages. `get_last_assistant_text` can skip an empty
 aborted assistant and return an earlier turn, so it is not used for collection.
 
-Before submission the controller records a native entry cursor and current
-leaf. After an owned completion it reads the new entries and verifies their
+Before submission the controller records the last entry in native file order
+as its cursor and separately records the current tree leaf as its parent.
+These IDs can differ after tree navigation. After an owned completion it reads
+the new entries since that cursor and verifies their
 ancestry and current leaf. The answer and stop reason come from the current
 interval's actual terminal assistant. No new assistant, an unknown stop reason,
 an unrelated branch or failed collection is an error, never empty success.
@@ -161,12 +173,23 @@ may be continuations; starts after it are foreign work and retire the owned
 child with an unavailable result. Global extensions remain enabled.
 
 The controller requires both that owned marker and the native settled frame
-before collecting the result. A missing or disabled managed extension fails
+before collecting the result. The private bridge and stdout have independent
+read schedules: an earlier stdout start may be read after the private marker.
+Their observations must be reconciled without assuming cross-channel arrival
+order. A failure or foreign start during collection invalidates the pending
+result; once a result is finalized, later owner loss does not rewrite it.
+A missing or disabled managed extension fails
 the required handshake/witness checks. Ownership state survives extension
 reload in the process and is bound to the current native session. This is a
 capability and ordering guard, not an invented native turn ID. State-idle plus
 absent events is not a completion authority. Installed acceptance must bind the
 ordering with global handlers present; source review alone is not runtime proof.
+
+Unexpected native work outside an owned Run retires the child. Startup dialogs
+also fail Open: Pi installs its stdin RPC reader only after awaiting initial
+session-start hooks, so writing a cancellation response cannot unblock a dialog
+held inside those hooks. Runtime dialogs use the native one-way cancellation
+response and must remain bounded and joined by their owning Run.
 
 Cancellation owns the operation from before the first write. Before native
 admission, cancellation must prevent a delayed preflight from escaping cleanup;
@@ -260,7 +283,8 @@ defaults are not copied into the new implementation. Evidence is retained under
 
 ## Implementation checkpoints
 
-The integrated bridge and Pi components are not yet a runnable wrapper. Pi's
+Pi's Open/Close, interactive launch and package components form the first
+installed checkpoint; its Run implementation is reviewed separately. Pi's
 public Worker constructor takes the daemon socket, provisional launch-token
 digest, absolute native executable and absolute extension path. Caller and
 shutdown callbacks are supplied by the command. Product-specific process/RPC
