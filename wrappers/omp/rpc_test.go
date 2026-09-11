@@ -290,6 +290,9 @@ func TestNativeRPCPromptKeepsCorrelationForLateNativeFailure(t *testing.T) {
 	if got.err != nil || !got.submitted || got.prompt == nil {
 		t.Fatalf("prompt start = %#v", got)
 	}
+	if invoked, known := got.prompt.ImmediateAgentInvoked(); invoked || known {
+		t.Fatalf("omitted immediate admission = %v, %v", invoked, known)
+	}
 	peer.write(t, `{"type":"prompt_result","id":"`+id+`","agentInvoked":false}`)
 	if event := <-events; event != "prompt_result" {
 		t.Fatalf("prompt event = %q", event)
@@ -305,6 +308,61 @@ func TestNativeRPCPromptKeepsCorrelationForLateNativeFailure(t *testing.T) {
 		t.Fatalf("repeated finish = %v, want %v", repeat, err)
 	}
 	waitNativeRPCStats(t, rpc, nativeRPCStats{})
+}
+
+func TestNativeRPCPromptPreservesTypedImmediateAgentOutcome(t *testing.T) {
+	for name, test := range map[string]struct {
+		data    string
+		invoked bool
+		known   bool
+		valid   bool
+	}{
+		"true":          {data: `{"agentInvoked":true}`, invoked: true, known: true, valid: true},
+		"false":         {data: `{"agentInvoked":false}`, known: true, valid: true},
+		"missing field": {data: `{}`},
+		"null field":    {data: `{"agentInvoked":null}`},
+		"wrong type":    {data: `{"agentInvoked":"false"}`},
+		"extra field":   {data: `{"agentInvoked":true,"extra":1}`},
+		"null data":     {data: `null`},
+	} {
+		t.Run(name, func(t *testing.T) {
+			rpc, peer := newNativeRPCTest(t, nil, nativeRPCLimits{})
+			type started struct {
+				prompt    *nativePrompt
+				submitted bool
+				err       error
+			}
+			result := make(chan started, 1)
+			go func() {
+				prompt, submitted, err := rpc.StartPrompt(nativeRPCTestContext(t), "owned")
+				result <- started{prompt, submitted, err}
+			}()
+			request := peer.read(t)
+			id := nativeRPCField(t, request, "id")
+			peer.write(t, `{"id":"`+id+`","type":"response","command":"prompt","success":true,"data":`+test.data+`}`)
+			got := <-result
+			if !got.submitted {
+				t.Fatal("immediate prompt response was not submitted")
+			}
+			if !test.valid {
+				if got.err == nil || got.prompt != nil {
+					t.Fatalf("invalid prompt data = %#v", got)
+				}
+				waitNativeRPCStats(t, rpc, nativeRPCStats{})
+				return
+			}
+			if got.err != nil || got.prompt == nil {
+				t.Fatalf("valid prompt data = %#v", got)
+			}
+			if invoked, known := got.prompt.ImmediateAgentInvoked(); invoked != test.invoked || known != test.known {
+				t.Fatalf("immediate admission = %v, %v; want %v, %v", invoked, known, test.invoked, test.known)
+			}
+			if err := got.prompt.Finish(); err != nil {
+				t.Fatal(err)
+			}
+			waitNativeRPCStats(t, rpc, nativeRPCStats{})
+		})
+	}
 }
 
 func TestNativeRPCPromptTerminalFinishRejectsLaterResponse(t *testing.T) {

@@ -100,12 +100,14 @@ type nativeRPCPending struct {
 }
 
 type nativePrompt struct {
-	rpc     *nativeRPC
-	id      string
-	pending *nativeRPCPending
-	once    sync.Once
-	done    chan struct{}
-	err     error
+	rpc                   *nativeRPC
+	id                    string
+	pending               *nativeRPCPending
+	immediateAgentInvoked bool
+	immediateKnown        bool
+	once                  sync.Once
+	done                  chan struct{}
+	err                   error
 }
 
 type nativeRPCChunks struct {
@@ -308,17 +310,11 @@ func (rpc *nativeRPC) StartPrompt(ctx context.Context, message string) (*nativeP
 	}
 	completed, responded, writeErr := waitNativeRPCAdmission(ctx, write, pending)
 	if responded {
-		if err = rpc.consumeResult(completed, nil); err != nil {
-			return nil, true, err
-		}
-		return newNativePrompt(rpc, id, pending), true, nil
+		return rpc.completePromptStart(id, pending, completed)
 	}
 	if writeErr != nil {
 		if completed, ok := rpc.abandonPending(id, pending); ok {
-			if err = rpc.consumeResult(completed, nil); err != nil {
-				return nil, true, err
-			}
-			return newNativePrompt(rpc, id, pending), true, nil
+			return rpc.completePromptStart(id, pending, completed)
 		}
 		if ctx.Err() != nil {
 			rpc.stop(ctx.Err(), false)
@@ -328,29 +324,66 @@ func (rpc *nativeRPC) StartPrompt(ctx context.Context, message string) (*nativeP
 	}
 	select {
 	case completed := <-pending.result:
-		if err = rpc.consumeResult(completed, nil); err != nil {
-			return nil, true, err
-		}
-		return newNativePrompt(rpc, id, pending), true, nil
+		return rpc.completePromptStart(id, pending, completed)
 	case <-ctx.Done():
 		if completed, ok := rpc.abandonPending(id, pending); ok {
-			if err = rpc.consumeResult(completed, nil); err != nil {
-				return nil, true, err
-			}
-			return newNativePrompt(rpc, id, pending), true, nil
+			return rpc.completePromptStart(id, pending, completed)
 		}
 		return nil, true, ctx.Err()
 	}
 }
 
-func newNativePrompt(rpc *nativeRPC, id string, pending *nativeRPCPending) *nativePrompt {
-	return &nativePrompt{rpc: rpc, id: id, pending: pending, done: make(chan struct{})}
+func (rpc *nativeRPC) completePromptStart(id string, pending *nativeRPCPending, completed nativeRPCResult) (*nativePrompt, bool, error) {
+	agentInvoked, known, err := rpc.consumePromptStart(completed)
+	if err != nil {
+		rpc.mu.Lock()
+		if rpc.pending[id] == pending {
+			delete(rpc.pending, id)
+		}
+		rpc.mu.Unlock()
+		return nil, true, err
+	}
+	return &nativePrompt{
+		rpc: rpc, id: id, pending: pending, done: make(chan struct{}),
+		immediateAgentInvoked: agentInvoked, immediateKnown: known,
+	}, true, nil
+}
+
+func (rpc *nativeRPC) consumePromptStart(completed nativeRPCResult) (bool, bool, error) {
+	data := append(json.RawMessage(nil), completed.data...)
+	if err := rpc.consumeResult(completed, nil); err != nil {
+		return false, false, err
+	}
+	if len(bytes.TrimSpace(data)) == 0 {
+		return false, false, nil
+	}
+	var object map[string]json.RawMessage
+	if json.Unmarshal(data, &object) != nil || len(object) != 1 {
+		return false, false, errors.New("invalid OMP native prompt response data")
+	}
+	raw, ok := object["agentInvoked"]
+	var invoked bool
+	if !ok || json.Unmarshal(raw, &invoked) != nil ||
+		(!bytes.Equal(bytes.TrimSpace(raw), []byte("true")) && !bytes.Equal(bytes.TrimSpace(raw), []byte("false"))) {
+		return false, false, errors.New("invalid OMP native prompt response data")
+	}
+	return invoked, true, nil
 }
 
 // Late closes when the prompt correlation has received an authoritative late
 // failure or its transport has been lost. It does not transfer ownership of
 // the retained result; Finish consumes and releases that result exactly once.
 func (prompt *nativePrompt) Late() <-chan struct{} { return prompt.pending.lateReady }
+
+// ImmediateAgentInvoked reports the optional native admission fact carried by
+// the initial prompt response. known=false means the response omitted data and
+// later preflight/events or prompt_result must provide authority.
+func (prompt *nativePrompt) ImmediateAgentInvoked() (invoked, known bool) {
+	if prompt == nil {
+		return false, false
+	}
+	return prompt.immediateAgentInvoked, prompt.immediateKnown
+}
 
 // Finish closes the prompt correlation after native terminal authority. A
 // late native error accepted at the same boundary wins over local completion.
