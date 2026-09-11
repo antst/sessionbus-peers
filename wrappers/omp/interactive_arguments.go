@@ -310,7 +310,7 @@ func ompLeadingCommand(arguments []string) int {
 			}
 			return -1
 		}
-		if ompProfileConsumesValue(arguments, index) {
+		if ompConsumesNativeValue(arguments, index) {
 			index++
 		}
 	}
@@ -336,7 +336,7 @@ func ompLaunchNonInteractive(arguments []string) int {
 				return index
 			}
 		}
-		if ompProfileConsumesValue(arguments, index) {
+		if ompConsumesNativeValue(arguments, index) {
 			index++
 		}
 	}

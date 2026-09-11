@@ -181,7 +181,7 @@ func TestOMPInteractivePlanMirrorsNativeCommandOwnership(t *testing.T) {
 		{"profile-after-explicit-launch", []string{"launch", "--profile", "work"}, false},
 		{"profile-after-launch-text", []string{"launch", "grep", "--profile", "work"}, false},
 		{"profile-owned-by-model", []string{"--model", "--profile", "work"}, false},
-		{"plan-profile-prevents-new-command", []string{"--plan", "--profile", "work", "update"}, false},
+		{"plan-value-then-command", []string{"--plan", "--profile", "work", "update"}, true},
 		{"unknown-attached", []string{"--unknown=value", "acp"}, true},
 		{"explicit-launch", []string{"launch", "hello"}, false},
 		{"launch-profile-command-text", []string{"launch", "--profile", "work", "update"}, false},
