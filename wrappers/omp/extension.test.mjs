@@ -485,6 +485,54 @@ test("Task child receives a separate owner and cannot request primary shutdown",
   assert.equal(owner.calls.at(-1).params.scope, "child");
 });
 
+test("failed Task child reports its end without retiring the healthy primary", async () => {
+  const owner = new FakeOwner();
+  const extension = createOMPExtension({
+    launch: launch("interactive"), connect: owner.connect, createToken: deterministicTokens(),
+  });
+  const primary = nativeFixture("main-session", "tui", "/work/main", "main");
+  const child = nativeFixture("child-session", "print", "/work/child", "child");
+  await start(extension, primary, owner);
+  extension(child.pi);
+  await child.emit("session_start");
+  await owner.waitFor((calls) => calls.filter((call) => call.method === "owner.ready").length === 2);
+  const childReady = owner.calls.filter((call) => call.method === "owner.ready")[1].params;
+  assert.equal((await owner.native("native.stage", {
+    owner_token: childReady.owner_token,
+    session_id: childReady.session_id,
+    message_id: "child-delivery",
+    body: "child body",
+  })).queued, true);
+  const injected = await child.emit("before_agent_start", { type: "before_agent_start", prompt: "child prompt" }, child.context());
+  const altered = nativeCustom({
+    ...injected.message,
+    content: "changed body",
+  });
+  await child.emit("message_start", { type: "message_start", message: altered }, child.context());
+  assert.equal(child.aborts(), 1);
+  assert.equal(child.shutdowns(), 0);
+
+  await assert.rejects(
+    child.emit("session_shutdown", { type: "session_shutdown" }, child.context()),
+    /changed Sessionbus delivery identity/,
+  );
+  const end = owner.calls.find((call) => call.method === "session_end" && call.params.scope === "child");
+  assert.equal(end.params.owner_token, childReady.owner_token);
+  assert.equal(end.params.session_id, "child-session");
+  assert.equal(primary.aborts(), 0);
+  assert.equal(primary.shutdowns(), 0);
+
+  const primaryResult = await primary.pi.tool.execute(
+    "primary-after-child",
+    { action: "list", arguments: {} },
+    undefined,
+    undefined,
+    primary.context(),
+  );
+  assert.equal(primaryResult.details.session_id, "main-session");
+  assert.equal(extension.stats().bindings, 1);
+});
+
 test("bounded report worker aborts a factory without spawning per-report work", async () => {
   const owner = new FakeOwner();
   const held = owner.hold("owner.ready");

@@ -393,7 +393,7 @@ export function createOMPExtension({ launch, connect = connectBridge, createToke
   }
 
   function enqueueReport(factory, state, method, params, validate, { ending = false } = {}) {
-    if (factory.failed || (!ending && (state.ending || state.failure))) return false;
+    if (!ending && (factory.failed || state.ending || state.failure)) return false;
     let bytes;
     try {
       bytes = reportBytes(method, params);
@@ -679,7 +679,7 @@ export function createOMPExtension({ launch, connect = connectBridge, createToke
       topology: launch.topology, scope: state.scope, mode: state.mode,
       owner_token: state.ownerToken, session_id: state.sessionID, reason: "shutdown",
     };
-    let endError;
+    let endError = state.failure ?? factory.failed;
     if (!enqueueReport(factory, state, "session_end", params, (result) => {
       exactEcho(result, state, {});
       state.endAcknowledged = true;
@@ -689,6 +689,7 @@ export function createOMPExtension({ launch, connect = connectBridge, createToke
     try {
       await joinReports(factory);
       if (!state.endAcknowledged) throw endError ?? new Error("OMP session_end was not acknowledged");
+      if (endError) throw endError;
       if (state.scope === "primary") bridgeClosing = true;
     } catch (error) {
       endError ??= error;
