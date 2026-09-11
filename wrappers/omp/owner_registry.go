@@ -1025,7 +1025,7 @@ func (registry *OwnerRegistry) waitPreflight(ctx context.Context, token, session
 		}
 		registry.mu.Lock()
 		state := registry.bindings[token]
-		if registry.ctx.Err() != nil {
+		if registry.err != nil || registry.ctx.Err() != nil {
 			err := errors.Join(errors.New("OMP owner registry ended while awaiting preflight"), registry.err)
 			registry.mu.Unlock()
 			return "", err
