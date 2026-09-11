@@ -12,8 +12,8 @@ type interactiveOptions struct {
 	name                   string
 }
 
-// parseInteractiveOptions knows only wrapper flags and the explicitly selected
-// -c value exception. Native owns every other option's interpretation.
+// parseInteractiveOptions preserves native required values while translating
+// wrapper flags. The explicitly selected -c value exception remains separate.
 func parseInteractiveOptions(args []string) (interactiveOptions, error) {
 	out := interactiveOptions{groups: []string{}}
 	addGroups := func(value string) {
@@ -74,6 +74,10 @@ func parseInteractiveOptions(args []string) (interactiveOptions, error) {
 			out.native = append(out.native, "--dangerously-bypass-approvals-and-sandbox")
 		default:
 			out.native = append(out.native, arg)
+			if codexOptionTakesValue(arg) && i+1 < len(args) && args[i+1] != "--" {
+				i++
+				out.native = append(out.native, args[i])
+			}
 		}
 	}
 	return out, nil

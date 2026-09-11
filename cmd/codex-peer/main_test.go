@@ -71,7 +71,7 @@ func main(){server:=len(os.Args)>1&&os.Args[1]=="app-server";name:="tui.json";if
 	t.Setenv("PATH", nativeDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	t.Setenv("ENTRY_CAPTURE", root)
 	t.Run("public-exec-native-argv", func(t *testing.T) {
-		cmd := exec.Command(public, "--resume", "native selector", "-g", "one", "--unknown-native", "literal value", "--group=two,three", "--yolo", "-c", "model=literal", "--", "--group", "operand")
+		cmd := exec.Command(public, "--resume", "native selector", "-g", "one", "--unknown-native", "literal value", "--group=two,three", "--yolo", "-c", "model=literal", "--model", "--resume", "-m", "--yolo", "--", "--group", "operand")
 		b, e := cmd.CombinedOutput()
 		var exit *exec.ExitError
 		if !errors.As(e, &exit) || exit.ExitCode() != 37 {
@@ -99,7 +99,7 @@ func main(){server:=len(os.Args)>1&&os.Args[1]=="app-server";name:="tui.json";if
 		if !strings.HasPrefix(uri, "unix://"+root+"/sessionbus-codex-launch-") || !strings.HasSuffix(uri, "/tui.sock") {
 			t.Fatal(uri)
 		}
-		want := []string{"resume", "native selector", "--unknown-native", "literal value", "--dangerously-bypass-approvals-and-sandbox", "-c", "model=literal", "--", "--group", "operand"}
+		want := []string{"resume", "native selector", "--unknown-native", "literal value", "--dangerously-bypass-approvals-and-sandbox", "-c", "model=literal", "--model", "--resume", "-m", "--yolo", "--", "--group", "operand"}
 		if !reflect.DeepEqual(v.Argv[len(prefix)+2:], want) {
 			t.Fatal(v.Argv)
 		}

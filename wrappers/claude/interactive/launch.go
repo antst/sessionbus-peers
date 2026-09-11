@@ -70,6 +70,10 @@ func LaunchPlan(args []string, env map[string]string, cwd, root string, uid int)
 				}
 			} else {
 				native = append(native, args[i])
+				if claudeOptionTakesValue(args[i]) && i+1 < len(args) && args[i+1] != "--" {
+					i++
+					native = append(native, args[i])
+				}
 			}
 		}
 	}
@@ -134,4 +138,22 @@ func Launch(args []string) error {
 		return err
 	}
 	return syscall.Exec(native, append([]string{native}, argv...), values)
+}
+
+// Required top-level values from the retained native Claude help (2026-09-08).
+// Optional values, including resume, are deliberately absent. Variadic options
+// protect their first required value; native Claude interprets the rest.
+func claudeOptionTakesValue(option string) bool {
+	switch option {
+	case "--add-dir", "--agent", "--agents", "--allowedTools", "--allowed-tools",
+		"--append-system-prompt", "--autocompact", "--betas", "--debug-file",
+		"--disallowedTools", "--disallowed-tools", "--effort", "--environment",
+		"--fallback-model", "--file", "--input-format", "--json-schema", "--max-budget-usd",
+		"--mcp-config", "--model", "--output-format", "--permission-mode", "--permission-prompts",
+		"--plugin-dir", "--plugin-url", "--remote-control-session-name-prefix", "--session-id",
+		"--setting-sources", "--settings", "--system-prompt", "--system-prompt-snapshot",
+		"--tools", "-n", "--name":
+		return true
+	}
+	return false
 }

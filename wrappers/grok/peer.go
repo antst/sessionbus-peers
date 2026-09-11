@@ -247,6 +247,10 @@ func InteractivePlan(arguments, environment []string) (host.ExecPlan, error) {
 			}
 		default:
 			native = append(native, arg)
+			if !attached && grokOptionTakesValue(key) && i+1 < len(arguments) && arguments[i+1] != "--" {
+				i++
+				native = append(native, arguments[i])
+			}
 		}
 	}
 	env := slices.DeleteFunc(slices.Clone(environment), func(entry string) bool {
@@ -368,4 +372,21 @@ func grokPassthrough(arguments []string) bool {
 func ManagedHelper(environment []string) bool {
 	marker := environmentValue(environment, ManagedEnv)
 	return marker != "" && marker == environmentValue(environment, grokLeaderSocketEnv) && environmentValue(environment, grokSessionIDEnv) != ""
+}
+
+// Required top-level values from native Grok 1.0.24 help, including its listed
+// compatibility aliases. Resume and worktree have optional values and are absent.
+func grokOptionTakesValue(option string) bool {
+	switch option {
+	case "--agent", "--agent-profile", "--agents", "--allow", "--allowedTools",
+		"--cli-chat-proxy-base-url", "--cwd", "--debug-file", "--deny", "--disallowedTools",
+		"--disallowed-tools", "--grok-ws-origin", "--grok-ws-url", "--json-schema",
+		"--leader-socket", "--max-turns", "--output-format", "--permission-mode", "--plugin-dir",
+		"--prompt-file", "--prompt-json", "--reasoning-effort", "--effort", "--rules",
+		"--sandbox", "--system-prompt-override", "--system-prompt", "--tools",
+		"--worktree-ref", "--ref", "--xai-api-base-url", "-m", "--model", "-p", "--single",
+		"-s", "--session-id":
+		return true
+	}
+	return false
 }
