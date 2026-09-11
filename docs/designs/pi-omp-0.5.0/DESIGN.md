@@ -429,6 +429,20 @@ Root review is in `review-pi-delivery-forget-installed-root`. Pre-Run disk
 absence remains corroboration only because fresh Pi entries can be held in
 memory. This row does not establish interactive delivery or interrupt recovery.
 
+The installed `aa096e8` checkpoint passed the separate zero-model interactive
+delivery/replacement row. A resumed session received one exact custom message
+with a `written` receipt. Native `/new` withdrew that Peer and reported a new
+native ID with the explicit wrapper fallback name in the same wrapper and
+Node process generations. A second delivery returned `written`; Ctrl-D exited
+normally, both Peers disappeared, and owned processes/private resources were
+gone. The old transcript retained its custom entry and identical 7,416 bytes
+through replacement and quit. The new session's receipt proves the native leaf
+append, not persistence or model consumption. Root review is in
+`review-pi-interactive-installed-root`. The preceding observer hello failure
+was a fixture product label over the daemon's 32-character limit, before any
+native launch; it remains a separate retained outcome. Busy delivery and
+interrupt recovery are still separate acceptance rows.
+
 The first installed Pi checkpoint must distinguish these authorities:
 
 | Boundary | Required evidence | Insufficient evidence |
