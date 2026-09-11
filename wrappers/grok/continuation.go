@@ -190,8 +190,21 @@ func (p *Wrapper) deliverActive(ctx context.Context, r kit.DeliveryRequest, text
 	case <-gate:
 	}
 	p.mu.Lock()
-	t, observer := p.active, p.observer
-	if p.closing || p.nativeFailure != nil || t == nil || observer == nil || t.retiring || len(t.segments) == 0 || t.segments[len(t.segments)-1].terminal {
+	t, observer := p.pendingPrompt, p.observer
+	if p.closing || p.nativeFailure != nil || t == nil || observer == nil || t.retiring {
+		p.mu.Unlock()
+		gate <- struct{}{}
+		return kit.DeliveryReceipt{Disposition: "rejected", Reason: "native_turn_unavailable"}, nil
+	}
+	p.mu.Unlock()
+	// The primary stream is the admission authority. The observer must never
+	// submit an interject into native idle while this prompt is still starting.
+	if err := t.admission(ctx); err != nil {
+		gate <- struct{}{}
+		return kit.DeliveryReceipt{}, err
+	}
+	p.mu.Lock()
+	if p.pendingPrompt != t || p.closing || p.nativeFailure != nil || t.retiring || len(t.segments) == 0 || t.segments[len(t.segments)-1].terminal {
 		p.mu.Unlock()
 		gate <- struct{}{}
 		return kit.DeliveryReceipt{Disposition: "rejected", Reason: "native_turn_unavailable"}, nil
@@ -224,7 +237,7 @@ func (p *Wrapper) deliverActive(ctx context.Context, r kit.DeliveryRequest, text
 			if err := ctx.Err(); err != nil {
 				return err
 			}
-			if p.active != t || t.delivery != d || p.closing || p.nativeFailure != nil || t.retiring || len(t.segments) == 0 || t.segments[len(t.segments)-1].terminal {
+			if p.pendingPrompt != t || t.delivery != d || p.closing || p.nativeFailure != nil || t.retiring || len(t.segments) == 0 || t.segments[len(t.segments)-1].terminal {
 				return errors.New("Grok turn ended before interject submission")
 			}
 			d.attempted = true
