@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MIT
+import { nativeProduct } from "./profile.mjs";
 
 import assert from "node:assert/strict";
 import { once } from "node:events";
@@ -15,7 +16,7 @@ function deferred() {
   const promise = new Promise((yes) => { resolve = yes; });
   return { promise, resolve };
 }
-const identity = { session_id: "ses_native", product: "opencode", groups: ["test"], info: {} };
+const identity = { session_id: "ses_native", product: nativeProduct.product, groups: ["test"], info: {} };
 async function fixture(t, handler) {
   const directory = await mkdtemp(path.join(os.tmpdir(), "oc-peer-"));
   const sockets = new Set();

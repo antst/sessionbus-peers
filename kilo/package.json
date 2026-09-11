@@ -1,11 +1,11 @@
 {
-  "name": "@sessionbus/opencode",
+  "name": "@sessionbus/kilo",
   "version": "0.1.0-pre.1",
   "license": "MIT",
   "type": "module",
   "main": "./server.mjs",
   "scripts": {
-    "test": "../scripts/test-native-plugin opencode"
+    "test": "../scripts/test-native-plugin kilo"
   },
   "exports": {
     ".": "./server.mjs",
@@ -34,7 +34,7 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/antst/sessionbus-peers.git",
-    "directory": "opencode"
+    "directory": "kilo"
   },
   "dependencies": {
     "@sessionbus/kit": "https://pkg.pr.new/@sessionbus/kit@0b35c99"

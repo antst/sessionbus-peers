@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MIT
+import { nativeProduct } from "./profile.mjs";
 import path from "node:path";
 import declaration from "./sessionbus-tool.json" with { type: "json" };
 import { launchEnvironment, interactiveActivation } from "./activation.mjs";
@@ -10,7 +11,7 @@ export function createServer(environment = launchEnvironment) {
   let instances = 0, calls = 0;
   return async function server() {
     const lane = environment.SESSIONBUS_LANE_SOCKET;
-    if (lane && environment.SESSIONBUS_OPENCODE_LAUNCH) throw new Error("OpenCode lane and interactive activation conflict");
+    if (lane && environment[nativeProduct.launchEnv]) throw new Error(`${nativeProduct.label} lane and interactive activation conflict`);
     if (lane && (typeof lane !== "string" || !path.isAbsolute(lane))) throw new Error("invalid native lane endpoint");
     const launch = lane ? null : await interactiveActivation(environment);
     if (!lane && !launch) return {};
@@ -65,4 +66,4 @@ export function createServer(environment = launchEnvironment) {
   };
 }
 
-export default { id: "@sessionbus/opencode", server: createServer() };
+export default { id: nativeProduct.packageName, server: createServer() };

@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MIT
+import { nativeProduct } from "./profile.mjs";
 import assert from "node:assert/strict";
 import { mkdtemp, rm, writeFile, stat } from "node:fs/promises";
 import test from "node:test";
@@ -10,7 +11,7 @@ async function fixture(t) {
   const directory = await mkdtemp("/tmp/sb-server-");
   t.after(() => rm(directory, { recursive:true, force:true }));
   const binding = { directory, pid:process.ppid, socket:directory+"/bus.sock", name:"initial", groups:[] };
-  return { directory, binding, environment: { SESSIONBUS_OPENCODE_LAUNCH: JSON.stringify(binding) } };
+  return { directory, binding, environment: { [nativeProduct.launchEnv]: JSON.stringify(binding) } };
 }
 const native = { sessionID:"ses_actual", messageID:"msg_actual", abort:new AbortController().signal };
 
@@ -18,7 +19,7 @@ test("ordinary and inherited foreign-parent launches return no tool or owner", a
   assert.deepEqual(await createServer({})(), {});
   const f = await fixture(t);
   f.binding.pid++;
-  assert.deepEqual(await createServer({SESSIONBUS_OPENCODE_LAUNCH:JSON.stringify(f.binding)})(), {});
+  assert.deepEqual(await createServer({[nativeProduct.launchEnv]:JSON.stringify(f.binding)})(), {});
   assert.deepEqual(await stat(f.directory).then(async () => (await import("node:fs/promises")).readdir(f.directory)), []);
 });
 

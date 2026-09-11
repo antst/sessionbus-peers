@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MIT
+import { nativeProduct } from "./profile.mjs";
 
 import assert from "node:assert/strict";
 import { once, EventEmitter } from "node:events";
@@ -231,7 +232,7 @@ test("deletion during initial native rename cannot rehello late title", { timeou
 });
 
 test("actual sole Caller preserves originating self_info with filtered rows", { timeout: 5000 }, async (t) => {
-  const value = { sessions: [], self_info: { session_id: "ses_native@host", product: "opencode", groups: ["group"] } };
+  const value = { sessions: [], self_info: { session_id: "ses_native@host", product: nativeProduct.product, groups: ["group"] } };
   const f = await fixture(t, { call: (wire, request) => wire.result(request, value) });
   assert.deepEqual(await f.action("ses_native"), value);
 });

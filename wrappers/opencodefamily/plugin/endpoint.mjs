@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MIT
+import { nativeProduct } from "./profile.mjs";
 import net from "node:net";
 import { chmod } from "node:fs/promises";
 import tool from "./sessionbus-tool.json" with { type: "json" };
@@ -56,9 +57,9 @@ export class InteractiveEndpoint {
 
   async call(params, signal) {
     const args = params?.arguments;
-    const native = params?._meta?.["sessionbus.opencode"];
+    const native = params?._meta?.[nativeProduct.metadataKey];
     if (params?.name !== "sessionbus" || !object(args) || Object.keys(args).length !== 2 || !tool.inputSchema.properties.action.enum.includes(args.action) || !object(args.arguments)) throw new Error("expected a Sessionbus action and arguments object");
-    if (!object(native) || Object.keys(native).length !== 2 || !nativeID(native.session_id, "ses_") || !nativeID(native.message_id, "msg_")) throw new Error("native OpenCode tool identity is missing or malformed");
+    if (!object(native) || Object.keys(native).length !== 2 || !nativeID(native.session_id, "ses_") || !nativeID(native.message_id, "msg_")) throw new Error(`native ${nativeProduct.label} tool identity is missing or malformed`);
     if (signal.aborted) throw signal.reason;
     return this.#action(args.action, args.arguments, { sessionID: native.session_id, messageID: native.message_id, signal });
   }

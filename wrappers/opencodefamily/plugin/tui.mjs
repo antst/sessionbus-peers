@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MIT
+import { nativeProduct } from "./profile.mjs";
 
 import path from "node:path";
 import { open } from "node:fs/promises";
@@ -70,4 +71,4 @@ export function createTui(environment = launchEnvironment, dependencies = {}) {
   };
 }
 
-export default { id: "@sessionbus/opencode", tui: createTui() };
+export default { id: nativeProduct.packageName, tui: createTui() };

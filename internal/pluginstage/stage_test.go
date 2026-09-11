@@ -15,8 +15,14 @@ import (
 )
 
 func TestStageMatchesManifestAndCommonSource(t *testing.T) {
+	for _, product := range []string{"opencode", "kilo"} {
+		t.Run(product, func(t *testing.T) { stageMatchesManifestAndCommonSource(t, product) })
+	}
+}
+
+func stageMatchesManifestAndCommonSource(t *testing.T, product string) {
 	repo := filepath.Join("..", "..")
-	body, err := os.ReadFile(filepath.Join(repo, "opencode", "package.json"))
+	body, err := os.ReadFile(filepath.Join(repo, product, "package.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,7 +50,7 @@ func TestStageMatchesManifestAndCommonSource(t *testing.T) {
 			declared = append(declared, name)
 		}
 		if name == "skills" {
-			root := filepath.Join(repo, "opencode")
+			root := common
 			if err := filepath.WalkDir(filepath.Join(root, name), func(path string, entry fs.DirEntry, err error) error {
 				if err != nil {
 					return err
@@ -54,7 +60,7 @@ func TestStageMatchesManifestAndCommonSource(t *testing.T) {
 					if err != nil {
 						return err
 					}
-					expected = append(expected, filepath.ToSlash(rel))
+					expected = append(expected, strings.TrimSuffix(filepath.ToSlash(rel), ".tmpl"))
 				}
 				return nil
 			}); err != nil {
@@ -70,7 +76,7 @@ func TestStageMatchesManifestAndCommonSource(t *testing.T) {
 		t.Fatalf("common modules %v differ from manifest %v", modules, declared)
 	}
 	stage := t.TempDir()
-	if err := Stage(repo, "opencode", stage, false); err != nil {
+	if err := Stage(repo, product, stage, false); err != nil {
 		t.Fatal(err)
 	}
 	var got []string
@@ -97,6 +103,12 @@ func TestStageMatchesManifestAndCommonSource(t *testing.T) {
 }
 
 func TestStageIncludesEveryDevelopmentTest(t *testing.T) {
+	for _, product := range []string{"opencode", "kilo"} {
+		t.Run(product, func(t *testing.T) { stageIncludesEveryDevelopmentTest(t, product) })
+	}
+}
+
+func stageIncludesEveryDevelopmentTest(t *testing.T, product string) {
 	repo := filepath.Join("..", "..")
 	common := filepath.Join(repo, "wrappers", "opencodefamily", "plugin")
 	sources, err := developmentFiles(common)
@@ -107,7 +119,7 @@ func TestStageIncludesEveryDevelopmentTest(t *testing.T) {
 		t.Fatal("no common plugin tests")
 	}
 	stage := t.TempDir()
-	if err := Stage(repo, "opencode", stage, true); err != nil {
+	if err := Stage(repo, product, stage, true); err != nil {
 		t.Fatal(err)
 	}
 	staged, err := developmentFiles(stage)

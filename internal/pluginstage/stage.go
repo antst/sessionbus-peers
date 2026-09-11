@@ -12,7 +12,7 @@ import (
 
 var runtimeFiles = []string{
 	"activation.mjs", "delivery.mjs", "endpoint.mjs", "forward.mjs", "gate.mjs",
-	"owners.mjs", "peer.mjs", "readiness.mjs", "server.mjs", "tui.mjs",
+	"owners.mjs", "peer.mjs", "profile.mjs", "readiness.mjs", "server.mjs", "tui.mjs",
 }
 var testFiles = []string{
 	"delivery.test.mjs", "endpoint.test.mjs", "forward.test.mjs", "owners.test.mjs",
@@ -23,7 +23,7 @@ var testFiles = []string{
 // Stage copies the fixed product payload into an empty destination. Tests adds
 // development fixtures only; npm's explicit files allowlist excludes them.
 func Stage(repo, product, destination string, tests bool) error {
-	if product != "opencode" {
+	if product != "opencode" && product != "kilo" {
 		return fmt.Errorf("unsupported native plugin product %q", product)
 	}
 	if err := os.MkdirAll(destination, 0o755); err != nil {
@@ -59,10 +59,23 @@ func Stage(repo, product, destination string, tests bool) error {
 			return err
 		}
 	}
-	for _, name := range []string{"package.json", "package-lock.json", "README.md", "sessionbus-tool.json", "skills/sessionbus/SKILL.md"} {
+	for _, name := range []string{"package.json", "package-lock.json", "README.md"} {
 		if err := copyFile(filepath.Join(repo, product, name), name); err != nil {
 			return err
 		}
+	}
+	if err := copyFile(filepath.Join(repo, "wrappers", "opencodefamily", "plugin", "sessionbus-tool.json"), "sessionbus-tool.json"); err != nil {
+		return err
+	}
+	skill, err := renderSkill(repo, product)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Join(destination, "skills", "sessionbus"), 0o755); err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(destination, "skills", "sessionbus", "SKILL.md"), skill, 0o644); err != nil {
+		return err
 	}
 	if tests {
 		for _, name := range testFiles {

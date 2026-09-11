@@ -40,6 +40,7 @@ jobs:
             'owners.mjs',
             'package.json',
             'peer.mjs',
+            'profile.mjs',
             'readiness.mjs',
             'server.mjs',
             'sessionbus-tool.json',

@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MIT
+import { nativeProduct } from "./profile.mjs";
 
 import net from "node:net";
 
@@ -63,7 +64,7 @@ export class SessionbusForwarder {
     lifetime?.addEventListener("abort", cancel, { once: true });
     if (lifetime?.aborted) cancel();
     this.#initializing = connected.then(async () => {
-      const result = await this.#request("initialize", { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "sessionbus-opencode", version: "1" } });
+      const result = await this.#request("initialize", { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: `sessionbus-${nativeProduct.product}`, version: "1" } });
       if (result?.protocolVersion !== "2024-11-05" || !result.capabilities || typeof result.capabilities.tools !== "object" || result.capabilities.tools === null) throw new Error("endpoint did not initialize Sessionbus tools");
       this.#send({ jsonrpc: "2.0", method: "notifications/initialized", params: {} });
       const catalog = await this.#request("tools/list", {});
@@ -91,12 +92,12 @@ export class SessionbusForwarder {
   }
 
   async action(action, argumentsValue, context) {
-    if (!nativeID(context?.sessionID, "ses_") || !nativeID(context?.messageID, "msg_")) throw new Error("native OpenCode tool identity is missing or malformed");
+    if (!nativeID(context?.sessionID, "ses_") || !nativeID(context?.messageID, "msg_")) throw new Error(`native ${nativeProduct.label} tool identity is missing or malformed`);
     if (this.#operations >= bridgeLimits.work) throw new Error("Sessionbus forwarder work limit reached");
     this.#operations++;
     try {
       await this.ready(context.abort);
-      const result = await this.#request("tools/call", { name: "sessionbus", arguments: { action, arguments: argumentsValue }, _meta: { "sessionbus.opencode": { session_id: context.sessionID, message_id: context.messageID } } }, context.abort);
+      const result = await this.#request("tools/call", { name: "sessionbus", arguments: { action, arguments: argumentsValue }, _meta: { [nativeProduct.metadataKey]: { session_id: context.sessionID, message_id: context.messageID } } }, context.abort);
       if (!result || !Array.isArray(result.content) || result.content.length !== 1 || result.content[0]?.type !== "text" || typeof result.content[0].text !== "string" || result.isError !== undefined && typeof result.isError !== "boolean") throw new Error("malformed Sessionbus MCP tool result");
       const value = JSON.parse(result.content[0].text);
       if (result.isError) throw new ForwardedToolError(value);

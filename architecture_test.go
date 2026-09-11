@@ -36,7 +36,7 @@ func TestRepositoryBoundary(t *testing.T) {
 		".golangci.yml": true, "LICENSE": true, "README.md": true,
 		"architecture_test.go": true, "claude": true, "codex": true, "cmd": true,
 		"docs": true, "go.mod": true, "go.sum": true, "grok": true,
-		"internal": true, "opencode": true, "qwen": true, "scripts": true, "wrappers": true,
+		"internal": true, "kilo": true, "opencode": true, "qwen": true, "scripts": true, "wrappers": true,
 	}
 	entries, err := os.ReadDir(".")
 	if err != nil {
@@ -210,7 +210,7 @@ func TestOpenCodePackageBoundary(t *testing.T) {
 	if manifest.Name != "@sessionbus/opencode" || len(manifest.Bin) != 0 {
 		t.Fatalf("OpenCode native package unexpectedly requires a Node installer: %#v", manifest)
 	}
-	wantFiles := []string{"README.md", "activation.mjs", "delivery.mjs", "endpoint.mjs", "forward.mjs", "gate.mjs", "owners.mjs", "peer.mjs", "readiness.mjs", "server.mjs", "sessionbus-tool.json", "skills", "tui.mjs"}
+	wantFiles := []string{"README.md", "activation.mjs", "delivery.mjs", "endpoint.mjs", "forward.mjs", "gate.mjs", "owners.mjs", "peer.mjs", "profile.mjs", "readiness.mjs", "server.mjs", "sessionbus-tool.json", "skills", "tui.mjs"}
 	sort.Strings(manifest.Files)
 	if !equalStrings(manifest.Files, wantFiles) {
 		t.Errorf("OpenCode package files = %v, want %v", manifest.Files, wantFiles)

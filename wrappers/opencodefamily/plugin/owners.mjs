@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MIT
+import { nativeProduct } from "./profile.mjs";
 
 import { validate } from "@sessionbus/kit";
 import { OwnedPeer } from "./peer.mjs";
@@ -9,11 +10,11 @@ export const ownerLimits = Object.freeze({ owners: 128, establishing: 16, http: 
 const object = (value) => value && typeof value === "object" && !Array.isArray(value);
 function nativeID(id) { return typeof id === "string" && id.startsWith("ses_") && Buffer.byteLength(id) <= 128 && !/[\s\0]/u.test(id); }
 function nativeInfo(value, id) {
-  if (!object(value) || value.id !== id || typeof value.title !== "string" || typeof value.directory !== "string" || Buffer.byteLength(value.directory) > 65536) throw new Error("OpenCode returned invalid native session identity");
-  if (value.model !== undefined && (!object(value.model) || typeof value.model.providerID !== "string" || typeof value.model.id !== "string" || value.model.variant !== undefined && typeof value.model.variant !== "string")) throw new Error("OpenCode returned invalid native model identity");
-  if (value.agent !== undefined && typeof value.agent !== "string") throw new Error("OpenCode returned invalid native agent identity");
+  if (!object(value) || value.id !== id || typeof value.title !== "string" || typeof value.directory !== "string" || Buffer.byteLength(value.directory) > 65536) throw new Error(`${nativeProduct.label} returned invalid native session identity`);
+  if (value.model !== undefined && (!object(value.model) || typeof value.model.providerID !== "string" || typeof value.model.id !== "string" || value.model.variant !== undefined && typeof value.model.variant !== "string")) throw new Error(`${nativeProduct.label} returned invalid native model identity`);
+  if (value.agent !== undefined && typeof value.agent !== "string") throw new Error(`${nativeProduct.label} returned invalid native agent identity`);
   const selection = [value.agent, value.model?.providerID, value.model?.id, value.model?.variant];
-  if (selection.some((field) => field !== undefined && Buffer.byteLength(field) > 4096)) throw new Error("OpenCode native selection metadata exceeds limit");
+  if (selection.some((field) => field !== undefined && Buffer.byteLength(field) > 4096)) throw new Error(`${nativeProduct.label} native selection metadata exceeds limit`);
   return { id, title: value.title, directory: value.directory, ...(value.agent === undefined ? {} : { agent: value.agent }),
     ...(value.model === undefined ? {} : { model: { providerID: value.model.providerID, id: value.model.id, ...(value.model.variant === undefined ? {} : { variant: value.model.variant }) } }),
   };
@@ -56,7 +57,7 @@ export class NativeOwners {
       if (!record) return;
       const status = event.properties.status?.type;
       if (!["idle", "busy", "retry"].includes(status)) {
-        this.#background(this.#retire(record, new Error("OpenCode returned malformed native status")));
+        this.#background(this.#retire(record, new Error(`${nativeProduct.label} returned malformed native status`)));
         return;
       }
       record.status = status;
@@ -76,8 +77,8 @@ export class NativeOwners {
   }
   #identity(record) {
     const info = record.info;
-    const identity = { product: "opencode", session_id: record.id, groups: [...this.#binding.groups], info: { cwd: info.directory }, ...(info.title ? { name: info.title } : {}) };
-    if (!validate("SessionHelloRequest", { protocol: 1, ...identity })) throw Object.assign(new Error("native title is outside the Sessionbus identity grammar"), { code: "OPENCODE_IDENTITY" });
+    const identity = { product: nativeProduct.product, session_id: record.id, groups: [...this.#binding.groups], info: { cwd: info.directory }, ...(info.title ? { name: info.title } : {}) };
+    if (!validate("SessionHelloRequest", { protocol: 1, ...identity })) throw Object.assign(new Error("native title is outside the Sessionbus identity grammar"), { code: `${nativeProduct.product.toUpperCase()}_IDENTITY` });
     return identity;
   }
 
@@ -92,7 +93,7 @@ export class NativeOwners {
       // The managed launcher selects real native fetch. SDK parsing allocation
       // belongs to native; this bounds concurrent operations, not that parser.
       const result = await this.#api.client.session[method](parameters, { signal: cancel, throwOnError: true, redirect: "error" });
-      if (result?.error !== undefined && result.error !== null || result?.response?.status !== (method === "promptAsync" ? 204 : 200)) throw new Error(`OpenCode ${method} response was not confirmed`);
+      if (result?.error !== undefined && result.error !== null || result?.response?.status !== (method === "promptAsync" ? 204 : 200)) throw new Error(`${nativeProduct.label} ${method} response was not confirmed`);
       this.#check(record);
       return result.data;
     });
@@ -112,11 +113,11 @@ export class NativeOwners {
   async #status(record, signal) {
     const revision = record.statusRevision;
     const data = await this.#native(record, "status", { directory: record.info.directory }, signal);
-    if (!object(data)) throw new Error("OpenCode status response is malformed");
+    if (!object(data)) throw new Error(`${nativeProduct.label} status response is malformed`);
     const status = Object.hasOwn(data, record.id) ? data[record.id]?.type : "idle";
     // Native SessionStatus.list omits idle entries. Events arriving during the
     // query take precedence over its snapshot; no local missing-state default.
-    if (!["idle", "busy", "retry"].includes(status)) throw new Error("OpenCode session status is malformed");
+    if (!["idle", "busy", "retry"].includes(status)) throw new Error(`${nativeProduct.label} session status is malformed`);
     if (revision === record.statusRevision) record.status = status;
     return record.status;
   }
@@ -176,7 +177,7 @@ export class NativeOwners {
     this.#background(task.then(clear, (error) => {
       clear();
       this.#report(error);
-      if (error.code === "OPENCODE_IDENTITY" || record.peer.signal.aborted) return this.#retire(record, error);
+      if (error.code === `${nativeProduct.product.toUpperCase()}_IDENTITY` || record.peer.signal.aborted) return this.#retire(record, error);
       // A transport loss retains the kit's reconnect behavior and desired
       // identity; it never publishes a guessed replacement title.
     }));
@@ -201,7 +202,7 @@ export class NativeOwners {
     if (!initial || !this.#binding.name) return;
     const revision = record.revision;
     const info = nativeInfo(await this.#native(record, "update", { sessionID: id, title: this.#binding.name }), id);
-    if (info.title !== this.#binding.name) throw new Error("OpenCode did not confirm initial native title");
+    if (info.title !== this.#binding.name) throw new Error(`${nativeProduct.label} did not confirm initial native title`);
     if (revision === record.revision) { record.info = info; record.revision++; }
     this.#refresh(record);
     await record.refreshing;

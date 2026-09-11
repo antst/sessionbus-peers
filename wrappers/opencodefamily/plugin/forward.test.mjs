@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MIT
+import { nativeProduct } from "./profile.mjs";
 import assert from "node:assert/strict";
 import net from "node:net";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -64,7 +65,7 @@ test("concurrent native contexts stay per call; cancellation needs no reply", as
   await rejection;
   assert.equal(await cancelled, id);
   const values = await Promise.all(["one", "two"].map((suffix) => forward.action("list", {}, { sessionID: "ses_" + suffix, messageID: "msg_" + suffix })));
-  assert.deepEqual(values, ["one", "two"].map((suffix) => ({ "sessionbus.opencode": { session_id: "ses_" + suffix, message_id: "msg_" + suffix } })));
+  assert.deepEqual(values, ["one", "two"].map((suffix) => ({ [nativeProduct.metadataKey]: { session_id: "ses_" + suffix, message_id: "msg_" + suffix } })));
 });
 
 for (const [name, emit] of [

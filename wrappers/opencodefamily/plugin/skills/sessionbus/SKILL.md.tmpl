@@ -12,7 +12,7 @@ shell substitutes, another transport or a native delegation tool to repair a
 failed Sessionbus call.
 
 The globally installed native plugin makes this skill discoverable in ordinary
-OpenCode. Managed activation requires `opencode-peer`. Ordinary launches can
+{{.Label}}. Managed activation requires `{{.Command}}`. Ordinary launches can
 load the tiny plugin modules but expose no Sessionbus tool, Peer or action
 endpoint. Skill visibility alone does not prove an active connection. Do not
 set private identity variables or invoke private integration entries.
@@ -42,7 +42,13 @@ reported write/handoff boundary, not native model consumption. Busy interactive
 messages can remain in a bounded unsent queue until native idle. A native turn
 ending during submission does not authorize replay. Preserve rejected reasons
 and uncertain errors; never resend attempted uncertain or acknowledged work.
-
+{{if .Kilo}}
+Kilo lanes keep both active and idle incoming messages unsent until a later
+explicit Run. Do not expect native noReply injection or automatic wake. Use
+describe to check supported lane policies. Interactive Kilo input stays queued
+while a known native question or permission is pending; do not answer or reject
+that blocker on the owner's behalf.
+{{end}}
 `start` returns a session_id/run_id reference. `run`, `status` and `wait` read
 without consuming it. Preserve both IDs and all outcome/reason fields. Inspect
 the record state before acknowledgment:
@@ -91,7 +97,7 @@ Use describe to check the chosen product's supported open fields. These are
 individual tool inputs; replace placeholders with actual returned IDs:
 
 ```json
-{"action":"spawn","arguments":{"product":"opencode-peer","name":"child","open":{"cwd":"/absolute/task/directory"}}}
+{"action":"spawn","arguments":{"product":"{{.Command}}","name":"child","open":{"cwd":"/absolute/task/directory"}}}
 ```
 
 ```json

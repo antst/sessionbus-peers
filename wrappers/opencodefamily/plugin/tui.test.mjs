@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MIT
+import { nativeProduct } from "./profile.mjs";
 
 import assert from "node:assert/strict";
 import { once, EventEmitter } from "node:events";
@@ -48,7 +49,7 @@ test("ordinary TUI is inert before loading host reactivity or creating resources
 
 test("managed home has endpoint but no fake session; actual tool and route own exact IDs", { timeout: 5000 }, async (t) => {
   const f = await fixture(t);
-  await createTui({ SESSIONBUS_OPENCODE_LAUNCH: JSON.stringify(f.binding) }, { solid: f.solid })(f.api);
+  await createTui({ [nativeProduct.launchEnv]: JSON.stringify(f.binding) }, { solid: f.solid })(f.api);
   assert.equal((await stat(f.directory + "/actions.ready")).size, 0);
   assert.equal(f.hellos.length, 0);
   const client = new SessionbusForwarder(f.directory + "/actions.sock");
@@ -65,7 +66,7 @@ test("managed home has endpoint but no fake session; actual tool and route own e
 });
 
 test("overlapping TUI initialization cannot transfer a claimed launch", { timeout: 5000 }, async (t) => {
-  const f = await fixture(t), env = { SESSIONBUS_OPENCODE_LAUNCH: JSON.stringify(f.binding) };
+  const f = await fixture(t), env = { [nativeProduct.launchEnv]: JSON.stringify(f.binding) };
   const start = createTui(env, { solid: f.solid });
   const outcomes = await Promise.allSettled([start(f.api), start(f.api)]);
   assert.equal(outcomes.filter((value) => value.status === "fulfilled").length, 1);
