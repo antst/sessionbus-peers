@@ -32,12 +32,34 @@ opencode-peer --sessionbus-install --remove
 The native plugin package has no installer bin. Immutable package previews are
 available through pkg.pr.new; this does not claim a stable npm release.
 
+To build and install the same archive from a checkout (Go and npm are build
+prerequisites):
+
+```sh
+scripts/package-product opencode ./dist
+mkdir -p ./dist/opencode
+tar -xzf "./dist/opencode-peer-$(go env GOOS)-$(go env GOARCH).tar.gz" -C ./dist/opencode
+./dist/opencode/install
+```
+
+The installer places both the command and plugin under the normal permanent
+user installation. Installing only the Go command or only the npm plugin does
+not provide the complete integration.
+
 Native selection flags, including new/resume/fork behavior, remain native.
 Wrapper `-n` applies once to the first selected native session and publishes the
 name only after native confirmation. Repeated comma-separated `-g` groups are
 combined before `--`; native arguments after `--` are retained. Home has no
 fabricated session. Native title changes update the same peer connection, and
 an unnamed native session has no invented bus name.
+
+A native session ID retained as a Sessionbus lane cannot register as an
+interactive Peer, even after the lane is closed. Native resume can open that
+history, but Peer admission returns `invalid_hello`; initial managed naming
+then cannot complete. Closing a lane does not reclassify its native history.
+Native-only interactive sessions can be resumed in fresh `opencode-peer`
+launches. The wrapper does not invent another ID or automatically forget the
+lane to bypass this boundary.
 
 Each selected session remains addressable until native deletion or TUI disposal.
 The public tool takes exactly `action` and `arguments`. Native tool context
@@ -82,3 +104,7 @@ The resident bridge allows eight connections, 2 MiB ingress, 8 MiB responses,
 256 work and 32 MiB retained payload. Native SDK response parsing allocations
 are outside these wrapper bounds. Kit ready reassignment is observed at its
 pinned reconnect scheduler boundary; a failed attempt is never hello admission.
+
+The current rewrite's evidence and remaining acceptance gates are recorded in
+[the acceptance index](https://github.com/antst/sessionbus-peers/blob/develop/docs/designs/opencode-0.5.0/ACCEPTANCE.md). Historical
+product probes remain separately identified in the product facts.
