@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-package opencode
+package opencodefamily
 
 import (
 	"bufio"
@@ -48,7 +48,7 @@ func fakeNativeHTTP() {
 	if strings.Join(os.Args[1:], " ") != "serve --hostname 127.0.0.1 --port 0" {
 		os.Exit(5)
 	}
-	for _, key := range []string{host.SocketEnv, host.LocalKeyEnv, host.TokenEnv, host.SessionIDEnv, host.NameEnv, host.GroupsEnv, InteractiveLaunchEnv} {
+	for _, key := range []string{host.SocketEnv, host.LocalKeyEnv, host.TokenEnv, host.SessionIDEnv, host.NameEnv, host.GroupsEnv, opencodeInteractiveLaunchEnv} {
 		if os.Getenv(key) != "" {
 			os.Exit(6)
 		}
@@ -322,12 +322,12 @@ func newWorkerProductFixture(t *testing.T, decorate func(*Wrapper) kit.WorkerCal
 	t.Setenv(host.SocketEnv, socket)
 	t.Setenv(host.TokenEnv, "token")
 	t.Setenv("OPENCODE_TEST_NATIVE", "1")
-	t.Setenv(InteractiveLaunchEnv, `{"foreign":"interactive launch"}`)
+	t.Setenv(opencodeInteractiveLaunchEnv, `{"foreign":"interactive launch"}`)
 	path, err := os.Executable()
 	if err != nil {
 		t.Fatal(err)
 	}
-	p := New(socket, "unused", path)
+	p := NewOpenCode(socket, "unused", path)
 	var product kit.WorkerCallbacks = p
 	if decorate != nil {
 		product = decorate(p)

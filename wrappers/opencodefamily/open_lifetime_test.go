@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-package opencode
+package opencodefamily
 
 import (
 	"context"
@@ -71,7 +71,7 @@ func TestLegacyFailedOpenDeletesOnlyFreshAndReaps(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			p := New(filepath.Join(testsocket.Directory(t), "bus.sock"), "unused", executable)
+			p := NewOpenCode(filepath.Join(testsocket.Directory(t), "bus.sock"), "unused", executable)
 			p.SetCaller(kit.NewCaller(func(context.Context, string, any) (json.RawMessage, error) {
 				return nil, errors.New("unexpected Caller action")
 			}))
@@ -139,7 +139,7 @@ func TestLegacyOpenNeverFallsBackToPATH(t *testing.T) {
 		t.Fatalf("PATH fixture=%q/%v", found, err)
 	}
 	for _, name := range []string{"opencode", ""} {
-		p := New(filepath.Join(testsocket.Directory(t), "bus.sock"), "unused", name)
+		p := NewOpenCode(filepath.Join(testsocket.Directory(t), "bus.sock"), "unused", name)
 		p.SetCaller(kit.NewCaller(func(context.Context, string, any) (json.RawMessage, error) {
 			return nil, errors.New("unexpected Caller action")
 		}))

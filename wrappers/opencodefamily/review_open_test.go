@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-package opencode
+package opencodefamily
 
 import (
 	"context"
@@ -61,7 +61,7 @@ func TestReviewCancelledFailedOpenBreaksHeldRollback(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	p := New(filepath.Join(testsocket.Directory(t), "bus.sock"), "unused", executable)
+	p := NewOpenCode(filepath.Join(testsocket.Directory(t), "bus.sock"), "unused", executable)
 	p.SetCaller(kit.NewCaller(func(context.Context, string, any) (json.RawMessage, error) {
 		return nil, errors.New("unexpected Caller action")
 	}))

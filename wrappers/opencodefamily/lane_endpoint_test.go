@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-package opencode
+package opencodefamily
 
 import (
 	"bufio"
