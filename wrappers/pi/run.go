@@ -137,11 +137,15 @@ func (turn *piNativeTurn) recordEvent(kind string, raw json.RawMessage) error {
 	}
 	switch kind {
 	case "agent_start":
-		if turn.settling || turn.nativeSettled {
+		if turn.nativeSettled {
 			err := errors.New("Pi native work started after the owned settling boundary")
 			turn.failLocked(err)
 			return err
 		}
+		// The managed extension's run.start call and native stdout use separate
+		// transports. A start emitted before the settling hook can therefore be
+		// observed here after that hook. The settled frame is on the same stdout
+		// stream and provides the boundary where both start counts must agree.
 		turn.nativeStarts++
 	case "message_start":
 		var event struct {
@@ -169,7 +173,7 @@ func (turn *piNativeTurn) recordEvent(kind string, raw json.RawMessage) error {
 			}
 		}
 	case "agent_settled":
-		if !turn.settling || turn.nativeSettled {
+		if !turn.settling || turn.nativeSettled || turn.nativeStarts != turn.started {
 			err := errors.New("Pi native settled without the owned settling marker")
 			turn.failLocked(err)
 			return err

@@ -120,6 +120,51 @@ func TestPiRunAllowsLaterNativeUsersAndFiltersExtensionErrors(t *testing.T) {
 	}
 }
 
+func TestPiReconcilesCrossTransportStartAtSettledBoundary(t *testing.T) {
+	wrapper := &Wrapper{extension: "/managed/extension.mjs"}
+	turn := newPiNativeTurn(wrapper, nil, "", "original")
+	if err := turn.recordInput("rpc", "original", false); err != nil {
+		t.Fatal(err)
+	}
+	if err := turn.recordPreflight("expanded", false); err != nil {
+		t.Fatal(err)
+	}
+	if err := turn.recordStart(false); err != nil {
+		t.Fatal(err)
+	}
+	// The bridge settling witness can be dispatched before Go reads an earlier
+	// stdout start. Pi's source order is reconciled where stdout itself settles.
+	if err := turn.recordSettling(); err != nil {
+		t.Fatal(err)
+	}
+	if err := turn.recordEvent("agent_start", json.RawMessage(`{"type":"agent_start"}`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := turn.recordEvent("message_start", json.RawMessage(`{"type":"message_start","message":{"role":"user","content":"expanded"}}`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := turn.recordEvent("agent_settled", json.RawMessage(`{"type":"agent_settled"}`)); err != nil {
+		t.Fatal(err)
+	}
+
+	missing := newPiNativeTurn(wrapper, nil, "", "original")
+	if err := missing.recordInput("rpc", "original", false); err != nil {
+		t.Fatal(err)
+	}
+	if err := missing.recordPreflight("expanded", false); err != nil {
+		t.Fatal(err)
+	}
+	if err := missing.recordStart(false); err != nil {
+		t.Fatal(err)
+	}
+	if err := missing.recordSettling(); err != nil {
+		t.Fatal(err)
+	}
+	if err := missing.recordEvent("agent_settled", json.RawMessage(`{"type":"agent_settled"}`)); err == nil {
+		t.Fatal("native settled without its stdout start")
+	}
+}
+
 func TestPiIdleExtensionErrorsOnlyRetireForManagedPath(t *testing.T) {
 	wrapper := &Wrapper{extension: "/managed/extension.mjs"}
 	if err := wrapper.observeRunEvent("extension_error", json.RawMessage(`{"type":"extension_error","extensionPath":"/ambient.mjs","event":"session_start","error":"ambient failed"}`)); err != nil {
