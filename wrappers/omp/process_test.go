@@ -70,6 +70,9 @@ func TestOMPProcessHelper(t *testing.T) {
 		os.Exit(9)
 	}
 	_ = connection.Close()
+	if launch.Topology == ownerTopologyInteractive {
+		return
+	}
 	_, _ = io.Copy(io.Discard, os.Stdin)
 	os.Exit(0)
 }
@@ -105,8 +108,9 @@ func TestOMPInteractiveProcessPreservesTopology(t *testing.T) {
 	}) {
 		t.Fatalf("interactive argv = %#v", capture.Args)
 	}
-	if err = process.input.Close(); err != nil {
-		t.Fatal(err)
+	if process.input != nil || process.output != nil || process.command.Stdin != os.Stdin ||
+		process.command.Stdout != os.Stdout || process.command.Stderr != os.Stderr {
+		t.Fatal("interactive process did not inherit the parent terminal streams")
 	}
 	if err = process.Wait(); err != nil {
 		t.Fatal(err)

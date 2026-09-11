@@ -35,6 +35,10 @@ type NativeOwnerOptions struct {
 	Native        NativeExecutable
 	Arguments     []string
 	PrimaryCaller *kit.Caller
+	// NativeObserver is installed before the lane RPC reader starts. It must
+	// synchronously record or reject every native event; interactive topology
+	// has no RPC stream and leaves it nil.
+	NativeObserver func(json.RawMessage) error
 }
 
 type nativeOwnerState struct {
@@ -100,6 +104,7 @@ func StartNativeOwner(ctx context.Context, options NativeOwnerOptions) (*NativeO
 		ctx: lifetime, cancel: cancel, process: process,
 		ready: make(chan struct{}), done: make(chan struct{}),
 		closeRequest: make(chan nativeOwnerClose, 1),
+		observer:     options.NativeObserver,
 	}
 	registry, err := NewOwnerRegistry(lifetime, OwnerRegistryOptions{
 		Topology: options.Topology, Socket: options.DaemonSocket,
@@ -114,16 +119,18 @@ func StartNativeOwner(ctx context.Context, options NativeOwnerOptions) (*NativeO
 		return nil, errors.Join(err, waitErr, cleanErr)
 	}
 	owner.registry = registry
-	rpc, err := newNativeRPC(process.input, process.output, owner.observeNative, nativeRPCLimits{})
-	if err != nil {
-		process.Force()
-		waitErr := process.Wait()
-		registryErr := registry.Close()
-		cleanErr := process.Cleanup()
-		cancel(err)
-		return nil, errors.Join(err, waitErr, registryErr, cleanErr)
+	if options.Topology == ownerTopologyLane {
+		rpc, rpcErr := newNativeRPC(process.input, process.output, owner.observeNative, nativeRPCLimits{})
+		if rpcErr != nil {
+			process.Force()
+			waitErr := process.Wait()
+			registryErr := registry.Close()
+			cleanErr := process.Cleanup()
+			cancel(rpcErr)
+			return nil, errors.Join(rpcErr, waitErr, registryErr, cleanErr)
+		}
+		owner.rpc = rpc
 	}
-	owner.rpc = rpc
 	go owner.run(options)
 	return owner, nil
 }
@@ -134,6 +141,9 @@ func validateNativeOwnerOptions(options NativeOwnerOptions) error {
 	}
 	if (options.Topology == ownerTopologyLane) != (options.PrimaryCaller != nil) {
 		return errors.New("OMP native owner primary Caller does not match topology")
+	}
+	if (options.Topology == ownerTopologyLane) != (options.NativeObserver != nil) {
+		return errors.New("OMP native event observer does not match topology")
 	}
 	if !filepath.IsAbs(options.DaemonSocket) || !validOwnerText(options.DaemonSocket, 32<<10) ||
 		!validOwnerID(options.Provisional) || !validOwnerText(options.InitialName, 4096) {
@@ -201,21 +211,6 @@ func (owner *NativeOwner) GracefulEnd() (string, bool) {
 	return owner.registry.GracefulEnd()
 }
 
-// setNativeObserver installs the same-package controller's nonblocking event
-// recorder. Startup events emitted before a Run owns an interval are ignored.
-func (owner *NativeOwner) setNativeObserver(observer func(json.RawMessage) error) error {
-	owner.mu.Lock()
-	defer owner.mu.Unlock()
-	if owner.closing || owner.err != nil {
-		return errors.New("OMP native event owner is unavailable")
-	}
-	if owner.observer != nil && observer != nil {
-		return errors.New("OMP native event observer is already assigned")
-	}
-	owner.observer = observer
-	return nil
-}
-
 func (owner *NativeOwner) observeNative(frame json.RawMessage) error {
 	owner.mu.Lock()
 	observe := owner.observer
@@ -256,7 +251,7 @@ func (owner *NativeOwner) run(options NativeOwnerOptions) {
 			owner.recordError(errors.New("OMP native process exited unexpectedly"))
 		}
 		owner.finish(!graceful, nil)
-	case <-owner.rpc.Done():
+	case <-owner.rpcDone():
 		graceful := owner.graceful()
 		if !graceful {
 			owner.recordError(errors.Join(errors.New("OMP native RPC ended unexpectedly"), owner.rpc.Err()))
@@ -316,9 +311,31 @@ func (owner *NativeOwner) bootstrap(options NativeOwnerOptions) error {
 		return fmt.Errorf("join OMP managed extension hello: %w", err)
 	}
 
-	rpcReady := make(chan error, 1)
-	go func() { rpcReady <- owner.rpc.Ready(startup) }()
-	registryReady, rpcJoined := false, false
+	lossDone := make(chan struct{})
+	go func() {
+		defer close(lossDone)
+		select {
+		case <-owner.registry.Done():
+			cancelStartup(errors.Join(errors.New("OMP owner registry ended during startup"), owner.registry.Err()))
+		case <-bridge.Done():
+			cancelStartup(errors.Join(errors.New("OMP managed extension ended during startup"), bridge.Err()))
+		case <-owner.rpcDone():
+			cancelStartup(errors.Join(errors.New("OMP native RPC ended during startup"), owner.rpcError()))
+		case <-startup.Done():
+		}
+	}()
+	defer func() {
+		cancelStartup(errNativeOwnerClosed)
+		<-lossDone
+	}()
+
+	var rpcReady chan error
+	rpcJoined := owner.rpc == nil
+	if owner.rpc != nil {
+		rpcReady = make(chan error, 1)
+		go func() { rpcReady <- owner.rpc.Ready(startup) }()
+	}
+	registryReady := false
 	defer func() {
 		if !rpcJoined {
 			cancelStartup(errNativeOwnerClosed)
@@ -336,10 +353,6 @@ func (owner *NativeOwner) bootstrap(options NativeOwnerOptions) error {
 		case <-registryReadySignal:
 			registryReady = true
 			registryReadySignal = nil
-		case <-owner.registry.Done():
-			return errors.Join(errors.New("OMP owner registry ended during startup"), owner.registry.Err())
-		case <-bridge.Done():
-			return errors.Join(errors.New("OMP managed extension ended during startup"), bridge.Err())
 		case <-startup.Done():
 			return context.Cause(startup)
 		}
@@ -348,28 +361,46 @@ func (owner *NativeOwner) bootstrap(options NativeOwnerOptions) error {
 	if !ok || binding.Scope != ownerScopePrimary {
 		return errors.New("OMP primary owner is unavailable after readiness")
 	}
-	var raw json.RawMessage
-	if err = owner.rpc.Call(startup, "get_state", nil, &raw); err != nil {
-		return fmt.Errorf("read OMP native state: %w", err)
+	if binding.CWD != options.CWD {
+		return errors.New("OMP native working directory contradicts its managed owner")
 	}
-	state, err := decodeNativeOwnerState(raw)
-	if err != nil {
-		return err
-	}
-	if *state.SessionID != binding.SessionID || binding.CWD != options.CWD ||
-		*state.IsStreaming || *state.IsCompacting || *state.QueuedMessageCount != 0 {
-		return errors.New("OMP native state contradicts its managed owner")
-	}
-	if len(state.SessionName) != 0 && !bytes.Equal(bytes.TrimSpace(state.SessionName), []byte("null")) {
-		var name string
-		if json.Unmarshal(state.SessionName, &name) != nil || !validOwnerText(name, 4096) || name != binding.Name {
-			return errors.New("OMP native name contradicts its managed owner")
+	if owner.rpc != nil {
+		var raw json.RawMessage
+		if err = owner.rpc.Call(startup, "get_state", nil, &raw); err != nil {
+			return fmt.Errorf("read OMP native state: %w", err)
+		}
+		state, stateErr := decodeNativeOwnerState(raw)
+		if stateErr != nil {
+			return stateErr
+		}
+		if *state.SessionID != binding.SessionID || *state.IsStreaming || *state.IsCompacting || *state.QueuedMessageCount != 0 {
+			return errors.New("OMP native state contradicts its managed owner")
+		}
+		if len(state.SessionName) != 0 && !bytes.Equal(bytes.TrimSpace(state.SessionName), []byte("null")) {
+			var name string
+			if json.Unmarshal(state.SessionName, &name) != nil || !validOwnerText(name, 4096) || name != binding.Name {
+				return errors.New("OMP native name contradicts its managed owner")
+			}
 		}
 	}
 	if err = owner.process.lock.Rename(binding.SessionID); err != nil {
 		return fmt.Errorf("bind OMP native session lock: %w", err)
 	}
 	return nil
+}
+
+func (owner *NativeOwner) rpcDone() <-chan struct{} {
+	if owner.rpc == nil {
+		return nil
+	}
+	return owner.rpc.Done()
+}
+
+func (owner *NativeOwner) rpcError() error {
+	if owner.rpc == nil {
+		return nil
+	}
+	return owner.rpc.Err()
 }
 
 func decodeNativeOwnerState(raw json.RawMessage) (nativeOwnerState, error) {
@@ -397,30 +428,50 @@ func (owner *NativeOwner) finish(force bool, closeCtx context.Context) {
 	ready := owner.readySet
 	owner.observer = nil
 	owner.mu.Unlock()
+	operationCtx, cancelOperations := context.WithCancelCause(closeCtx)
+	callbackDone := make(chan struct{})
+	stopOperations := context.AfterFunc(owner.ctx, func() {
+		cancelOperations(context.Cause(owner.ctx))
+		close(callbackDone)
+	})
+	defer func() {
+		cancelOperations(errNativeOwnerClosed)
+		if stopOperations() {
+			close(callbackDone)
+		}
+		<-callbackDone
+	}()
 
 	var inputErr error
 	if !force && ready {
 		if owner.graceful() {
 			// Native quit may reach us before an explicit Close request.
-		} else if err := owner.registry.shutdownPrimary(closeCtx); err != nil {
+		} else if err := owner.registry.shutdownPrimary(operationCtx); err != nil {
 			owner.recordError(fmt.Errorf("request OMP native shutdown: %w", err))
 			force = true
 		}
 		if !force {
-			inputErr = owner.rpc.EndInput(closeCtx)
+			if owner.rpc != nil {
+				inputErr = owner.rpc.EndInput(operationCtx)
+			}
 		}
 	}
 	if force || !ready {
 		owner.process.Force()
-		_ = owner.rpc.Close()
+		if owner.rpc != nil {
+			_ = owner.rpc.Close()
+		}
 		if bridge != nil {
 			_ = bridge.Close()
 		}
 	}
 
-	childErr := owner.waitProcess(closeCtx)
+	childErr := owner.waitProcess(operationCtx)
 	graceful := owner.graceful()
-	rpcErr := owner.rpc.Close()
+	var rpcErr error
+	if owner.rpc != nil {
+		rpcErr = owner.rpc.Close()
+	}
 	registryErr := owner.registry.Close()
 	if inputErr != nil && !(graceful && childErr == nil && expectedNativeOwnerRPCShutdown(inputErr)) {
 		owner.recordError(fmt.Errorf("close OMP native input: %w", inputErr))
@@ -496,7 +547,9 @@ func (owner *NativeOwner) Close(ctx context.Context) error {
 		stop := context.AfterFunc(ctx, func() {
 			owner.cancel(ctx.Err())
 			owner.process.Force()
-			_ = owner.rpc.Close()
+			if owner.rpc != nil {
+				_ = owner.rpc.Close()
+			}
 			owner.mu.Lock()
 			bridge := owner.bridge
 			owner.mu.Unlock()

@@ -119,6 +119,8 @@ type OwnerRegistry struct {
 	primaryToken      string
 	everPrimary       bool
 	lastPrimaryReason string
+	lastPrimaryToken  string
+	lastPrimaryID     string
 	nextGeneration    uint64
 	ending            bool
 	err               error
@@ -947,8 +949,18 @@ func (registry *OwnerRegistry) shutdownPrimary(ctx context.Context) error {
 	if err := decodeOwnerJSON(raw, &result); err != nil || result.OwnerToken != state.OwnerToken || result.SessionID != state.SessionID || !result.Requested {
 		return errors.New("OMP native shutdown acknowledgement is invalid")
 	}
-	_, err := registry.current(state.OwnerToken, state.SessionID)
-	return err
+	registry.mu.Lock()
+	defer registry.mu.Unlock()
+	current := registry.bindings[state.OwnerToken]
+	if !registry.ending && current != nil && current.admitted && current.SessionID == state.SessionID &&
+		registry.primaryToken == state.OwnerToken {
+		return nil
+	}
+	if !registry.ending && registry.primaryToken == "" && registry.lastPrimaryReason != "" &&
+		registry.lastPrimaryToken == state.OwnerToken && registry.lastPrimaryID == state.SessionID {
+		return nil
+	}
+	return pifamily.NewBridgeCallError("stale_owner", "OMP native shutdown crossed an owner generation")
 }
 
 func (registry *OwnerRegistry) current(token, sessionID string) (*ownerRegistryState, error) {
@@ -1029,6 +1041,8 @@ func (registry *OwnerRegistry) remove(state *ownerRegistryState, reason string) 
 	if registry.primaryToken == state.OwnerToken {
 		registry.primaryToken = ""
 		registry.lastPrimaryReason = reason
+		registry.lastPrimaryToken = state.OwnerToken
+		registry.lastPrimaryID = state.SessionID
 	}
 	conn := state.conn
 	deliveryDone := state.deliveryDone

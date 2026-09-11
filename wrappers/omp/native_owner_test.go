@@ -4,6 +4,7 @@ package omp
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -17,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/antst/sessionbus-peers/internal/testsocket"
 	"github.com/antst/sessionbus-peers/wrappers/host"
 	"github.com/antst/sessionbus-peers/wrappers/pifamily"
 	kit "github.com/antst/sessionbus/bus/sdk/go"
@@ -38,12 +40,15 @@ type ompNativeOwnerCapture struct {
 }
 
 type ompNativeOwnerHelper struct {
-	launch   ompLaunch
-	cwd      string
-	scenario string
-	shutdown chan struct{}
-	state    chan struct{}
-	once     sync.Once
+	launch         ompLaunch
+	cwd            string
+	scenario       string
+	shutdown       chan struct{}
+	state          chan struct{}
+	stateRequested chan struct{}
+	releaseState   chan struct{}
+	endAck         chan struct{}
+	once           sync.Once
 }
 
 func TestOMPNativeOwnerHelper(t *testing.T) {
@@ -77,8 +82,15 @@ func runOMPNativeOwnerHelper() error {
 	if err = os.WriteFile(os.Getenv(ompNativeOwnerCaptureEnv), body, 0o600); err != nil {
 		return err
 	}
-	if _, err = fmt.Fprintln(os.Stdout, ompNativeOwnerReadyFrame); err != nil {
-		return err
+	if launch.Topology == ownerTopologyLane {
+		if _, err = fmt.Fprintln(os.Stdout, ompNativeOwnerReadyFrame); err != nil {
+			return err
+		}
+		if os.Getenv(ompNativeOwnerScenarioEnv) == "startup_event" {
+			if _, err = fmt.Fprintln(os.Stdout, `{"type":"agent_start"}`); err != nil {
+				return err
+			}
+		}
 	}
 	connection, err := net.Dial("unix", launch.Socket)
 	if err != nil {
@@ -91,7 +103,8 @@ func runOMPNativeOwnerHelper() error {
 	}
 	helper := &ompNativeOwnerHelper{
 		launch: launch, cwd: cwd, scenario: os.Getenv(ompNativeOwnerScenarioEnv),
-		shutdown: make(chan struct{}), state: make(chan struct{}),
+		shutdown: make(chan struct{}), state: make(chan struct{}), stateRequested: make(chan struct{}),
+		releaseState: make(chan struct{}), endAck: make(chan struct{}),
 	}
 	bridge, err := pifamily.NewBridge(connection, pifamily.BridgeNative, helper.handleBridge, pifamily.BridgeLimits{})
 	if err != nil {
@@ -114,17 +127,34 @@ func runOMPNativeOwnerHelper() error {
 	}, nil); err != nil {
 		return err
 	}
-	commandsDone := make(chan error, 1)
-	go func() { commandsDone <- helper.serveCommands() }()
+	var commandsDone chan error
+	if launch.Topology == ownerTopologyLane {
+		commandsDone = make(chan error, 1)
+		go func() { commandsDone <- helper.serveCommands() }()
+	} else {
+		close(helper.state)
+	}
 	if helper.scenario == "wrong_state" {
 		<-bridge.Done()
 		return bridge.Err()
+	}
+	if helper.scenario == "close_bridge_during_state" {
+		<-helper.stateRequested
+		if err = bridge.Close(); err != nil && !errors.Is(err, pifamily.ErrBridgeClosed) {
+			return err
+		}
+		close(helper.releaseState)
+		return <-commandsDone
 	}
 	<-helper.state
 	if helper.scenario == "exit_after_ready" {
 		os.Exit(23)
 	}
 	<-helper.shutdown
+	if helper.scenario == "hold_shutdown_response" {
+		<-bridge.Done()
+		return bridge.Err()
+	}
 	if helper.scenario == "hold_shutdown" {
 		select {}
 	}
@@ -137,16 +167,21 @@ func runOMPNativeOwnerHelper() error {
 	}, nil); err != nil {
 		return err
 	}
-	if err = bridge.Close(); err != nil && !errors.Is(err, pifamily.ErrBridgeClosed) {
-		return err
+	if helper.scenario == "end_before_shutdown_response" {
+		close(helper.endAck)
 	}
-	if err = <-commandsDone; err != nil {
+	if commandsDone != nil {
+		if err = <-commandsDone; err != nil {
+			return err
+		}
+	}
+	if err = bridge.Close(); err != nil && !errors.Is(err, pifamily.ErrBridgeClosed) {
 		return err
 	}
 	return nil
 }
 
-func (helper *ompNativeOwnerHelper) handleBridge(_ context.Context, method string, raw json.RawMessage) (json.RawMessage, error) {
+func (helper *ompNativeOwnerHelper) handleBridge(ctx context.Context, method string, raw json.RawMessage) (json.RawMessage, error) {
 	switch method {
 	case "native.describe":
 		var request ownerDescribeRequest
@@ -163,6 +198,14 @@ func (helper *ompNativeOwnerHelper) handleBridge(_ context.Context, method strin
 			return nil, pifamily.NewBridgeCallError("bad_request", "invalid native shutdown")
 		}
 		helper.once.Do(func() { close(helper.shutdown) })
+		if helper.scenario == "end_before_shutdown_response" {
+			<-helper.endAck
+		}
+		if helper.scenario == "hold_shutdown_response" {
+			_ = os.WriteFile(os.Getenv(ompNativeOwnerCaptureEnv)+".shutdown", []byte("entered\n"), 0o600)
+			<-ctx.Done()
+			return nil, ctx.Err()
+		}
 		return json.Marshal(ownerShutdownResult{
 			OwnerToken: ompNativeOwnerToken, SessionID: ompNativeOwnerSID, Requested: true,
 		})
@@ -188,6 +231,11 @@ func (helper *ompNativeOwnerHelper) serveCommands() error {
 		case "negotiate_protocol":
 			data = map[string]int{"protocolVersion": 2}
 		case "get_state":
+			if helper.scenario == "close_bridge_during_state" {
+				close(helper.stateRequested)
+				<-helper.releaseState
+				continue
+			}
 			sessionID := ompNativeOwnerSID
 			if helper.scenario == "wrong_state" {
 				sessionID = "wrong-native-session"
@@ -210,6 +258,11 @@ func (helper *ompNativeOwnerHelper) serveCommands() error {
 		}
 		if kind == "get_state" {
 			close(helper.state)
+			if helper.scenario == "event_after_ready" {
+				if _, err = fmt.Fprintln(os.Stdout, `{"type":"agent_start"}`); err != nil {
+					return err
+				}
+			}
 		}
 	}
 	return scanner.Err()
@@ -230,7 +283,7 @@ func nativeOwnerTestContext(t *testing.T) context.Context {
 
 func nativeOwnerFixture(t *testing.T, scenario string) (NativeOwnerOptions, string) {
 	t.Helper()
-	directory := t.TempDir()
+	directory := testsocket.Directory(t)
 	extension := filepath.Join(directory, "extension.mjs")
 	if err := os.WriteFile(extension, []byte("export default {}\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -250,7 +303,8 @@ func nativeOwnerFixture(t *testing.T, scenario string) (NativeOwnerOptions, stri
 			RuntimePath: filepath.Join(directory, "bun"),
 			EntryPath:   filepath.Join(directory, "package", "dist", "cli.js"),
 		},
-		Arguments: []string{"--model", "fixture", "--", "literal"},
+		Arguments:      []string{"--model", "fixture", "--", "literal"},
+		NativeObserver: func(json.RawMessage) error { return nil },
 	}, capture
 }
 
@@ -315,6 +369,113 @@ func TestNativeOwnerJoinsStartupShutdownAndOwnedResources(t *testing.T) {
 	_ = lock.Close()
 }
 
+func TestNativeOwnerInteractiveUsesTerminalAndExtensionReadiness(t *testing.T) {
+	options, capturePath := nativeOwnerFixture(t, "")
+	listener := ownerBusListener(t)
+	options.DaemonSocket = listener.Addr().String()
+	options.Topology = ownerTopologyInteractive
+	options.PrimaryCaller = nil
+	options.NativeObserver = nil
+	owner, err := StartNativeOwner(nativeOwnerTestContext(t), options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	conn, scanner := ownerAccept(t, listener)
+	hello := ownerHello(t, conn, scanner)
+	if hello.SessionID != ompNativeOwnerSID || hello.Product != Product {
+		t.Fatalf("interactive hello = %+v", hello)
+	}
+	waitNativeOwnerReady(t, owner)
+	if owner.rpc != nil || owner.process.input != nil || owner.process.output != nil ||
+		owner.process.command.Stdin != os.Stdin || owner.process.command.Stdout != os.Stdout || owner.process.command.Stderr != os.Stderr {
+		t.Fatal("interactive owner constructed an RPC transport instead of inheriting the terminal")
+	}
+	if err = owner.Close(nativeOwnerTestContext(t)); err != nil {
+		t.Fatal(err)
+	}
+	var capture ompNativeOwnerCapture
+	body, err := os.ReadFile(capturePath)
+	if err != nil || json.Unmarshal(body, &capture) != nil {
+		t.Fatalf("capture = %q, %v", body, err)
+	}
+	want := []string{
+		options.Native.RuntimePath, options.Native.EntryPath,
+		"--extension", options.Extension, "--model", "fixture", "--", "literal",
+	}
+	if !slices.Equal(capture.Args, want) || capture.Launch.Topology != ownerTopologyInteractive {
+		t.Fatalf("interactive capture = %+v, want args %#v", capture, want)
+	}
+}
+
+func TestNativeOwnerRequiresObserverOnlyForLane(t *testing.T) {
+	options, _ := nativeOwnerFixture(t, "")
+	options.NativeObserver = nil
+	if err := validateNativeOwnerOptions(options); err == nil {
+		t.Fatal("lane owner without a native event observer was accepted")
+	}
+	options.Topology = ownerTopologyInteractive
+	options.PrimaryCaller = nil
+	options.NativeObserver = func(json.RawMessage) error { return nil }
+	if err := validateNativeOwnerOptions(options); err == nil {
+		t.Fatal("interactive owner with an RPC observer was accepted")
+	}
+}
+
+func TestNativeOwnerRetainsStartupNativeEventFailure(t *testing.T) {
+	options, _ := nativeOwnerFixture(t, "startup_event")
+	want := errors.New("fixture rejected startup native event")
+	options.NativeObserver = func(raw json.RawMessage) error {
+		if !bytes.Contains(raw, []byte(`"agent_start"`)) {
+			return errors.New("unexpected startup native event")
+		}
+		return want
+	}
+	owner, err := StartNativeOwner(nativeOwnerTestContext(t), options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-owner.Ready():
+		t.Fatal("rejected startup event reached readiness")
+	case <-owner.Done():
+	case <-nativeOwnerTestContext(t).Done():
+		t.Fatal("rejected startup event did not retire owner")
+	}
+	if !errors.Is(owner.Err(), want) {
+		t.Fatalf("startup event failure = %v", owner.Err())
+	}
+}
+
+func TestNativeOwnerObservesPostReadinessNativeEvent(t *testing.T) {
+	options, _ := nativeOwnerFixture(t, "event_after_ready")
+	observed := make(chan struct{})
+	release := make(chan struct{})
+	want := errors.New("fixture rejected foreign native event")
+	options.NativeObserver = func(raw json.RawMessage) error {
+		if bytes.Contains(raw, []byte(`"agent_start"`)) {
+			close(observed)
+			<-release
+			return want
+		}
+		return nil
+	}
+	owner, err := StartNativeOwner(nativeOwnerTestContext(t), options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitNativeOwnerReady(t, owner)
+	select {
+	case <-observed:
+	case <-nativeOwnerTestContext(t).Done():
+		t.Fatal("post-readiness native event was not observed")
+	}
+	close(release)
+	<-owner.Done()
+	if !errors.Is(owner.Err(), want) {
+		t.Fatalf("post-readiness event failure = %v", owner.Err())
+	}
+}
+
 func TestNativeOwnerCloseCancelsHeldStartupAndJoins(t *testing.T) {
 	options, capturePath := nativeOwnerFixture(t, "hold_owner_ready")
 	owner, err := StartNativeOwner(nativeOwnerTestContext(t), options)
@@ -376,6 +537,32 @@ func TestNativeOwnerRejectsContradictoryStateAndJoins(t *testing.T) {
 	}
 	if _, statErr := os.Stat(capture.Launch.Directory); !errors.Is(statErr, os.ErrNotExist) {
 		t.Fatalf("failed startup directory survived: %v", statErr)
+	}
+}
+
+func TestNativeOwnerBridgeLossCancelsHeldStateReadAndJoins(t *testing.T) {
+	options, capturePath := nativeOwnerFixture(t, "close_bridge_during_state")
+	owner, err := StartNativeOwner(nativeOwnerTestContext(t), options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-owner.Ready():
+		t.Fatal("bridge loss during state read reached readiness")
+	case <-owner.Done():
+	case <-nativeOwnerTestContext(t).Done():
+		t.Fatal("bridge loss during state read did not retire owner")
+	}
+	if owner.Err() == nil {
+		t.Fatal("bridge loss during state read was not retained")
+	}
+	var capture ompNativeOwnerCapture
+	body, readErr := os.ReadFile(capturePath)
+	if readErr != nil || json.Unmarshal(body, &capture) != nil {
+		t.Fatalf("capture = %q, %v", body, readErr)
+	}
+	if _, statErr := os.Stat(capture.Launch.Directory); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("bridge-loss directory survived: %v", statErr)
 	}
 }
 
@@ -446,6 +633,56 @@ func TestNativeOwnerCloseCancellationForcesAndJoinsChild(t *testing.T) {
 	}
 }
 
+func TestNativeOwnerParentCancellationInterruptsHeldShutdownResponse(t *testing.T) {
+	options, capturePath := nativeOwnerFixture(t, "hold_shutdown_response")
+	parent, cancel := context.WithCancel(context.Background())
+	owner, err := StartNativeOwner(parent, options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitNativeOwnerReady(t, owner)
+	closed := make(chan error, 1)
+	go func() { closed <- owner.Close(context.Background()) }()
+	marker := capturePath + ".shutdown"
+	for {
+		if _, err = os.Stat(marker); err == nil {
+			break
+		}
+		if !errors.Is(err, os.ErrNotExist) {
+			t.Fatal(err)
+		}
+		select {
+		case err = <-closed:
+			t.Fatalf("Close returned before held shutdown response: %v", err)
+		default:
+		}
+	}
+	cancel()
+	if err = <-closed; !errors.Is(err, context.Canceled) {
+		t.Fatalf("parent-canceled held shutdown = %v", err)
+	}
+	select {
+	case <-owner.Done():
+	default:
+		t.Fatal("parent-canceled shutdown did not join owner")
+	}
+}
+
+func TestNativeOwnerAcceptsEndBeforeShutdownResponse(t *testing.T) {
+	options, _ := nativeOwnerFixture(t, "end_before_shutdown_response")
+	owner, err := StartNativeOwner(nativeOwnerTestContext(t), options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitNativeOwnerReady(t, owner)
+	if err = owner.Close(nativeOwnerTestContext(t)); err != nil {
+		t.Fatal(err)
+	}
+	if reason, ok := owner.GracefulEnd(); !ok || reason != "quit" {
+		t.Fatalf("end-before-response graceful result = %q, %v", reason, ok)
+	}
+}
+
 func TestNativeOwnerPreservesClosingProtocolFailure(t *testing.T) {
 	options, _ := nativeOwnerFixture(t, "malformed_shutdown")
 	owner, err := StartNativeOwner(nativeOwnerTestContext(t), options)
@@ -492,7 +729,8 @@ func TestNativeOwnerRejectsNonphysicalExtension(t *testing.T) {
 	err := validateNativeOwnerOptions(NativeOwnerOptions{
 		DaemonSocket: filepath.Join(directory, "daemon.sock"), Provisional: "provisional",
 		CWD: directory, Topology: ownerTopologyLane, Extension: extension,
-		PrimaryCaller: &kit.Caller{},
+		PrimaryCaller:  &kit.Caller{},
+		NativeObserver: func(json.RawMessage) error { return nil },
 	})
 	if err == nil {
 		t.Fatal("symlinked managed extension was accepted")

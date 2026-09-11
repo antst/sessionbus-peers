@@ -123,33 +123,39 @@ func startOMPProcess(socket, provisional, topology string, native NativeExecutab
 	if err != nil {
 		return nil, err
 	}
-	stdin, input, err := os.Pipe()
-	if err != nil {
-		return nil, err
-	}
-	defer func() {
-		if failed {
-			_ = stdin.Close()
-			_ = input.Close()
-		}
-	}()
-	output, stdout, err := os.Pipe()
-	if err != nil {
-		return nil, err
-	}
-	defer func() {
-		if failed {
-			_ = output.Close()
-			_ = stdout.Close()
-		}
-	}()
 	log := &ompLog{}
 	commandArguments := make([]string, 0, len(arguments)+1)
 	commandArguments = append(commandArguments, native.EntryPath)
 	commandArguments = append(commandArguments, arguments...)
 	command := ompCommand(native.RuntimePath, commandArguments...)
 	command.Dir = cwd
-	command.Stdin, command.Stdout, command.Stderr = stdin, stdout, log
+	var input, output *os.File
+	var childInput, childOutput *os.File
+	if topology == ownerTopologyLane {
+		childInput, input, err = os.Pipe()
+		if err != nil {
+			return nil, err
+		}
+		defer func() {
+			if failed {
+				_ = childInput.Close()
+				_ = input.Close()
+			}
+		}()
+		output, childOutput, err = os.Pipe()
+		if err != nil {
+			return nil, err
+		}
+		defer func() {
+			if failed {
+				_ = output.Close()
+				_ = childOutput.Close()
+			}
+		}()
+		command.Stdin, command.Stdout, command.Stderr = childInput, childOutput, log
+	} else {
+		command.Stdin, command.Stdout, command.Stderr = os.Stdin, os.Stdout, os.Stderr
+	}
 	command.ExtraFiles = append(command.ExtraFiles, lock.File())
 	command.Env = scrubOMPEnvironment(os.Environ(),
 		host.SocketEnv, host.LocalKeyEnv, host.TokenEnv, host.SessionIDEnv,
@@ -158,8 +164,12 @@ func startOMPProcess(socket, provisional, topology string, native NativeExecutab
 	if err = command.Start(); err != nil {
 		return nil, err
 	}
-	_ = stdin.Close()
-	_ = stdout.Close()
+	if childInput != nil {
+		_ = childInput.Close()
+	}
+	if childOutput != nil {
+		_ = childOutput.Close()
+	}
 	process := &ompProcess{
 		command: command, lock: lock, listener: listener, directory: directory,
 		socket: bridgePath, input: input, output: output, stderr: log,
@@ -224,17 +234,23 @@ func (process *ompProcess) Force() {
 			_ = process.command.Process.Kill()
 		}
 		_ = process.listener.Close()
-		_ = process.input.Close()
-		_ = process.output.Close()
+		closeOMPFile(process.input)
+		closeOMPFile(process.output)
 	})
 }
 
 func (process *ompProcess) Cleanup() error {
 	process.clean.Do(func() {
 		_ = process.listener.Close()
-		_ = process.input.Close()
-		_ = process.output.Close()
+		closeOMPFile(process.input)
+		closeOMPFile(process.output)
 		process.cleanErr = errors.Join(process.lock.Close(), os.RemoveAll(process.directory))
 	})
 	return process.cleanErr
+}
+
+func closeOMPFile(file *os.File) {
+	if file != nil {
+		_ = file.Close()
+	}
 }
