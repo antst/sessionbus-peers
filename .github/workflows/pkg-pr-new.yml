@@ -27,12 +27,19 @@ jobs:
           const got = report.files.map((file) => file.path).sort()
           const want = [
             'README.md',
-            'bin.mjs',
-            'commands/sessionbus.md',
-            'install.mjs',
+            'activation.mjs',
+            'delivery.mjs',
+            'endpoint.mjs',
+            'forward.mjs',
+            'gate.mjs',
+            'owners.mjs',
             'package.json',
-            'sessionbus.mjs',
-            'skills/opencode-lane/SKILL.md',
+            'peer.mjs',
+            'readiness.mjs',
+            'server.mjs',
+            'sessionbus-tool.json',
+            'skills/sessionbus/SKILL.md',
+            'tui.mjs',
           ].sort()
           if (JSON.stringify(got) !== JSON.stringify(want)) {
             throw new Error(`unexpected OpenCode pack files: ${JSON.stringify(got)}`)
