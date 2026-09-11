@@ -182,6 +182,54 @@ func TestNativeRPCRejectedCommandDoesNotConsumeID(t *testing.T) {
 	}
 }
 
+type observedCancellationContext struct {
+	context.Context
+	once    sync.Once
+	checked chan struct{}
+}
+
+func (ctx *observedCancellationContext) Err() error {
+	ctx.once.Do(func() { close(ctx.checked) })
+	return ctx.Context.Err()
+}
+
+func TestNativeRPCCancellationBeforeAtomicAdmissionWritesNothing(t *testing.T) {
+	for _, operation := range []string{"call", "end input"} {
+		t.Run(operation, func(t *testing.T) {
+			rpc, peer := newNativeRPCTest(t, nil, nativeRPCLimits{})
+			base, cancel := context.WithCancel(context.Background())
+			cancelled := &observedCancellationContext{Context: base, checked: make(chan struct{})}
+			rpc.outboundMu.Lock()
+			result := make(chan error, 1)
+			go func() {
+				if operation == "call" {
+					result <- rpc.Call(cancelled, "prompt", map[string]any{"message": "must not write"}, nil)
+				} else {
+					result <- rpc.EndInput(cancelled)
+				}
+			}()
+			<-cancelled.checked
+			cancel()
+			rpc.outboundMu.Unlock()
+			err := <-result
+			if !errors.Is(err, context.Canceled) {
+				t.Fatalf("cancelled %s error = %v", operation, err)
+			}
+
+			result = make(chan error, 1)
+			go func() { result <- rpc.Call(nativeRPCTestContext(t), "get_state", nil, nil) }()
+			request := peer.read(t)
+			if id, kind := nativeRPCField(t, request, "id"), nativeRPCField(t, request, "type"); id != "pi:1" || kind != "get_state" {
+				t.Fatalf("first admitted command = %q %q", id, kind)
+			}
+			peer.write(t, `{"id":"pi:1","type":"response","command":"get_state","success":true,"data":{}}`)
+			if err := <-result; err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
 func TestNativeRPCCompletedWriteWinsSimultaneousCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	write := newNativeRPCWrite([]byte("owned"))
@@ -475,6 +523,84 @@ func TestNativeRPCEndInputRequiresSettledCallsAndAcceptsCleanEOF(t *testing.T) {
 	waitNativeRPCDone(t, rpc)
 	if err := rpc.Err(); err != nil {
 		t.Fatalf("clean RPC shutdown = %v", err)
+	}
+}
+
+type heldNativeRPCCloseWriter struct {
+	*io.PipeWriter
+	held    atomic.Bool
+	closed  chan struct{}
+	release chan struct{}
+	err     error
+}
+
+func (writer *heldNativeRPCCloseWriter) Close() error {
+	err := writer.PipeWriter.Close()
+	if writer.held.CompareAndSwap(false, true) {
+		close(writer.closed)
+		<-writer.release
+		if writer.err != nil {
+			return writer.err
+		}
+	}
+	return err
+}
+
+func TestNativeRPCOrderlyOutputEOFJoinsInputCloseCompletion(t *testing.T) {
+	closeFailure := errors.New("held stdin close failed")
+	for _, test := range []struct {
+		name string
+		err  error
+	}{
+		{name: "success"},
+		{name: "failure", err: closeFailure},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			commands, input := io.Pipe()
+			output, events := io.Pipe()
+			held := &heldNativeRPCCloseWriter{
+				PipeWriter: input, closed: make(chan struct{}), release: make(chan struct{}), err: test.err,
+			}
+			rpc, err := newNativeRPC(held, output, nil, nativeRPCLimits{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var releaseOnce sync.Once
+			release := func() { releaseOnce.Do(func() { close(held.release) }) }
+			t.Cleanup(func() {
+				release()
+				_ = commands.Close()
+				_ = events.Close()
+				_ = rpc.Close()
+			})
+
+			endResult := make(chan error, 1)
+			go func() { endResult <- rpc.EndInput(nativeRPCTestContext(t)) }()
+			<-held.closed
+			if _, err := commands.Read(make([]byte, 1)); !errors.Is(err, io.EOF) {
+				t.Fatalf("native stdin = %v", err)
+			}
+			if err := events.Close(); err != nil {
+				t.Fatal(err)
+			}
+			select {
+			case <-rpc.Done():
+				t.Fatal("RPC completed before stdin Close returned")
+			default:
+			}
+			release()
+			endErr := <-endResult
+			waitNativeRPCDone(t, rpc)
+			if test.err == nil {
+				if endErr != nil || rpc.Err() != nil {
+					t.Fatalf("orderly close = %v, RPC = %v", endErr, rpc.Err())
+				}
+			} else {
+				if !errors.Is(endErr, closeFailure) || !errors.Is(rpc.Err(), closeFailure) {
+					t.Fatalf("failed close = %v, RPC = %v", endErr, rpc.Err())
+				}
+			}
+		})
 	}
 }
 

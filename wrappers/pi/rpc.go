@@ -118,23 +118,25 @@ type nativeRPC struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	mu            sync.Mutex
-	outboundMu    sync.Mutex
-	stopped       bool
-	intentional   bool
-	failure       error
-	inputEnding   bool
-	inputEnded    bool
-	nextID        uint64
-	pending       map[string]*nativeRPCPending
-	retainedBytes int
-	pendingWrites int
-	pendingBytes  int
-	writes        chan *nativeRPCWrite
-	readerDone    chan struct{}
-	writerDone    chan struct{}
-	done          chan struct{}
-	closeOnce     sync.Once
+	mu             sync.Mutex
+	outboundMu     sync.Mutex
+	stopped        bool
+	intentional    bool
+	failure        error
+	inputEnding    bool
+	inputEnded     bool
+	inputCloseErr  error
+	nextID         uint64
+	pending        map[string]*nativeRPCPending
+	retainedBytes  int
+	pendingWrites  int
+	pendingBytes   int
+	writes         chan *nativeRPCWrite
+	inputCloseDone chan struct{}
+	readerDone     chan struct{}
+	writerDone     chan struct{}
+	done           chan struct{}
+	closeOnce      sync.Once
 }
 
 func newNativeRPC(input io.WriteCloser, output io.ReadCloser, observe func(json.RawMessage) error, limits nativeRPCLimits) (*nativeRPC, error) {
@@ -149,8 +151,9 @@ func newNativeRPC(input io.WriteCloser, output io.ReadCloser, observe func(json.
 	rpc := &nativeRPC{
 		input: input, output: output, observe: observe, limits: limits,
 		ctx: ctx, cancel: cancel, pending: make(map[string]*nativeRPCPending),
-		writes:     make(chan *nativeRPCWrite, limits.maxPendingWrites),
-		readerDone: make(chan struct{}), writerDone: make(chan struct{}), done: make(chan struct{}),
+		writes:         make(chan *nativeRPCWrite, limits.maxPendingWrites),
+		inputCloseDone: make(chan struct{}), readerDone: make(chan struct{}),
+		writerDone: make(chan struct{}), done: make(chan struct{}),
 	}
 	go rpc.writeLoop()
 	go rpc.readLoop()
@@ -187,7 +190,7 @@ func (rpc *nativeRPC) Call(ctx context.Context, command string, fields map[strin
 	if err := validNativeRPCCommand(command); err != nil {
 		return err
 	}
-	id, pending, write, err := rpc.admitCall(command, fields)
+	id, pending, write, err := rpc.admitCall(ctx, command, fields)
 	if err != nil {
 		return err
 	}
@@ -252,9 +255,12 @@ func waitNativeRPCAdmission(ctx context.Context, write *nativeRPCWrite, pending 
 	}
 }
 
-func (rpc *nativeRPC) admitCall(command string, fields map[string]any) (string, *nativeRPCPending, *nativeRPCWrite, error) {
+func (rpc *nativeRPC) admitCall(ctx context.Context, command string, fields map[string]any) (string, *nativeRPCPending, *nativeRPCWrite, error) {
 	rpc.outboundMu.Lock()
 	defer rpc.outboundMu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return "", nil, nil, err
+	}
 
 	rpc.mu.Lock()
 	if rpc.stopped || rpc.inputEnding {
@@ -283,6 +289,9 @@ func (rpc *nativeRPC) admitCall(command string, fields map[string]any) (string, 
 
 	rpc.mu.Lock()
 	defer rpc.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return "", nil, nil, err
+	}
 	if rpc.stopped || rpc.inputEnding {
 		return "", nil, nil, rpc.connectionErrorLocked()
 	}
@@ -332,6 +341,11 @@ func (rpc *nativeRPC) EndInput(ctx context.Context) error {
 	}
 	rpc.outboundMu.Lock()
 	rpc.mu.Lock()
+	if err := ctx.Err(); err != nil {
+		rpc.mu.Unlock()
+		rpc.outboundMu.Unlock()
+		return err
+	}
 	if rpc.stopped || rpc.inputEnding {
 		err := rpc.connectionErrorLocked()
 		rpc.mu.Unlock()
@@ -418,10 +432,14 @@ func (rpc *nativeRPC) writeLoop() {
 		case write := <-rpc.writes:
 			if write.end {
 				rpc.mu.Lock()
-				rpc.inputEnded = true
+				rpc.pendingWrites--
 				rpc.mu.Unlock()
 				err := rpc.input.Close()
-				rpc.releaseWrite(0)
+				rpc.mu.Lock()
+				rpc.inputCloseErr = err
+				rpc.inputEnded = err == nil
+				close(rpc.inputCloseDone)
+				rpc.mu.Unlock()
 				write.complete(err)
 				if err != nil {
 					rpc.stop(fmt.Errorf("close Pi native stdin: %w", err), false)
@@ -502,9 +520,19 @@ func (rpc *nativeRPC) readLoop() {
 			if rpc.ctx.Err() != nil {
 				return
 			}
-			if errors.Is(err, io.EOF) && rpc.expectedOutputEOF() {
-				rpc.stop(nil, true)
-				return
+			if errors.Is(err, io.EOF) {
+				expected, closeErr := rpc.awaitOutputEOF()
+				if rpc.ctx.Err() != nil {
+					return
+				}
+				if expected && closeErr == nil {
+					rpc.stop(nil, true)
+					return
+				}
+				if expected {
+					rpc.stop(closeErr, false)
+					return
+				}
 			}
 			rpc.stop(err, false)
 			return
@@ -655,10 +683,28 @@ func (rpc *nativeRPC) consumeResult(completed nativeRPCResult, result any) error
 	return nil
 }
 
-func (rpc *nativeRPC) expectedOutputEOF() bool {
+func (rpc *nativeRPC) awaitOutputEOF() (bool, error) {
+	rpc.mu.Lock()
+	if !rpc.inputEnding {
+		rpc.mu.Unlock()
+		return false, nil
+	}
+	done := rpc.inputCloseDone
+	rpc.mu.Unlock()
+	select {
+	case <-done:
+	case <-rpc.ctx.Done():
+		return true, context.Cause(rpc.ctx)
+	}
 	rpc.mu.Lock()
 	defer rpc.mu.Unlock()
-	return rpc.inputEnded && len(rpc.pending) == 0 && rpc.pendingWrites == 0 && rpc.retainedBytes == 0
+	if rpc.inputCloseErr != nil {
+		return true, fmt.Errorf("close Pi native stdin: %w", rpc.inputCloseErr)
+	}
+	if !rpc.inputEnded || len(rpc.pending) != 0 || rpc.pendingWrites != 0 || rpc.retainedBytes != 0 {
+		return true, fmt.Errorf("%w: native stdout ended before RPC ownership settled", errNativeRPCProtocol)
+	}
+	return true, nil
 }
 
 func (rpc *nativeRPC) connectionError() error {
