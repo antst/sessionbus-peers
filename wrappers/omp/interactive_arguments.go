@@ -38,7 +38,6 @@ var ompValuelessFlags = map[string]bool{
 	"--plan-yolo": true, "--print": true, "--print-thoughts": true,
 	"--no-extensions": true, "--no-skills": true, "--no-rules": true,
 	"--no-title": true, "--auto-approve": true, "--yolo": true,
-	"--sessionbus-wrapper-value": true,
 }
 
 var ompCommands = map[string]bool{
@@ -73,94 +72,121 @@ func InteractivePlan(native NativeExecutable, arguments, environment []string) (
 			return host.ExecPlan{}, false, errors.New("OMP argument contains NUL")
 		}
 	}
-	if ompNativePassthrough(ompProtectWrapperValues(arguments)) {
-		return ompNativeExecPlan(native, arguments, environment), true, nil
+	projected := ompProjectWrapperValues(arguments)
+	if passthrough, boundary := ompNativePassthrough(projected.arguments); passthrough {
+		if projected.err != nil {
+			if boundary < 0 || boundary >= len(projected.original) || projected.original[boundary] >= projected.errorIndex {
+				return host.ExecPlan{}, false, projected.err
+			}
+		}
+		nativeArguments := slices.Clone(projected.arguments)
+		if boundary >= 0 && boundary < len(projected.original) {
+			nativeArguments = append(slices.Clone(projected.arguments[:boundary]), arguments[projected.original[boundary]:]...)
+		}
+		return ompNativeExecPlan(native, nativeArguments, environment), true, nil
+	}
+	if projected.err != nil {
+		return host.ExecPlan{}, false, projected.err
 	}
 
-	forwarded := make([]string, 0, len(arguments)+1)
+	forwarded := make([]string, 0, len(projected.arguments)+1)
 	forwarded = append(forwarded, native.EntryPath)
-	groups := []string{}
-	name := ""
-	for index := 0; index < len(arguments); index++ {
-		argument := arguments[index]
+	for index := 0; index < len(projected.arguments); index++ {
+		argument := projected.arguments[index]
 		if argument == "--" {
-			forwarded = append(forwarded, arguments[index:]...)
+			forwarded = append(forwarded, projected.arguments[index:]...)
 			break
 		}
 		if ompFlagName(argument) == "--trusted-extension" {
 			return host.ExecPlan{}, false, errors.New("argument conflicts with managed OMP extension: --trusted-extension")
 		}
-		if argument == "-g" || argument == "--group" || argument == "-n" || argument == "--peer-name" {
-			if index+1 == len(arguments) || arguments[index+1] == "--" || strings.TrimSpace(arguments[index+1]) == "" {
-				return host.ExecPlan{}, false, ompWrapperValueError(argument)
-			}
-			value := arguments[index+1]
-			index++
-			if argument == "-g" || argument == "--group" {
-				groups = append(groups, value)
-			} else {
-				name = value
-			}
-			continue
-		}
-		wrapper, value, attached := ompAttachedWrapperValue(argument)
-		if wrapper != "" {
-			if !attached || strings.TrimSpace(value) == "" {
-				return host.ExecPlan{}, false, ompWrapperValueError(wrapper)
-			}
-			if wrapper == "-g" || wrapper == "--group" {
-				groups = append(groups, value)
-			} else {
-				name = value
-			}
-			continue
-		}
-		if ompConsumesNativeValue(arguments, index) {
-			forwarded = append(forwarded, argument, arguments[index+1])
+		if ompConsumesNativeValue(projected.arguments, index) {
+			forwarded = append(forwarded, argument, projected.arguments[index+1])
 			index++
 			continue
 		}
 		forwarded = append(forwarded, argument)
 	}
-	encoded, err := json.Marshal(groups)
+	encoded, err := json.Marshal(projected.groups)
 	if err != nil {
 		return host.ExecPlan{}, false, err
 	}
 	environment = ompSetEnvironment(environment, host.GroupsEnv, string(encoded))
 	environment = ompSetEnvironment(environment, host.SessionIDEnv, "")
-	environment = ompSetEnvironment(environment, host.NameEnv, name)
+	environment = ompSetEnvironment(environment, host.NameEnv, projected.name)
 	return host.ExecPlan{Path: native.RuntimePath, Args: forwarded, Env: environment}, false, nil
 }
 
-// ompProtectWrapperValues gives wrapper-owned flags their value arity before
-// native profile and command classification. A wrapper-shaped token already
-// consumed by a native option is skipped with that option and remains native
-// data. The marker is classification-only and never reaches the child.
-func ompProtectWrapperValues(arguments []string) []string {
-	protected := make([]string, 0, len(arguments))
+type ompProjectedArguments struct {
+	arguments  []string
+	original   []int
+	groups     []string
+	name       string
+	err        error
+	errorIndex int
+}
+
+// ompProjectWrapperValues applies wrapper ownership before native routing.
+// Tokens consumed by native options remain native data. The native boundary is
+// retained and can never be consumed as a wrapper value.
+func ompProjectWrapperValues(arguments []string) ompProjectedArguments {
+	projected := ompProjectedArguments{
+		arguments:  make([]string, 0, len(arguments)),
+		original:   make([]int, 0, len(arguments)),
+		groups:     []string{},
+		errorIndex: -1,
+	}
+	appendNative := func(index int) {
+		projected.arguments = append(projected.arguments, arguments[index])
+		projected.original = append(projected.original, index)
+	}
 	for index := 0; index < len(arguments); index++ {
 		argument := arguments[index]
 		if argument == "--" {
-			return append(protected, arguments[index:]...)
+			for ; index < len(arguments); index++ {
+				appendNative(index)
+			}
+			break
 		}
-		if wrapper, _, attached := ompAttachedWrapperValue(argument); wrapper != "" && attached {
-			protected = append(protected, "--sessionbus-wrapper-value")
-			continue
-		}
-		if argument == "-g" || argument == "--group" || argument == "-n" || argument == "--peer-name" {
-			protected = append(protected, "--sessionbus-wrapper-value")
-			if index+1 < len(arguments) {
-				index++
+		if wrapper, value, attached := ompAttachedWrapperValue(argument); wrapper != "" && attached {
+			if strings.TrimSpace(value) == "" {
+				if projected.err == nil {
+					projected.err, projected.errorIndex = ompWrapperValueError(wrapper), index
+				}
+				appendNative(index)
+				continue
+			}
+			if wrapper == "-g" || wrapper == "--group" {
+				projected.groups = append(projected.groups, value)
+			} else {
+				projected.name = value
 			}
 			continue
 		}
-		protected = append(protected, argument)
-		if ompProfileConsumesValue(arguments, index) {
-			protected = append(protected, arguments[index+1])
+		if argument == "-g" || argument == "--group" || argument == "-n" || argument == "--peer-name" {
+			if index+1 == len(arguments) || arguments[index+1] == "--" || strings.TrimSpace(arguments[index+1]) == "" {
+				if projected.err == nil {
+					projected.err, projected.errorIndex = ompWrapperValueError(argument), index
+				}
+				appendNative(index)
+				continue
+			}
+			value := arguments[index+1]
+			if argument == "-g" || argument == "--group" {
+				projected.groups = append(projected.groups, value)
+			} else {
+				projected.name = value
+			}
+			index++
+			continue
+		}
+		appendNative(index)
+		if ompConsumesNativeValue(arguments, index) {
+			appendNative(index + 1)
 			index++
 		}
 	}
-	return protected
+	return projected
 }
 
 func ompNativeExecPlan(native NativeExecutable, arguments, environment []string) host.ExecPlan {
@@ -170,79 +196,96 @@ func ompNativeExecPlan(native NativeExecutable, arguments, environment []string)
 	return host.ExecPlan{Path: native.RuntimePath, Args: args, Env: environment}
 }
 
-func ompNativePassthrough(arguments []string) bool {
-	residual, oneShot := ompProfileResidual(arguments)
+func ompNativePassthrough(arguments []string) (bool, int) {
+	residual, sources, oneShot, oneShotSource := ompProfileRoute(arguments)
 	if oneShot || len(residual) == 0 {
-		return oneShot
+		return oneShot, oneShotSource
 	}
 	first := residual[0]
 	if first == "--help" || first == "-h" || first == "--version" || first == "-v" ||
 		first == "help" || first == "--smoke-test" || first == "--license" || ompReservedWord(residual) {
-		return true
+		return true, sources[0]
 	}
 	launchArguments := residual
+	launchSources := sources
 	if ompCommands[first] {
 		if first != "launch" {
-			return true
+			return true, sources[0]
 		}
 		launchArguments = residual[1:]
+		launchSources = sources[1:]
 	} else if index := ompLeadingCommand(residual); index >= 0 {
 		if residual[index] != "launch" {
-			return true
+			return true, sources[index]
 		}
 		launchArguments = append(slices.Clone(residual[:index]), residual[index+1:]...)
+		launchSources = append(slices.Clone(sources[:index]), sources[index+1:]...)
 	}
-	return ompLaunchNonInteractive(launchArguments)
+	if index := ompLaunchNonInteractive(launchArguments); index >= 0 {
+		return true, launchSources[index]
+	}
+	return false, -1
 }
 
 // ompProfileResidual mirrors native profile-bootstrap ownership only as far as
 // routing needs it. Invalid/missing global values and every alias are one-shot
 // native outcomes and therefore passthrough.
 func ompProfileResidual(arguments []string) ([]string, bool) {
+	residual, _, oneShot, _ := ompProfileRoute(arguments)
+	return residual, oneShot
+}
+
+func ompProfileRoute(arguments []string) ([]string, []int, bool, int) {
 	residual := make([]string, 0, len(arguments))
+	sources := make([]int, 0, len(arguments))
 	passThrough, sawSubcommand, canDispatch, insertBoundary := false, false, true, false
 	for index := 0; index < len(arguments); index++ {
 		argument := arguments[index]
 		if passThrough || sawSubcommand {
 			residual = append(residual, argument)
+			sources = append(sources, index)
 			continue
 		}
 		if insertBoundary {
 			if !strings.HasPrefix(argument, "-") {
 				residual = append(residual, ompProfileBoundary)
+				sources = append(sources, -1)
 			}
 			insertBoundary = false
 		}
 		if argument == "--" {
 			passThrough = true
 			residual = append(residual, argument)
+			sources = append(sources, index)
 			continue
 		}
 		name, value, attached := strings.Cut(argument, "=")
 		if name == "--profile" || name == "--alias" {
 			if attached {
 				if value == "" {
-					return residual, true
+					return residual, sources, true, index
 				}
 				if name == "--alias" {
-					return residual, true
+					return residual, sources, true, index
 				}
 				insertBoundary = ompNeedsProfileBoundary(residual)
 				continue
 			}
 			if index+1 == len(arguments) || strings.HasPrefix(arguments[index+1], "-") || arguments[index+1] == "" {
-				return residual, true
+				return residual, sources, true, index
 			}
 			index++
 			if name == "--alias" {
-				return residual, true
+				return residual, sources, true, index - 1
 			}
 			insertBoundary = ompNeedsProfileBoundary(residual)
 			continue
 		}
 		residual = append(residual, argument)
+		sources = append(sources, index)
 		if ompProfileConsumesValue(arguments, index) {
 			residual = append(residual, arguments[index+1])
+			sources = append(sources, index+1)
 			index++
 			canDispatch = false
 			continue
@@ -252,7 +295,7 @@ func ompProfileResidual(arguments []string) ([]string, bool) {
 		}
 		canDispatch = false
 	}
-	return residual, false
+	return residual, sources, false, -1
 }
 
 func ompLeadingCommand(arguments []string) int {
@@ -267,37 +310,37 @@ func ompLeadingCommand(arguments []string) int {
 			}
 			return -1
 		}
-		if ompConsumesNativeValue(arguments, index) {
+		if ompProfileConsumesValue(arguments, index) {
 			index++
 		}
 	}
 	return -1
 }
 
-func ompLaunchNonInteractive(arguments []string) bool {
+func ompLaunchNonInteractive(arguments []string) int {
 	for index := 0; index < len(arguments); index++ {
 		argument := arguments[index]
 		if argument == "--" {
-			return false
+			return -1
 		}
 		name, value, attached := strings.Cut(argument, "=")
 		switch name {
 		case "--help", "-h", "--version", "-v", "--print", "-p":
-			return true
+			return index
 		case "--mode":
 			if attached || index+1 < len(arguments) {
-				return true
+				return index
 			}
 		case "--export":
 			if attached && value != "" || !attached && index+1 < len(arguments) && arguments[index+1] != "" {
-				return true
+				return index
 			}
 		}
-		if ompConsumesNativeValue(arguments, index) {
+		if ompProfileConsumesValue(arguments, index) {
 			index++
 		}
 	}
-	return false
+	return -1
 }
 
 const ompProfileBoundary = "--omp-profile-boundary"

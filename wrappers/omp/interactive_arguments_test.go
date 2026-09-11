@@ -99,6 +99,38 @@ func TestOMPInteractivePlanProtectsOwnedWrapperValuesDuringRouting(t *testing.T)
 	}
 }
 
+func TestOMPInteractivePlanRoutesProjectedNativeArguments(t *testing.T) {
+	for _, arguments := range [][]string{{"-g", "--", "--print"}, {"--peer-name", "--"}} {
+		if _, native, err := InteractivePlan(argumentTestNative, arguments, nil); err == nil || native {
+			t.Fatalf("wrapper boundary value %#v = native %t, error %v", arguments, native, err)
+		}
+	}
+	tests := []struct {
+		name string
+		args []string
+		want []string
+	}{
+		{"help-after-name", []string{"-n", "name", "help"}, []string{"help"}},
+		{"list-after-name", []string{"-n", "name", "list"}, []string{"list"}},
+		{"command-keeps-remainder", []string{"-n", "name", "update", "-g", "native", "--peer-name", "native"}, []string{"update", "-g", "native", "--peer-name", "native"}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			plan, native, err := InteractivePlan(argumentTestNative, test.args, []string{"KEEP=value"})
+			want := append([]string{argumentTestNative.EntryPath}, test.want...)
+			if err != nil || !native || !reflect.DeepEqual(plan.Args, want) {
+				t.Fatalf("projected native plan = %#v, %t, %v; want %#v", plan, native, err, want)
+			}
+		})
+	}
+
+	marker := []string{"--sessionbus-wrapper-value", "update"}
+	plan, native, err := InteractivePlan(argumentTestNative, marker, nil)
+	if err != nil || native || !reflect.DeepEqual(plan.Args, append([]string{argumentTestNative.EntryPath}, marker...)) {
+		t.Fatalf("literal former marker = %#v, %t, %v", plan, native, err)
+	}
+}
+
 func TestOMPInteractivePlanNativePassthroughIsExact(t *testing.T) {
 	environment := []string{"KEEP=value", host.GroupsEnv + `=["native"]`}
 	tests := [][]string{
@@ -149,6 +181,7 @@ func TestOMPInteractivePlanMirrorsNativeCommandOwnership(t *testing.T) {
 		{"profile-after-explicit-launch", []string{"launch", "--profile", "work"}, false},
 		{"profile-after-launch-text", []string{"launch", "grep", "--profile", "work"}, false},
 		{"profile-owned-by-model", []string{"--model", "--profile", "work"}, false},
+		{"plan-profile-prevents-new-command", []string{"--plan", "--profile", "work", "update"}, false},
 		{"unknown-attached", []string{"--unknown=value", "acp"}, true},
 		{"explicit-launch", []string{"launch", "hello"}, false},
 		{"launch-profile-command-text", []string{"launch", "--profile", "work", "update"}, false},
