@@ -166,7 +166,7 @@ func (p *Wrapper) executeRun(ctx context.Context, run *kit.Run, input kit.RunInp
 		p.fail(err)
 		return kit.TurnResult{}, err
 	}
-	output, err := p.client.historyResult(p.ctx, p.id, id, final)
+	projection, err := p.client.projectHistory(p.ctx, p.id, id, final)
 	if err != nil {
 		// Native cancel's lastAssistant fallback can predate the admitted input.
 		// Only that exact stale-result condition permits empty interrupted output.
@@ -177,11 +177,11 @@ func (p *Wrapper) executeRun(ctx context.Context, run *kit.Run, input kit.RunInp
 	}
 	if final.Info.Summary && (len(final.Info.Error) == 0 || string(final.Info.Error) == "null") {
 		if interrupted {
-			return kit.TurnResult{Outcome: "interrupted", Result: output}, nil
+			return kit.TurnResult{Outcome: "interrupted", Result: projection.text}, nil
 		}
 		return kit.TurnResult{}, errors.New("native Run returned only an internal summary")
 	}
-	result := kit.TurnResult{Outcome: "completed", Result: output, NativeStopReason: final.Info.Finish}
+	result := kit.TurnResult{Outcome: "completed", Result: projection.text, NativeStopReason: final.Info.Finish}
 	if len(final.Info.Error) > 0 && string(final.Info.Error) != "null" {
 		var cause struct {
 			Name string `json:"name"`
@@ -198,6 +198,17 @@ func (p *Wrapper) executeRun(ctx context.Context, run *kit.Run, input kit.RunInp
 		complete, err := completedAssistantFor(p.kind, final)
 		if err != nil {
 			return kit.TurnResult{}, err
+		}
+		// Kilo can normally break after plan follow-up (including dismissal)
+		// while the last assistant still has ordinary tools/tool-calls finish.
+		// Acknowledged abort fallback is not evidence of that normal break.
+		if !complete && !interrupted && p.kind == kiloNative && p.planFollowup &&
+			final.Info.Time.Completed != nil && final.Info.Finish != "" &&
+			projection.completedPlan && final.Info.ParentID == projection.latestUser {
+			complete, err = hasNativeToolCalls(final)
+			if err != nil {
+				return kit.TurnResult{}, err
+			}
 		}
 		if !complete {
 			if interrupted {
@@ -216,6 +227,11 @@ func completedAssistantFor(kind nativeKind, final withParts) (bool, error) {
 	if final.Info.Time.Completed == nil || final.Info.Finish == "" || final.Info.Finish == "tool-calls" || (final.Info.Finish == "unknown" && kind != kiloNative) {
 		return false, nil
 	}
+	tools, err := hasNativeToolCalls(final)
+	return !tools, err
+}
+
+func hasNativeToolCalls(final withParts) (bool, error) {
 	for _, raw := range final.Parts {
 		var kind struct {
 			Type string `json:"type"`
@@ -241,10 +257,10 @@ func completedAssistantFor(kind nativeKind, final withParts) (bool, error) {
 			return false, errors.New("malformed native terminal tool metadata")
 		}
 		if !part.Metadata.ProviderExecuted && !(part.State.Status == "error" && part.State.Metadata.Interrupted) {
-			return false, nil
+			return true, nil
 		}
 	}
-	return true, nil
+	return false, nil
 }
 func (p *Wrapper) ensureInterrupt(t *laneRun) *nativeInterrupt {
 	p.mu.Lock()

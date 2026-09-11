@@ -210,10 +210,10 @@ func fakeNativeHTTP() {
 			if text == "hold-permission" {
 				emit("permission.asked", map[string]any{"id": "per_fixture", "sessionID": id, "permission": "bash", "patterns": []string{"fixture"}, "metadata": map[string]any{}})
 			}
-			if text == "hold-question" {
+			if text == "hold-question" || strings.HasPrefix(text, "review-plan-") {
 				emit("question.asked", map[string]any{"id": "que_fixture", "sessionID": id, "questions": []any{}})
 			}
-			if strings.HasPrefix(text, "hold") {
+			if strings.HasPrefix(text, "hold") || strings.HasPrefix(text, "review-plan-") {
 				select {
 				case <-gate:
 				case <-r.Context().Done():
@@ -254,8 +254,17 @@ func fakeNativeHTTP() {
 					answer.Parts = append(answer.Parts, raw)
 				}
 			}
+			if strings.HasPrefix(text, "review-plan-") {
+				answer.Info.Finish = strings.TrimPrefix(text, "review-plan-")
+				part := map[string]any{"type": "tool", "sessionID": id, "messageID": answer.Info.ID, "tool": "plan_exit", "callID": "call_plan", "state": map[string]any{"status": "completed", "input": map[string]any{}, "output": "Plan ready", "title": "Plan", "metadata": map[string]any{}, "time": map[string]int{"start": 1, "end": 2}}}
+				raw, _ := json.Marshal(part)
+				answer.Parts = append(answer.Parts, raw)
+			}
 			if interrupted && text != "hold-summary" && text != "hold-toolcalls" && !strings.HasPrefix(text, "hold-terminal-") {
 				answer.Info.Error = json.RawMessage(`{"name":"MessageAbortedError","data":{"message":"aborted"}}`)
+			}
+			if strings.HasPrefix(text, "plan-") || strings.HasPrefix(text, "hold-plan") {
+				history = kiloPlanFixture(text, id, req.MessageID, history, &answer)
 			}
 			history = append(history, answer)
 			hold = nil

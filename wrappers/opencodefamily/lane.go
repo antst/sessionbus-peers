@@ -31,6 +31,7 @@ const (
 
 type Wrapper struct {
 	kind               nativeKind
+	planFollowup       bool
 	messageIDs         messageIDs
 	termOnce           sync.Once
 	forceOnce          sync.Once
@@ -135,6 +136,7 @@ func (p *Wrapper) Open(ctx context.Context, request kit.OpenRequest) (result kit
 	if p.kind == kiloNative {
 		cmd.Env = scrub(cmd.Env, "SESSIONBUS_KILO_LAUNCH", "KILO_SERVER_USERNAME", "KILO_SERVER_PASSWORD", "KILO_PARENT_PID")
 		cmd.Env = append(cmd.Env, "KILO_PARENT_PID="+strconv.Itoa(os.Getpid()))
+		p.planFollowup = supportsKiloPlanFollowup(cmd.Env)
 	}
 	cmd.Env = append(cmd.Env, LaneSocketEnv+"="+endpoint.Path, p.kind.envPrefix()+"_SERVER_USERNAME=sessionbus", p.kind.envPrefix()+"_SERVER_PASSWORD="+password)
 	var logs boundedLog

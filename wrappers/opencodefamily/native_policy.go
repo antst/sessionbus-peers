@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: MIT
 package opencodefamily
 
-import "errors"
+import (
+	"errors"
+	"strings"
+)
 
 // These are the two source-bound native products, not an extensible dialect.
 // The zero value preserves existing OpenCode fixtures and behavior.
@@ -38,4 +41,16 @@ func NewKilo(socket, provisional, executable string) *Wrapper {
 	p := NewOpenCode(socket, provisional, executable)
 	p.kind = kiloNative
 	return p
+}
+
+// Capture the actual child environment without overriding native client mode.
+// Unset defaults to cli; an explicitly empty value does not.
+func supportsKiloPlanFollowup(env []string) bool {
+	client := "cli"
+	for _, item := range env {
+		if value, ok := strings.CutPrefix(item, "KILO_CLIENT="); ok {
+			client = value
+		}
+	}
+	return client == "cli" || client == "vscode" || client == "jetbrains"
 }

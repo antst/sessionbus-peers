@@ -146,12 +146,25 @@ func validateParts(m withParts, session string) error {
 
 var errPriorAssistant = errors.New("native terminal predates current input")
 
+// Plan evidence is derived during the existing bounded history walk. A later
+// native user (including compaction/replay) resets the plan-followup interval.
+type historyProjection struct {
+	text          string
+	latestUser    string
+	completedPlan bool
+}
+
 func (c *laneHTTP) historyResult(ctx context.Context, session, initial string, final withParts) (string, error) {
+	projection, err := c.projectHistory(ctx, session, initial, final)
+	return projection.text, err
+}
+
+func (c *laneHTTP) projectHistory(ctx context.Context, session, initial string, final withParts) (historyProjection, error) {
 	if err := validateParts(final, session); err != nil {
-		return "", err
+		return historyProjection{}, err
 	}
 	if final.Info.Role != "assistant" {
-		return "", errors.New("native terminal is not an assistant")
+		return historyProjection{}, errors.New("native terminal is not an assistant")
 	}
 	cursor := ""
 	cursors := map[string]bool{}
@@ -166,34 +179,34 @@ func (c *laneHTTP) historyResult(ctx context.Context, session, initial string, f
 		}
 		r, err := c.prepare(ctx, http.MethodGet, path, nil)
 		if err != nil {
-			return "", err
+			return historyProjection{}, err
 		}
 		op, err := c.begin(r, 200)
 		if err != nil {
-			return "", err
+			return historyProjection{}, err
 		}
 		b, err := op.wait()
 		if err != nil {
-			return "", err
+			return historyProjection{}, err
 		}
 		bytes += len(b)
 		if bytes > 16<<20 {
-			return "", errors.New("native history exceeds 16 MiB")
+			return historyProjection{}, errors.New("native history exceeds 16 MiB")
 		}
 		var page []withParts
 		if json.Unmarshal(b, &page) != nil || page == nil || len(page) > 64 {
-			return "", errors.New("invalid native history page")
+			return historyProjection{}, errors.New("invalid native history page")
 		}
 		for _, m := range page {
 			total++
 			if total > 4096 {
-				return "", errors.New("native history exceeds 4096 messages")
+				return historyProjection{}, errors.New("native history exceeds 4096 messages")
 			}
 			if err := validateParts(m, session); err != nil {
-				return "", err
+				return historyProjection{}, err
 			}
 			if seen[m.Info.ID] {
-				return "", errors.New("native history repeats message")
+				return historyProjection{}, errors.New("native history repeats message")
 			}
 			seen[m.Info.ID] = true
 			foundInitial = foundInitial || m.Info.ID == initial
@@ -205,35 +218,64 @@ func (c *laneHTTP) historyResult(ctx context.Context, session, initial string, f
 			break
 		}
 		if next == "" || cursors[next] || len(next) > 4096 {
-			return "", errors.New("native history missing initial input or repeated cursor")
+			return historyProjection{}, errors.New("native history missing initial input or repeated cursor")
 		}
 		cursors[next] = true
 		cursor = next
 	}
 	if !foundFinal {
-		return "", errors.New("native history lacks returned final assistant")
+		return historyProjection{}, errors.New("native history lacks returned final assistant")
 	}
 	var out strings.Builder
+	var projection historyProjection
 	inside := false
 	users := map[string]bool{}
 	for i := len(reversePages) - 1; i >= 0; i-- {
 		for _, m := range reversePages[i] {
 			if m.Info.ID == initial {
 				if m.Info.Role != "user" {
-					return "", errors.New("native initial message not a user")
+					return historyProjection{}, errors.New("native initial message not a user")
 				}
 				inside = true
 				users[m.Info.ID] = true
+				projection.latestUser = m.Info.ID
 				continue
 			}
 			if !inside {
 				if m.Info.ID == final.Info.ID {
-					return "", errPriorAssistant
+					return historyProjection{}, errPriorAssistant
 				}
 				continue
 			}
 			if m.Info.Role == "user" {
 				users[m.Info.ID] = true
+				projection.latestUser = m.Info.ID
+				projection.completedPlan = false
+			}
+			if c.kind == kiloNative && m.Info.Role == "assistant" {
+				for _, raw := range m.Parts {
+					var kind struct {
+						Type string `json:"type"`
+					}
+					if json.Unmarshal(raw, &kind) != nil {
+						return historyProjection{}, errors.New("malformed native plan history part")
+					}
+					if kind.Type != "tool" {
+						continue
+					}
+					var part struct {
+						Tool  string `json:"tool"`
+						State struct {
+							Status string `json:"status"`
+						} `json:"state"`
+					}
+					if json.Unmarshal(raw, &part) != nil {
+						return historyProjection{}, errors.New("malformed native plan history part")
+					}
+					if part.Tool == "plan_exit" && part.State.Status == "completed" {
+						projection.completedPlan = true
+					}
+				}
 			}
 			if m.Info.Role == "assistant" && !m.Info.Summary {
 				for _, raw := range m.Parts {
@@ -241,7 +283,7 @@ func (c *laneHTTP) historyResult(ctx context.Context, session, initial string, f
 					_ = json.Unmarshal(raw, &part)
 					if part.Type == "text" {
 						if out.Len()+len(part.Text) > maxNativeRequest {
-							return "", errors.New("native output exceeds 1 MiB")
+							return historyProjection{}, errors.New("native output exceeds 1 MiB")
 						}
 						out.WriteString(part.Text)
 					}
@@ -249,14 +291,15 @@ func (c *laneHTTP) historyResult(ctx context.Context, session, initial string, f
 			}
 			if m.Info.ID == final.Info.ID {
 				if m.Info.Role != "assistant" || m.Info.ParentID != final.Info.ParentID {
-					return "", errors.New("native final history disagrees")
+					return historyProjection{}, errors.New("native final history disagrees")
 				}
 				if !users[m.Info.ParentID] {
-					return "", errors.New("native final parent is not a user in the owned history interval")
+					return historyProjection{}, errors.New("native final parent is not a user in the owned history interval")
 				}
-				return out.String(), nil
+				projection.text = out.String()
+				return projection, nil
 			}
 		}
 	}
-	return "", fmt.Errorf("native final assistant outside owned history interval")
+	return historyProjection{}, fmt.Errorf("native final assistant outside owned history interval")
 }
