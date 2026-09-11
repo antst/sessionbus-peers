@@ -1,0 +1,638 @@
+// SPDX-License-Identifier: MIT
+
+package pi
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net"
+	"path/filepath"
+	"slices"
+	"strings"
+	"sync"
+	"unicode/utf8"
+
+	"github.com/antst/sessionbus-peers/wrappers/host"
+	"github.com/antst/sessionbus-peers/wrappers/pifamily"
+	kit "github.com/antst/sessionbus/bus/sdk/go"
+)
+
+const (
+	interactiveTopology      = "interactive"
+	maxInteractiveQueueItems = 256
+	maxInteractiveQueueBytes = 8 << 20
+	maxInteractiveTextBytes  = 1 << 20
+)
+
+var errInteractiveDeliveryCanceled = errors.New("Pi delivery canceled before native submission")
+
+type interactiveReadyRequest struct {
+	Topology  string `json:"topology"`
+	Directory string `json:"directory"`
+	SessionID string `json:"session_id"`
+	Name      string `json:"name"`
+}
+
+type interactiveEndRequest struct {
+	Topology  string `json:"topology"`
+	SessionID string `json:"session_id"`
+	Reason    string `json:"reason"`
+}
+
+type interactiveToolRequest struct {
+	SessionID string          `json:"session_id"`
+	CallID    string          `json:"call_id"`
+	Action    string          `json:"action"`
+	Arguments json.RawMessage `json:"arguments"`
+}
+
+type interactiveDrainRequest struct {
+	SessionID string `json:"session_id"`
+	Witness   string `json:"witness"`
+}
+
+type interactiveDescribeResult struct {
+	SessionID string `json:"session_id"`
+	Name      string `json:"name"`
+	CWD       string `json:"cwd"`
+}
+
+type interactiveAppendRequest struct {
+	SessionID string `json:"session_id"`
+	MessageID string `json:"message_id"`
+	Body      string `json:"body"`
+}
+
+type interactiveAppendResult struct {
+	SessionID string `json:"session_id"`
+	MessageID string `json:"message_id"`
+	Accepted  bool   `json:"accepted"`
+	EntryID   string `json:"entry_id,omitempty"`
+	Reason    string `json:"reason,omitempty"`
+}
+
+type interactiveQueuedDelivery struct {
+	messageID string
+	body      string
+	bytes     int
+}
+
+// interactiveOwner binds the current native Pi session to exactly one public
+// Peer identity. Pi's session_shutdown/start ordering retires an old public
+// connection before a replacement session is admitted.
+type interactiveOwner struct {
+	ctx                            context.Context
+	cancel                         context.CancelFunc
+	bridge                         *pifamily.Bridge
+	socket, directory, initialName string
+	groups                         []string
+
+	mu                   sync.Mutex
+	conn                 *kit.Connection
+	sessionID, name, cwd string
+	generation           uint64
+	everReady, ending    bool
+	queue                []interactiveQueuedDelivery
+	queueBytes           int
+	err                  error
+	readySignal          chan struct{}
+	readyOnce            sync.Once
+
+	gate  chan struct{}
+	slots chan struct{}
+	work  sync.WaitGroup
+}
+
+func newInteractiveOwner(ctx context.Context, socket, directory, initialName string, groups []string) (*interactiveOwner, error) {
+	if ctx == nil {
+		return nil, errors.New("Pi interactive owner requires context")
+	}
+	if !filepath.IsAbs(socket) || !filepath.IsAbs(directory) {
+		return nil, errors.New("Pi interactive owner paths must be absolute")
+	}
+	lifetime, cancel := context.WithCancel(ctx)
+	o := &interactiveOwner{
+		ctx: lifetime, cancel: cancel, socket: socket, directory: directory,
+		initialName: initialName, groups: slices.Clone(groups),
+		readySignal: make(chan struct{}), gate: make(chan struct{}, 1), slots: make(chan struct{}, 256),
+	}
+	o.gate <- struct{}{}
+	return o, nil
+}
+
+func (o *interactiveOwner) assignBridge(bridge *pifamily.Bridge) error {
+	if bridge == nil {
+		return errors.New("Pi interactive bridge is missing")
+	}
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if o.bridge != nil || o.ending {
+		return errors.New("Pi interactive bridge is already assigned")
+	}
+	o.bridge = bridge
+	return nil
+}
+
+func (o *interactiveOwner) Done() <-chan struct{}  { return o.ctx.Done() }
+func (o *interactiveOwner) Ready() <-chan struct{} { return o.readySignal }
+
+func (o *interactiveOwner) Err() error {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return o.err
+}
+
+func (o *interactiveOwner) fail(err error) {
+	if err == nil {
+		return
+	}
+	o.mu.Lock()
+	if o.err == nil {
+		o.err = err
+	} else {
+		o.err = errors.Join(o.err, err)
+	}
+	ending := o.ending
+	o.mu.Unlock()
+	if !ending {
+		o.cancel()
+	}
+}
+
+func (o *interactiveOwner) Close() error {
+	o.mu.Lock()
+	o.ending = true
+	conn := o.conn
+	o.conn = nil
+	o.sessionID, o.name, o.cwd = "", "", ""
+	o.queue, o.queueBytes = nil, 0
+	o.mu.Unlock()
+	o.cancel()
+	if conn != nil {
+		_ = conn.Close()
+	}
+	o.work.Wait()
+	return o.Err()
+}
+
+func (o *interactiveOwner) handleBridge(ctx context.Context, method string, raw json.RawMessage) (json.RawMessage, error) {
+	var result any
+	var err error
+	switch method {
+	case "owner.ready":
+		result, err = o.ready(ctx, raw)
+	case "session_end":
+		result, err = o.sessionEnd(ctx, raw)
+	case "owner.drain":
+		result, err = o.drain(ctx, raw)
+	case "tool.call":
+		result, err = o.toolCall(ctx, raw)
+	default:
+		return nil, pifamily.NewBridgeCallError("method_not_found", "Pi interactive bridge method is unavailable")
+	}
+	if err != nil {
+		return nil, err
+	}
+	body, err := json.Marshal(result)
+	if err != nil {
+		return nil, err
+	}
+	return body, nil
+}
+
+func (o *interactiveOwner) ready(ctx context.Context, raw json.RawMessage) (any, error) {
+	var request interactiveReadyRequest
+	if err := decodeInteractiveParams(raw, &request); err != nil || request.Topology != interactiveTopology ||
+		request.Directory != o.directory || !validEntryID(request.SessionID) || !validInteractiveText(request.Name, 4096) {
+		return nil, o.protocolFailure("invalid Pi owner.ready", err)
+	}
+	bridge := o.currentBridge()
+	if bridge == nil {
+		return nil, o.protocolFailure("Pi bridge is unavailable", nil)
+	}
+	var native interactiveDescribeResult
+	if err := bridge.Call(ctx, "native.describe", map[string]string{"session_id": request.SessionID}, &native); err != nil {
+		return nil, o.protocolFailure("Pi native description failed", err)
+	}
+	// owner.ready is an event snapshot. A native rename can complete while the
+	// nested describe call is in flight, so describe is the current metadata
+	// authority once its session identity still matches this ready event.
+	if native.SessionID != request.SessionID || !validInteractiveText(native.Name, 4096) || !validInteractiveCWD(native.CWD) {
+		return nil, o.protocolFailure("Pi native description contradicted owner.ready", nil)
+	}
+	if err := o.acquire(ctx); err != nil {
+		return nil, err
+	}
+	defer o.release()
+	if err := o.publish(ctx, request.SessionID, native.Name, native.CWD); err != nil {
+		return nil, o.protocolFailure("Pi public identity failed", err)
+	}
+	return map[string]string{"session_id": request.SessionID}, nil
+}
+
+func (o *interactiveOwner) sessionEnd(ctx context.Context, raw json.RawMessage) (any, error) {
+	var request interactiveEndRequest
+	if err := decodeInteractiveParams(raw, &request); err != nil || request.Topology != interactiveTopology ||
+		!validEntryID(request.SessionID) || !slices.Contains([]string{"quit", "reload", "new", "resume", "fork"}, request.Reason) {
+		return nil, o.protocolFailure("invalid Pi session_end", err)
+	}
+	if err := o.acquire(ctx); err != nil {
+		return nil, err
+	}
+	defer o.release()
+	o.mu.Lock()
+	if o.ending || o.sessionID != request.SessionID || o.conn == nil {
+		o.mu.Unlock()
+		return nil, o.protocolFailure("Pi session_end does not own the current session", nil)
+	}
+	conn := o.conn
+	o.conn = nil
+	o.sessionID, o.name, o.cwd = "", "", ""
+	o.queue, o.queueBytes = nil, 0
+	o.mu.Unlock()
+	_ = conn.Close()
+	return map[string]string{"session_id": request.SessionID}, nil
+}
+
+func (o *interactiveOwner) toolCall(ctx context.Context, raw json.RawMessage) (any, error) {
+	var request interactiveToolRequest
+	if err := decodeInteractiveParams(raw, &request); err != nil || !validEntryID(request.SessionID) ||
+		!validEntryID(request.CallID) || request.Action == "" || request.Arguments == nil || !json.Valid(request.Arguments) {
+		return nil, o.protocolFailure("invalid Pi tool.call", err)
+	}
+	o.mu.Lock()
+	conn, generation := o.conn, o.generation
+	current := !o.ending && o.sessionID == request.SessionID && conn != nil
+	o.mu.Unlock()
+	if !current {
+		return nil, pifamily.NewBridgeCallError("stale_session", "Pi tool call does not belong to the current session")
+	}
+	caller := kit.NewCaller(func(callCtx context.Context, method string, params any) (json.RawMessage, error) {
+		return o.callPublic(callCtx, request.SessionID, conn, generation, method, params)
+	})
+	result, err := caller.Action(ctx, request.Action, request.Arguments)
+	if err != nil {
+		return nil, pifamily.NewBridgeCallError("tool_error", err.Error())
+	}
+	o.mu.Lock()
+	current = !o.ending && o.sessionID == request.SessionID && o.conn == conn && o.generation == generation
+	o.mu.Unlock()
+	if !current {
+		return nil, pifamily.NewBridgeCallError("stale_session", "Pi tool call crossed a native owner generation")
+	}
+	return struct {
+		SessionID string          `json:"session_id"`
+		CallID    string          `json:"call_id"`
+		Result    json.RawMessage `json:"result"`
+	}{request.SessionID, request.CallID, result}, nil
+}
+
+func (o *interactiveOwner) drain(ctx context.Context, raw json.RawMessage) (any, error) {
+	var request interactiveDrainRequest
+	if err := decodeInteractiveParams(raw, &request); err != nil || !validEntryID(request.SessionID) ||
+		(request.Witness != "agent_settled" && request.Witness != "before_agent_start") {
+		return nil, o.protocolFailure("invalid Pi owner.drain", err)
+	}
+	if err := o.acquire(ctx); err != nil {
+		return nil, err
+	}
+	defer o.release()
+	drained := 0
+	for {
+		o.mu.Lock()
+		if o.ending || o.sessionID != request.SessionID || o.conn == nil {
+			o.mu.Unlock()
+			return nil, o.protocolFailure("Pi drain does not belong to the current session", nil)
+		}
+		if len(o.queue) == 0 {
+			o.mu.Unlock()
+			break
+		}
+		delivery := o.queue[0]
+		o.mu.Unlock()
+		accepted, err := o.appendNative(ctx, request.SessionID, delivery.messageID, delivery.body)
+		if err != nil {
+			return nil, o.protocolFailure("Pi queued delivery failed", err)
+		}
+		if !accepted {
+			break
+		}
+		o.mu.Lock()
+		if len(o.queue) == 0 || o.queue[0].messageID != delivery.messageID || o.sessionID != request.SessionID {
+			o.mu.Unlock()
+			return nil, o.protocolFailure("Pi delivery queue changed during drain", nil)
+		}
+		o.queue = o.queue[1:]
+		o.queueBytes -= delivery.bytes
+		o.mu.Unlock()
+		drained++
+	}
+	return struct {
+		SessionID string `json:"session_id"`
+		Drained   int    `json:"drained"`
+	}{request.SessionID, drained}, nil
+}
+
+func (o *interactiveOwner) publish(ctx context.Context, sessionID, nativeName, cwd string) error {
+	o.mu.Lock()
+	if o.ending {
+		o.mu.Unlock()
+		return context.Canceled
+	}
+	conn, currentID, first := o.conn, o.sessionID, !o.everReady
+	if currentID != "" && currentID != sessionID {
+		o.mu.Unlock()
+		return errors.New("Pi owner.ready replaced a session without session_end")
+	}
+	name := nativeName
+	if first && name == "" {
+		name = o.initialName
+	}
+	o.mu.Unlock()
+	identity := kit.PeerIdentity{Protocol: 1, Product: Product, SessionID: sessionID, Name: name, Groups: slices.Clone(o.groups), Info: map[string]any{"cwd": cwd}}
+	if conn == nil {
+		return o.connectPublic(ctx, identity)
+	}
+	var response json.RawMessage
+	return conn.CallObserved(ctx, "session.hello", identity, &response, func() error {
+		o.mu.Lock()
+		defer o.mu.Unlock()
+		if o.ending || o.conn != conn || o.sessionID != sessionID {
+			return errors.New("Pi public identity changed before rehello")
+		}
+		o.name, o.cwd, o.everReady = name, cwd, true
+		return nil
+	})
+}
+
+func (o *interactiveOwner) connectPublic(ctx context.Context, identity kit.PeerIdentity) error {
+	fd, err := (&net.Dialer{}).DialContext(ctx, "unix", o.socket)
+	if err != nil {
+		return err
+	}
+	assigned := make(chan struct{})
+	var conn *kit.Connection
+	generation := o.nextGeneration()
+	conn = kit.NewConnection(fd, func(callCtx context.Context, request *kit.Request) {
+		<-assigned
+		o.handlePublic(callCtx, conn, generation, request)
+	})
+	close(assigned)
+	var response json.RawMessage
+	err = conn.CallObserved(ctx, "session.hello", identity, &response, func() error {
+		o.mu.Lock()
+		defer o.mu.Unlock()
+		if o.ending || o.conn != nil || o.sessionID != "" {
+			return errors.New("Pi public owner changed before hello")
+		}
+		o.conn, o.sessionID, o.name, o.cwd = conn, identity.SessionID, identity.Name, identity.Info["cwd"].(string)
+		o.everReady = true
+		o.readyOnce.Do(func() { close(o.readySignal) })
+		return nil
+	})
+	if err != nil {
+		_ = conn.Close()
+		return err
+	}
+	o.work.Add(1)
+	go func() {
+		defer o.work.Done()
+		o.watchPublic(conn, generation)
+	}()
+	return nil
+}
+
+func (o *interactiveOwner) nextGeneration() uint64 {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.generation++
+	return o.generation
+}
+
+func (o *interactiveOwner) watchPublic(conn *kit.Connection, generation uint64) {
+	<-conn.Done()
+	o.mu.Lock()
+	unexpected := !o.ending && o.conn == conn && o.generation == generation
+	if unexpected {
+		o.conn = nil
+	}
+	o.mu.Unlock()
+	if unexpected {
+		o.fail(errors.New("Sessionbus Pi owner connection ended"))
+	}
+}
+
+func (o *interactiveOwner) handlePublic(ctx context.Context, conn *kit.Connection, generation uint64, request *kit.Request) {
+	o.mu.Lock()
+	if o.ending || o.conn != conn || o.generation != generation {
+		o.mu.Unlock()
+		_ = conn.Close()
+		return
+	}
+	select {
+	case o.slots <- struct{}{}:
+	default:
+		o.mu.Unlock()
+		_ = conn.Close()
+		o.fail(errors.New("Pi public request capacity exhausted"))
+		return
+	}
+	o.work.Add(1)
+	o.mu.Unlock()
+	go func() {
+		defer o.work.Done()
+		defer func() { <-o.slots }()
+		var responseErr error
+		switch request.Method {
+		case "session.superseded":
+			responseErr = conn.Result(request, struct{}{})
+			o.fail(errors.New("Pi public session was superseded"))
+		case "message.deliver":
+			delivery, ok := request.Params.(*kit.DeliveryRequest)
+			if !ok {
+				responseErr = errors.New("invalid Pi delivery parameters")
+				break
+			}
+			receipt, err := o.deliver(ctx, generation, *delivery)
+			if err != nil {
+				responseErr = conn.Error(request, -32603, "Pi native delivery failed; no replay")
+				if !errors.Is(err, errInteractiveDeliveryCanceled) {
+					o.fail(err)
+				}
+			} else {
+				responseErr = conn.Result(request, receipt)
+			}
+		default:
+			responseErr = conn.Error(request, -32601, nil)
+		}
+		if responseErr != nil {
+			_ = conn.Close()
+			// A request canceled before queue admission or a native call has no
+			// uncertain side effect. Connection loss is handled by watchPublic;
+			// it need not turn that canceled request into a second owner failure.
+			if ctx.Err() == nil {
+				o.fail(responseErr)
+			}
+		}
+	}()
+}
+
+func (o *interactiveOwner) deliver(ctx context.Context, generation uint64, request kit.DeliveryRequest) (kit.DeliveryReceipt, error) {
+	body, err := host.RenderNativeMessage(request)
+	if err != nil {
+		return kit.DeliveryReceipt{}, err
+	}
+	if err = o.acquire(ctx); err != nil {
+		if ctx.Err() != nil {
+			return kit.DeliveryReceipt{}, fmt.Errorf("%w: %v", errInteractiveDeliveryCanceled, ctx.Err())
+		}
+		return kit.DeliveryReceipt{}, err
+	}
+	defer o.release()
+	if err = ctx.Err(); err != nil {
+		return kit.DeliveryReceipt{}, fmt.Errorf("%w: %v", errInteractiveDeliveryCanceled, err)
+	}
+	o.mu.Lock()
+	if o.ending || o.generation != generation || o.conn == nil || o.sessionID == "" {
+		o.mu.Unlock()
+		return kit.DeliveryReceipt{}, errors.New("Pi delivery does not belong to the current public session")
+	}
+	sessionID := o.sessionID
+	queued := len(o.queue) != 0
+	o.mu.Unlock()
+	if queued {
+		if err = o.queueDelivery(ctx, generation, sessionID, request.MessageID, body); err != nil {
+			return kit.DeliveryReceipt{}, err
+		}
+		return kit.DeliveryReceipt{Disposition: "queued_for_next_turn"}, nil
+	}
+	accepted, err := o.appendNative(ctx, sessionID, request.MessageID, body)
+	if err != nil {
+		return kit.DeliveryReceipt{}, err
+	}
+	if accepted {
+		return kit.DeliveryReceipt{Disposition: "written"}, nil
+	}
+	if err = o.queueDelivery(ctx, generation, sessionID, request.MessageID, body); err != nil {
+		return kit.DeliveryReceipt{}, err
+	}
+	return kit.DeliveryReceipt{Disposition: "queued_for_next_turn"}, nil
+}
+
+func (o *interactiveOwner) queueDelivery(ctx context.Context, generation uint64, sessionID, messageID, body string) error {
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("%w: %v", errInteractiveDeliveryCanceled, err)
+	}
+	item := interactiveQueuedDelivery{messageID: messageID, body: body, bytes: len(messageID) + len(body)}
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if o.ending || o.generation != generation || o.sessionID != sessionID || o.conn == nil {
+		return errors.New("Pi session ended before delivery could be queued")
+	}
+	if len(o.queue) >= maxInteractiveQueueItems || item.bytes > maxInteractiveQueueBytes-o.queueBytes {
+		return errors.New("Pi delivery queue is full")
+	}
+	o.queue = append(o.queue, item)
+	o.queueBytes += item.bytes
+	return nil
+}
+
+func (o *interactiveOwner) appendNative(ctx context.Context, sessionID, messageID, body string) (bool, error) {
+	if !validEntryID(sessionID) || !validOpaqueMessageID(messageID) || !validInteractiveText(body, maxInteractiveTextBytes) {
+		return false, errors.New("invalid Pi native append")
+	}
+	bridge := o.currentBridge()
+	if bridge == nil {
+		return false, errors.New("Pi bridge is unavailable")
+	}
+	var result interactiveAppendResult
+	if err := bridge.Call(ctx, "native.append", interactiveAppendRequest{sessionID, messageID, body}, &result); err != nil {
+		return false, err
+	}
+	if result.SessionID != sessionID || result.MessageID != messageID {
+		return false, errors.New("Pi native append response changed identity")
+	}
+	if result.Accepted {
+		if !validEntryID(result.EntryID) || result.Reason != "" {
+			return false, errors.New("Pi native append acknowledgement is invalid")
+		}
+		return true, nil
+	}
+	if result.Reason != "busy" || result.EntryID != "" {
+		return false, errors.New("Pi native append rejection is invalid")
+	}
+	return false, nil
+}
+
+func (o *interactiveOwner) callPublic(ctx context.Context, sessionID string, conn *kit.Connection, generation uint64, method string, params any) (json.RawMessage, error) {
+	o.mu.Lock()
+	current := !o.ending && conn != nil && o.conn == conn && o.generation == generation && o.sessionID == sessionID
+	o.mu.Unlock()
+	if !current {
+		return nil, errors.New("Pi public caller does not belong to the current session")
+	}
+	var result json.RawMessage
+	if err := conn.Call(ctx, method, params, &result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func (o *interactiveOwner) acquire(ctx context.Context) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-o.ctx.Done():
+		if err := o.Err(); err != nil {
+			return err
+		}
+		return context.Canceled
+	case <-o.gate:
+		return nil
+	}
+}
+
+func (o *interactiveOwner) release() { o.gate <- struct{}{} }
+
+func (o *interactiveOwner) currentBridge() *pifamily.Bridge {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return o.bridge
+}
+
+func (o *interactiveOwner) protocolFailure(message string, cause error) error {
+	err := errors.New(message)
+	if cause != nil {
+		err = fmt.Errorf("%s: %w", message, cause)
+	}
+	o.fail(err)
+	return pifamily.NewBridgeCallError("protocol_error", message)
+}
+
+func decodeInteractiveParams(raw json.RawMessage, result any) error {
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(result); err != nil {
+		return err
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		return errors.New("Pi bridge parameters contain trailing JSON")
+	}
+	return nil
+}
+
+func validInteractiveText(value string, limit int) bool {
+	return utf8.ValidString(value) && len(value) <= limit && !strings.ContainsRune(value, 0)
+}
+
+func validOpaqueMessageID(value string) bool {
+	return value != "" && utf8.ValidString(value) && len(value) <= 256
+}
+
+func validInteractiveCWD(value string) bool {
+	return filepath.IsAbs(value) && validInteractiveText(value, 32<<10)
+}
