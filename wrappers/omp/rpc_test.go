@@ -365,6 +365,53 @@ func TestNativeRPCPromptPreservesTypedImmediateAgentOutcome(t *testing.T) {
 	}
 }
 
+func TestNativeRPCInvalidPromptStartReleasesAlreadyAcceptedLateError(t *testing.T) {
+	rpc, peer := newNativeRPCTest(t, nil, nativeRPCLimits{})
+	id, pending, write, err := rpc.admitPrompt(nativeRPCTestContext(t), map[string]any{"message": "owned"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := peer.read(t)
+	if got := nativeRPCField(t, request, "id"); got != id {
+		t.Fatalf("prompt id = %q, want %q", got, id)
+	}
+	if err = waitNativeRPCWrite(nativeRPCTestContext(t), write); err != nil {
+		t.Fatal(err)
+	}
+
+	// Hold the initial result in its buffered channel while the reader accepts
+	// the legal late error for the same prompt correlation.
+	peer.write(t, `{"id":"`+id+`","type":"response","command":"prompt","success":true,"data":{}}`)
+	peer.write(t, `{"id":"`+id+`","type":"response","command":"prompt","success":false,"error":"late failure"}`)
+	waitNativeRPCPromptState(t, rpc, pending, true, true)
+
+	completed := <-pending.result
+	prompt, submitted, err := rpc.completePromptStart(id, pending, completed)
+	if !submitted || prompt != nil || err == nil || err.Error() != "invalid OMP native prompt response data" {
+		t.Fatalf("invalid prompt start = prompt %#v, submitted %v, error %v", prompt, submitted, err)
+	}
+	waitNativeRPCStats(t, rpc, nativeRPCStats{})
+}
+
+func waitNativeRPCPromptState(t *testing.T, rpc *nativeRPC, pending *nativeRPCPending, responded, late bool) {
+	t.Helper()
+	ctx := nativeRPCTestContext(t)
+	for {
+		rpc.mu.Lock()
+		gotResponded, gotLate := pending.responded, pending.lateSet
+		rpc.mu.Unlock()
+		if gotResponded == responded && gotLate == late {
+			return
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatalf("prompt state = responded %v, late %v; want %v, %v", gotResponded, gotLate, responded, late)
+		default:
+			runtime.Gosched()
+		}
+	}
+}
+
 func TestNativeRPCPromptTerminalFinishRejectsLaterResponse(t *testing.T) {
 	rpc, peer := newNativeRPCTest(t, nil, nativeRPCLimits{})
 	result := make(chan *nativePrompt, 1)

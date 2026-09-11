@@ -336,11 +336,23 @@ func (rpc *nativeRPC) StartPrompt(ctx context.Context, message string) (*nativeP
 func (rpc *nativeRPC) completePromptStart(id string, pending *nativeRPCPending, completed nativeRPCResult) (*nativePrompt, bool, error) {
 	agentInvoked, known, err := rpc.consumePromptStart(completed)
 	if err != nil {
+		var late nativeRPCResult
+		var lateSet bool
 		rpc.mu.Lock()
 		if rpc.pending[id] == pending {
 			delete(rpc.pending, id)
+		} else if pending.lateSet {
+			late = pending.late
+			lateSet = true
 		}
 		rpc.mu.Unlock()
+		if lateSet {
+			// The initial response remains the visible protocol failure. A late
+			// native error may already have won the correlation while that
+			// response was being decoded, so release its retained frame even
+			// though no nativePrompt is returned to own Finish.
+			_ = rpc.consumeResult(late, nil)
+		}
 		return nil, true, err
 	}
 	return &nativePrompt{
