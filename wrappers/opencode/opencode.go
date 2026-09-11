@@ -61,7 +61,7 @@ func New(socket, provisional, executable string) *Wrapper {
 func (p *Wrapper) SetCaller(c *kit.Caller) { p.caller = c }
 func (p *Wrapper) SetShutdown(f func())    { p.shutdown = f }
 func (*Wrapper) Hello(context.Context) (kit.HelloDescription, error) {
-	return kit.HelloDescription{Product: Product, Version: "1.18.29", SupportsMessageRun: true, SupportedOpenFields: []string{"cwd", "permission_mode", "model", "arguments"}, ExtraArguments: []kit.ExtraArgument{{Name: "--agent", Description: "Native agent", TakesValue: true}, {Name: "--print-logs", Description: "Print native logs"}, {Name: "--log-level", Description: "Native log level", TakesValue: true}, {Name: "--mdns", Description: "Native mDNS discovery"}, {Name: "--mdns-domain", Description: "Native mDNS domain", TakesValue: true}, {Name: "--cors", Description: "Native allowed CORS origin", TakesValue: true}}}, nil
+	return kit.HelloDescription{Product: Product, SupportsMessageRun: true, SupportedOpenFields: []string{"cwd", "permission_mode", "model", "arguments"}, ExtraArguments: []kit.ExtraArgument{{Name: "--agent", Description: "Native agent", TakesValue: true}, {Name: "--print-logs", Description: "Print native logs"}, {Name: "--log-level", Description: "Native log level", TakesValue: true}, {Name: "--mdns", Description: "Native mDNS discovery"}, {Name: "--mdns-domain", Description: "Native mDNS domain", TakesValue: true}, {Name: "--cors", Description: "Native allowed CORS origin", TakesValue: true}}}, nil
 }
 func (p *Wrapper) Open(ctx context.Context, request kit.OpenRequest) (result kit.OpenResult, err error) {
 	if !filepath.IsAbs(p.executable) {
