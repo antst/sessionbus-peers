@@ -194,7 +194,7 @@ func (p *Wrapper) executeRun(ctx context.Context, run *kit.Run, input kit.RunInp
 		if cause.Name == "MessageAbortedError" {
 			result.Outcome = "interrupted"
 		}
-	} else if final.Info.Time.Completed == nil || final.Info.Finish == "" {
+	} else if final.Info.Time.Completed == nil || final.Info.Finish == "" || final.Info.Finish == "tool-calls" || final.Info.Finish == "unknown" {
 		if interrupted {
 			return kit.TurnResult{Outcome: "interrupted"}, nil
 		}

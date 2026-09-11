@@ -164,7 +164,10 @@ func fakeNativeHTTP() {
 			if interrupted && text == "hold-summary" {
 				answer.Info.Summary = true
 			}
-			if interrupted && text != "hold-summary" {
+			if interrupted && text == "hold-toolcalls" {
+				answer.Info.Finish = "tool-calls"
+			}
+			if interrupted && text != "hold-summary" && text != "hold-toolcalls" {
 				answer.Info.Error = json.RawMessage(`{"name":"MessageAbortedError","data":{"message":"aborted"}}`)
 			}
 			history = append(history, answer)

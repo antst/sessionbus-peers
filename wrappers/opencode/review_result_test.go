@@ -27,3 +27,13 @@ func TestReviewHistoryRequiresNativeUserParentInOwnedRange(t *testing.T) {
 		})
 	}
 }
+
+func TestReviewCancelledRunDoesNotCompleteAtToolCallStep(t *testing.T) {
+	f := newWorkerFixture(t)
+	f.start(t, 1, "hold-toolcalls")
+	f.call(t, "turn.interrupt", map[string]any{"session_id": "ses_native@local"}, nil)
+	r := f.wait(t, 1)
+	if r.Result == nil || r.Result.Outcome != "interrupted" {
+		t.Fatalf("cancelled execution promoted tool-call step to completion: %+v", r.Result)
+	}
+}
