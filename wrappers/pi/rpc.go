@@ -366,25 +366,28 @@ func (rpc *nativeRPC) CancelUI(ctx context.Context, requestID string) error {
 	write := newNativeRPCWrite(body)
 
 	rpc.outboundMu.Lock()
-	defer rpc.outboundMu.Unlock()
 	if err = ctx.Err(); err != nil {
+		rpc.outboundMu.Unlock()
 		return err
 	}
 	rpc.mu.Lock()
 	if rpc.stopped || rpc.inputEnding {
 		err = rpc.connectionErrorLocked()
 		rpc.mu.Unlock()
+		rpc.outboundMu.Unlock()
 		return err
 	}
 	if rpc.pendingWrites >= rpc.limits.maxPendingWrites ||
 		rpc.retainedBytes+rpc.pendingBytes > rpc.limits.maxRetainedBytes-len(body) {
 		rpc.mu.Unlock()
+		rpc.outboundMu.Unlock()
 		return errNativeRPCBusy
 	}
 	rpc.pendingWrites++
 	rpc.pendingBytes += len(body)
 	rpc.writes <- write
 	rpc.mu.Unlock()
+	rpc.outboundMu.Unlock()
 
 	if err = waitNativeRPCWrite(ctx, write); err != nil {
 		// Cancellation while an admitted write is unresolved leaves its byte
