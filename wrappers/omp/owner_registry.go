@@ -1025,6 +1025,11 @@ func (registry *OwnerRegistry) waitPreflight(ctx context.Context, token, session
 		}
 		registry.mu.Lock()
 		state := registry.bindings[token]
+		if registry.ctx.Err() != nil {
+			err := errors.Join(errors.New("OMP owner registry ended while awaiting preflight"), registry.err)
+			registry.mu.Unlock()
+			return "", err
+		}
 		if registry.ending || state == nil || !state.admitted || state.SessionID != sessionID {
 			registry.mu.Unlock()
 			return "", pifamily.NewBridgeCallError("stale_owner", "OMP preflight does not own a current binding")

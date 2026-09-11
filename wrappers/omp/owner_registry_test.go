@@ -1279,6 +1279,43 @@ func TestOwnerRegistryCanceledPreflightWaitPreservesArrivedEvidence(t *testing.T
 	}
 }
 
+func TestOwnerRegistryFailedPreflightWaitPreservesArrivedEvidence(t *testing.T) {
+	directory := t.TempDir()
+	caller := kit.NewCaller(func(context.Context, string, any) (json.RawMessage, error) { return json.RawMessage(`{}`), nil })
+	fixture := &ownerNativeFixture{descriptions: map[string]ownerDescribeResult{
+		"main-token": {OwnerToken: "main-token", SessionID: "main-session", CWD: "/work/main"},
+	}}
+	registry, native := ownerRegistryPair(t, OwnerRegistryOptions{
+		Topology: ownerTopologyLane, Socket: filepath.Join(directory, "bus.sock"), Directory: directory, PrimaryCaller: caller,
+	}, fixture)
+	if err := native.Call(ownerTestContext(t), "owner.ready", ownerReadyRequest{
+		Topology: ownerTopologyLane, Directory: directory, Scope: ownerScopePrimary, Mode: ownerModeRPC,
+		OwnerToken: "main-token", SessionID: "main-session",
+	}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := registry.recordPreflight(mustOwnerJSON(t, ownerPreflightRequest{
+		OwnerToken: "main-token", SessionID: "main-session", ReportSequence: 1,
+		RunToken: "run-one", Prompt: "owned prompt",
+	})); err != nil {
+		t.Fatal(err)
+	}
+	registry.mu.Lock()
+	state := registry.bindings["main-token"]
+	retained := state.retainedBytes
+	registry.mu.Unlock()
+	registry.fail(errors.New("controlled registry loss"))
+	if _, err := registry.waitPreflight(ownerTestContext(t), "main-token", "main-session", "owned prompt"); err == nil || !strings.Contains(err.Error(), "controlled registry loss") {
+		t.Fatalf("failed preflight wait = %v", err)
+	}
+	registry.mu.Lock()
+	defer registry.mu.Unlock()
+	if state.retainedBytes != retained || state.preflights["run-one"] != "owned prompt" ||
+		!reflect.DeepEqual(state.preflightOrder, []string{"run-one"}) {
+		t.Fatalf("failed evidence = retained %d/%d, preflights %v, order %v", state.retainedBytes, retained, state.preflights, state.preflightOrder)
+	}
+}
+
 func TestOwnerRegistryBoundsReorderedReportPayloadBytes(t *testing.T) {
 	directory := t.TempDir()
 	caller := kit.NewCaller(func(context.Context, string, any) (json.RawMessage, error) { return json.RawMessage(`{}`), nil })
