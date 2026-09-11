@@ -348,13 +348,16 @@ func (o *interactiveOwner) publish(ctx context.Context, sessionID, nativeName, c
 		o.mu.Unlock()
 		return context.Canceled
 	}
-	conn, currentID, first := o.conn, o.sessionID, !o.everReady
+	conn, currentID := o.conn, o.sessionID
 	if currentID != "" && currentID != sessionID {
 		o.mu.Unlock()
 		return errors.New("Pi owner.ready replaced a session without session_end")
 	}
 	name := nativeName
-	if first && name == "" {
+	// Every native replacement may begin without a session title. The public
+	// protocol requires a nonempty name, so retain the explicit wrapper name
+	// as the fallback until Pi publishes a native title for that session.
+	if name == "" {
 		name = o.initialName
 	}
 	o.mu.Unlock()
