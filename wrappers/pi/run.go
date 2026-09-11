@@ -526,9 +526,14 @@ func (p *Wrapper) startNativeTurn(ctx context.Context, run *sessionkit.Run, prom
 	turn := newPiNativeTurn(p, run, pre.Leaf, cursor, prompt)
 	p.active = turn
 	p.mu.Unlock()
-	if err = p.rpc.Call(ctx, "prompt", map[string]any{"message": prompt}, nil); err != nil {
+	submitted, callErr := p.rpc.callWithAdmission(ctx, "prompt", map[string]any{"message": prompt}, nil)
+	if callErr != nil {
+		if submitted {
+			turn.fail(callErr)
+			return turn, nil
+		}
 		p.finishNativeTurn(turn)
-		return nil, err
+		return nil, callErr
 	}
 	if err = context.Cause(ctx); err != nil {
 		turn.fail(err)

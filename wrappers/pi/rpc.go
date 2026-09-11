@@ -186,44 +186,52 @@ func (rpc *nativeRPC) Stats() nativeRPCStats {
 // Call writes one correlated Pi command. fields must not replace the owned id
 // or type. A nil result accepts a successful response without data.
 func (rpc *nativeRPC) Call(ctx context.Context, command string, fields map[string]any, result any) error {
+	_, err := rpc.callWithAdmission(ctx, command, fields, result)
+	return err
+}
+
+// callWithAdmission reports whether the command crossed the atomic writer
+// queue boundary. Its caller can then distinguish a pre-write rejection from
+// a submitted command whose response or write disposition became uncertain.
+func (rpc *nativeRPC) callWithAdmission(ctx context.Context, command string, fields map[string]any, result any) (bool, error) {
 	if ctx == nil {
-		return errors.New("Pi native RPC call requires context")
+		return false, errors.New("Pi native RPC call requires context")
 	}
 	if err := ctx.Err(); err != nil {
-		return err
+		return false, err
 	}
 	if err := validNativeRPCCommand(command); err != nil {
-		return err
+		return false, err
 	}
 	id, pending, write, err := rpc.admitCall(ctx, command, fields)
 	if err != nil {
-		return err
+		return false, err
 	}
 	completed, responded, writeErr := waitNativeRPCAdmission(ctx, write, pending)
 	if responded {
-		return rpc.consumeResult(completed, result)
+		return true, rpc.consumeResult(completed, result)
 	}
 	if writeErr != nil {
 		if completed, ok := rpc.abandonPending(id, pending); ok {
-			return rpc.consumeResult(completed, result)
+			return true, rpc.consumeResult(completed, result)
 		}
 		// A cancelled or failed write can be partial. Retire the transport so
 		// an uncertain command cannot outlive its owner.
 		if ctx.Err() != nil {
 			rpc.stop(ctx.Err(), false)
-			return ctx.Err()
+			return true, ctx.Err()
 		}
-		return writeErr
+		return true, writeErr
 	}
 
 	select {
 	case completed := <-pending.result:
-		return rpc.consumeResult(completed, result)
+		return true, rpc.consumeResult(completed, result)
 	case <-ctx.Done():
 		if completed, ok := rpc.abandonPending(id, pending); ok {
-			return rpc.consumeResult(completed, result)
+			return true, rpc.consumeResult(completed, result)
 		}
-		return ctx.Err()
+		return true, ctx.Err()
 	}
 }
 

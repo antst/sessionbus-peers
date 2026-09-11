@@ -268,6 +268,29 @@ func TestNativeRPCCancellationBeforeAtomicAdmissionWritesNothing(t *testing.T) {
 	}
 }
 
+func TestNativeRPCReportsAtomicQueueAdmission(t *testing.T) {
+	rpc, _ := newNativeRPCTest(t, nil, nativeRPCLimits{})
+	base, cancel := context.WithCancel(context.Background())
+	cancelled := &observedCancellationContext{Context: base, checked: make(chan struct{})}
+	rpc.outboundMu.Lock()
+	type outcome struct {
+		submitted bool
+		err       error
+	}
+	result := make(chan outcome, 1)
+	go func() {
+		submitted, err := rpc.callWithAdmission(cancelled, "prompt", map[string]any{"message": "must not write"}, nil)
+		result <- outcome{submitted, err}
+	}()
+	<-cancelled.checked
+	cancel()
+	rpc.outboundMu.Unlock()
+	got := <-result
+	if got.submitted || !errors.Is(got.err, context.Canceled) {
+		t.Fatalf("pre-admission cancellation = submitted %v, error %v", got.submitted, got.err)
+	}
+}
+
 func TestNativeRPCCompletedWriteWinsSimultaneousCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	write := newNativeRPCWrite([]byte("owned"))

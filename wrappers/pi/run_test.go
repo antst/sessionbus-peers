@@ -123,6 +123,13 @@ func TestPiSDKInterruptCancelsHeldNativeAdmission(t *testing.T) {
 	worker := sessionkit.NewWorker(wrapper)
 	wrapper.SetCaller(worker.Caller())
 	wrapper.SetShutdown(worker.Shutdown)
+	receipt, err := wrapper.Deliver(context.Background(), sessionkit.DeliveryRequest{
+		MessageID: "staged-before-interrupt", Body: "queued exactly once",
+		From: sessionkit.DeliverySource{SessionID: "sender@local", Product: "fixture"},
+	}, nil)
+	if err != nil || receipt.Disposition != "queued_for_next_turn" {
+		t.Fatalf("staged receipt = %+v, %v", receipt, err)
+	}
 	served := make(chan error, 1)
 	go func() { served <- worker.Serve(context.Background()) }()
 	connection, err := listener.Accept()
@@ -261,6 +268,9 @@ func TestPiSDKInterruptCancelsHeldNativeAdmission(t *testing.T) {
 	turn.mu.Unlock()
 	if preflight || started != 0 || nativeStarts != 0 {
 		t.Fatalf("late native admission = preflight %v private %d wire %d", preflight, started, nativeStarts)
+	}
+	if queued := wrapper.handoff.Claim(); len(queued) != 0 {
+		t.Fatalf("uncertain submitted prompt became replayable: %#v", queued)
 	}
 	select {
 	case <-wrapper.process.done:
