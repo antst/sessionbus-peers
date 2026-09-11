@@ -360,6 +360,71 @@ func TestPiCloseJoinsLossShutdownWork(t *testing.T) {
 	}
 }
 
+func TestPiConcurrentTransportAndHandlerLossDoesNotSelfJoin(t *testing.T) {
+	left, right := net.Pipe()
+	defer left.Close()
+	defer right.Close()
+	handlerEntered, reportHandlerLoss := make(chan struct{}), make(chan struct{})
+	wrapper := New("/socket", "provisional", "/native", "/extension")
+	wrapper.ctx, wrapper.cancel = context.WithCancelCause(context.Background())
+	wrapper.opened, wrapper.id = true, "native"
+	wrapper.SetCaller(sessionkit.NewCaller(func(_ context.Context, _ string, _ any) (json.RawMessage, error) {
+		close(handlerEntered)
+		<-reportHandlerLoss
+		wrapper.loseFromHandler(errors.New("handler loss"))
+		return nil, errors.New("controlled action failure")
+	}))
+	hostBridge, err := pifamily.NewBridge(left, pifamily.BridgeHost, wrapper.handleBridge, pifamily.BridgeLimits{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	nativeBridge, err := pifamily.NewBridge(right, pifamily.BridgeNative, nil, pifamily.BridgeLimits{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wrapper.bridge = hostBridge
+	ready := make(chan error, 2)
+	go func() { ready <- hostBridge.Ready(context.Background()) }()
+	go func() { ready <- nativeBridge.Ready(context.Background()) }()
+	if err = <-ready; err != nil {
+		t.Fatal(err)
+	}
+	if err = <-ready; err != nil {
+		t.Fatal(err)
+	}
+	callDone := make(chan error, 1)
+	go func() {
+		var result json.RawMessage
+		callDone <- nativeBridge.Call(context.Background(), "tool.call", map[string]any{
+			"session_id": "native", "call_id": "call", "action": "list", "arguments": map[string]any{},
+		}, &result)
+	}()
+	<-handlerEntered
+	lossDone := make(chan struct{})
+	go func() { wrapper.lose(errors.New("RPC loss")); close(lossDone) }()
+	for {
+		wrapper.mu.Lock()
+		losing := wrapper.losing
+		wrapper.mu.Unlock()
+		if losing {
+			break
+		}
+		runtime.Gosched()
+	}
+	close(reportHandlerLoss)
+	select {
+	case <-lossDone:
+	case <-time.After(time.Second):
+		t.Fatal("transport loss waited on its own active handler")
+	}
+	select {
+	case <-callDone:
+	case <-time.After(time.Second):
+		t.Fatal("native caller did not settle after joined loss")
+	}
+	_ = nativeBridge.Close()
+}
+
 func TestPiHelloAndLaneDeliveryPolicy(t *testing.T) {
 	wrapper := New("/socket", "provisional", "/native", "/extension")
 	hello, err := wrapper.Hello(context.Background())
