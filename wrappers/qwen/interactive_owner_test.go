@@ -49,7 +49,13 @@ func ownerFixture(t *testing.T, name string, delayedEvent ...bool) (*interactive
 		setFixtureRegistryProcess(&row, p)
 		data, e := json.Marshal(row)
 		must(t, e)
-		must(t, os.WriteFile(filepath.Join(home, "sessions", strconv.Itoa(p.pid)+".json"), data, 0600))
+		// Native registerSession publishes a complete sibling file by rename.
+		// Exposing the final pathname before its JSON invites an IN_CREATE read.
+		path := filepath.Join(home, "sessions", strconv.Itoa(p.pid)+".json")
+		temporary := path + ".tmp"
+		defer os.Remove(temporary)
+		must(t, os.WriteFile(temporary, data, 0600))
+		must(t, os.Rename(temporary, path))
 	}
 	t.Cleanup(b.End)
 	return b, history, registry
