@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"strings"
@@ -112,14 +113,32 @@ func TestPiOwnedInterruptJoinsAbortAndNativeTerminal(t *testing.T) {
 
 func TestPiSDKInterruptCancelsHeldNativeAdmission(t *testing.T) {
 	t.Run("staged execute", func(t *testing.T) {
-		testPiSDKInterruptCancelsHeldNativeAdmission(t, false)
+		testPiSDKInterruptCancelsHeldNativeAdmission(t, false, false)
 	})
 	t.Run("delivery seed", func(t *testing.T) {
-		testPiSDKInterruptCancelsHeldNativeAdmission(t, true)
+		testPiSDKInterruptCancelsHeldNativeAdmission(t, true, false)
+	})
+	t.Run("held", func(t *testing.T) {
+		testPiSDKInterruptCancelsHeldNativeAdmission(t, true, true)
 	})
 }
 
-func testPiSDKInterruptCancelsHeldNativeAdmission(t *testing.T, deliverySeed bool) {
+type heldPiInterruptProduct struct {
+	*Wrapper
+	called  chan struct{}
+	release chan struct{}
+	result  chan error
+}
+
+func (product *heldPiInterruptProduct) Interrupt(ctx context.Context, run *sessionkit.Run) error {
+	err := product.Wrapper.Interrupt(ctx, run)
+	close(product.called)
+	<-product.release
+	product.result <- err
+	return err
+}
+
+func testPiSDKInterruptCancelsHeldNativeAdmission(t *testing.T, deliverySeed, holdInterruptResponse bool) {
 	wrapper, cwd := newPiTestWrapper(t, "run-hold")
 	listener, err := net.Listen("unix", wrapper.socket)
 	if err != nil {
@@ -129,7 +148,21 @@ func testPiSDKInterruptCancelsHeldNativeAdmission(t *testing.T, deliverySeed boo
 	t.Setenv(host.SocketEnv, wrapper.socket)
 	t.Setenv(host.TokenEnv, "pi-worker-token")
 	t.Setenv(host.LocalKeyEnv, "")
-	worker := sessionkit.NewWorker(wrapper)
+	var callbacks sessionkit.WorkerCallbacks = wrapper
+	var held *heldPiInterruptProduct
+	heldReleased := false
+	if holdInterruptResponse {
+		held = &heldPiInterruptProduct{
+			Wrapper: wrapper, called: make(chan struct{}), release: make(chan struct{}), result: make(chan error, 1),
+		}
+		callbacks = held
+		t.Cleanup(func() {
+			if !heldReleased {
+				close(held.release)
+			}
+		})
+	}
+	worker := sessionkit.NewWorker(callbacks)
 	wrapper.SetCaller(worker.Caller())
 	wrapper.SetShutdown(worker.Shutdown)
 	if !deliverySeed {
@@ -243,12 +276,27 @@ func testPiSDKInterruptCancelsHeldNativeAdmission(t *testing.T, deliverySeed boo
 		}
 	}
 	request(3, "turn.interrupt", map[string]string{"session_id": "pi-fresh@local"})
-	deliveryAnswered, interrupted, ready := !deliverySeed, false, false
-	for !deliveryAnswered || !interrupted || !ready {
+	if held != nil {
+		<-held.called
+	}
+	inputAnswered, interrupted, ready := !deliverySeed, false, false
+	workerEOF := false
+	for !inputAnswered || !interrupted || !ready {
 		if err = connection.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
 			t.Fatal(err)
 		}
-		frame := read()
+		line, readErr := reader.ReadBytes('\n')
+		if readErr != nil {
+			if inputAnswered && ready && errors.Is(readErr, io.EOF) {
+				workerEOF = true
+				break
+			}
+			t.Fatalf("Worker ended before delivery and terminal ownership were proven: %v", readErr)
+		}
+		frame, decodeErr := protocol.DecodeFrame(line[:len(line)-1])
+		if decodeErr != nil {
+			t.Fatal(decodeErr)
+		}
 		switch {
 		case frame.Method == "turn.ready":
 			var terminal struct {
@@ -259,9 +307,10 @@ func testPiSDKInterruptCancelsHeldNativeAdmission(t *testing.T, deliverySeed boo
 				t.Fatalf("interrupted terminal = %s", frame.Params)
 			}
 			ack, encodeErr := protocol.ResultBytes(frame.ID, frame.Method, struct{}{})
-			if encodeErr == nil {
-				_, _ = connection.Write(ack)
+			if encodeErr != nil {
+				t.Fatal(encodeErr)
 			}
+			write(ack)
 			ready = true
 		case frame.ID == 3:
 			if frame.Error != nil {
@@ -275,11 +324,22 @@ func testPiSDKInterruptCancelsHeldNativeAdmission(t *testing.T, deliverySeed boo
 				!strings.Contains(receipt.Reason, errPiRunInterrupted.Error()) {
 				t.Fatalf("uncertain submitted delivery receipt = %+v, decoded %+v", frame, receipt)
 			}
-			deliveryAnswered = true
+			inputAnswered = true
 		default:
 			t.Fatalf("unexpected Worker frame = %+v", frame)
 		}
 	}
+	if held != nil {
+		if interrupted || !workerEOF {
+			t.Fatalf("held interrupt response = observed %v, EOF %v", interrupted, workerEOF)
+		}
+		close(held.release)
+		heldReleased = true
+		if interruptErr := <-held.result; interruptErr != nil {
+			t.Fatalf("held Pi interrupt callback = %v", interruptErr)
+		}
+	}
+	t.Logf("interrupt response observed before retirement: %v", interrupted)
 	_ = connection.SetReadDeadline(time.Time{})
 	select {
 	case <-worker.Closed():
