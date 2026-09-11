@@ -258,7 +258,7 @@ export class PrivateBridge {
 
     let write;
     try {
-      write = this.#send(frame, signal);
+      write = this.#send(frame);
     } catch (error) {
       if (signal?.aborted) {
         const reason = abortReason(signal);
@@ -272,8 +272,11 @@ export class PrivateBridge {
     this.nextOutboundID = sequence;
     this.pending.set(id, pending);
     try {
-      await write;
+      await this.#withAbort(write, signal, false);
     } catch (error) {
+      if (this.pending.get(id) !== pending) {
+        return this.#consumeResponse(await pending.promise);
+      }
       this.pending.delete(id);
       if (signal?.aborted) {
         const reason = abortReason(signal);
@@ -294,13 +297,7 @@ export class PrivateBridge {
     signal?.addEventListener("abort", cancel, { once: true });
     if (signal?.aborted) cancel();
     try {
-      const response = await pending.promise;
-      if (response?.bridgeResponse === true) {
-        this.retainedBytes -= response.bytes;
-        if (response.error) throw response.error;
-        return response.result;
-      }
-      return response;
+      return this.#consumeResponse(await pending.promise);
     } finally {
       signal?.removeEventListener("abort", cancel);
     }
@@ -313,6 +310,13 @@ export class PrivateBridge {
       pendingWrites: this.writes.size,
       retainedBytes: this.retainedBytes + this.pendingWriteBytes,
     };
+  }
+
+  #consumeResponse(response) {
+    if (response?.bridgeResponse !== true) return response;
+    this.retainedBytes -= response.bytes;
+    if (response.error) throw response.error;
+    return response.result;
   }
 
   async close() {

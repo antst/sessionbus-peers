@@ -272,7 +272,9 @@ func (bridge *Bridge) Call(ctx context.Context, method string, params, result an
 		return err
 	}
 	if err := waitBridgeWrite(ctx, write); err != nil {
-		bridge.abandonPending(id, pending)
+		if callResult, completed := bridge.abandonPending(id, pending); completed {
+			return bridge.consumeCallResult(callResult, result)
+		}
 		// The request may be partly written. Retire the connection so native work
 		// cannot outlive an uncertain pre-write cancellation boundary.
 		if ctx.Err() != nil {

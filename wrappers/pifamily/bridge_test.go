@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -525,6 +526,85 @@ func TestBridgeCancellationDuringPartialWriteRetiresAndJoins(t *testing.T) {
 	}
 }
 
+type bridgeHeldCompletionConn struct {
+	net.Conn
+	enabled atomic.Bool
+	held    atomic.Bool
+	wrote   chan struct{}
+	release chan struct{}
+}
+
+func (conn *bridgeHeldCompletionConn) Write(body []byte) (int, error) {
+	n, err := conn.Conn.Write(body)
+	if conn.enabled.Load() && conn.held.CompareAndSwap(false, true) {
+		close(conn.wrote)
+		<-conn.release
+	}
+	return n, err
+}
+
+func TestBridgeAcceptedResponseWinsCancellationBeforeWriteCompletion(t *testing.T) {
+	hostConn, raw := bridgeUnixPair(t)
+	heldConn := &bridgeHeldCompletionConn{
+		Conn: hostConn, wrote: make(chan struct{}), release: make(chan struct{}),
+	}
+	bridge, err := NewBridge(heldConn, BridgeHost, nil, BridgeLimits{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var releaseOnce sync.Once
+	release := func() { releaseOnce.Do(func() { close(heldConn.release) }) }
+	t.Cleanup(func() { release(); _ = raw.Close(); _ = bridge.Close() })
+	reader := bufio.NewReader(raw)
+	if _, err := reader.ReadString('\n'); err != nil {
+		t.Fatal(err)
+	}
+	writeRawFrame(t, raw, `{"version":1,"type":"hello","role":"native"}`)
+	if err := bridge.Ready(bridgeTestContext(t)); err != nil {
+		t.Fatal(err)
+	}
+	heldConn.enabled.Store(true)
+
+	callCtx, cancel := context.WithCancel(bridgeTestContext(t))
+	type response struct {
+		Value string `json:"value"`
+	}
+	result := make(chan struct {
+		value response
+		err   error
+	}, 1)
+	go func() {
+		var value response
+		err := bridge.Call(callCtx, "accepted", map[string]any{}, &value)
+		result <- struct {
+			value response
+			err   error
+		}{value, err}
+	}()
+	<-heldConn.wrote
+	request, err := reader.ReadString('\n')
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(request, `"id":"h:1"`) {
+		t.Fatalf("request = %s", request)
+	}
+	writeRawFrame(t, raw, `{"version":1,"type":"response","id":"h:1","result":{"value":"accepted"}}`)
+	waitBridgeAcceptedResponse(t, bridge)
+	cancel()
+	got := <-result
+	if got.err != nil || got.value.Value != "accepted" {
+		t.Fatalf("call result = %#v, %v", got.value, got.err)
+	}
+	select {
+	case <-bridge.Done():
+		t.Fatalf("accepted response cancellation retired bridge: %v", bridge.Err())
+	default:
+	}
+	release()
+	waitBridgeStats(t, bridge, BridgeStats{})
+}
+
 func newRawBridge(t *testing.T, handler BridgeHandler) (*Bridge, net.Conn, *bufio.Reader) {
 	t.Helper()
 	return newRawBridgeWithLimits(t, handler, BridgeLimits{})
@@ -575,6 +655,25 @@ func waitBridgeStats(t *testing.T, bridge *Bridge, want BridgeStats) {
 		select {
 		case <-ctx.Done():
 			t.Fatalf("bridge stats = %#v, want %#v", bridge.Stats(), want)
+		default:
+			runtime.Gosched()
+		}
+	}
+}
+
+func waitBridgeAcceptedResponse(t *testing.T, bridge *Bridge) {
+	t.Helper()
+	ctx := bridgeTestContext(t)
+	for {
+		bridge.mu.Lock()
+		accepted := len(bridge.pending) == 0 && bridge.retainedBytes > 0
+		bridge.mu.Unlock()
+		if accepted {
+			return
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatal("bridge did not retain the accepted response")
 		default:
 			runtime.Gosched()
 		}

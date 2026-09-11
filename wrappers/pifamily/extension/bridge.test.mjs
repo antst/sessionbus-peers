@@ -209,6 +209,26 @@ test("held write plus retained response failure wakes its caller", async (t) => 
   assert.deepEqual(bridge.stats(), zeroStats());
 });
 
+test("accepted response wins cancellation before write callback", async (t) => {
+  const { bridge, raw } = await rawNative(t);
+  const originalWrite = bridge.socket.write.bind(bridge.socket);
+  bridge.socket.write = (body, _callback) => originalWrite(body);
+  const controller = new AbortController();
+  const call = bridge.call("accepted", {}, { signal: controller.signal });
+  const request = JSON.parse(await nextLine(raw));
+  assert.equal(request.id, "h:1");
+  raw.write('{"version":1,"type":"response","id":"h:1","result":{"value":"accepted"}}\n');
+  await waitFor(t, () => {
+    const stats = bridge.stats();
+    return stats.pendingCalls === 0 && stats.pendingWrites === 1 && stats.retainedBytes > 0;
+  });
+  controller.abort();
+  assert.deepEqual(await call, { value: "accepted" });
+  assert.equal(bridge.failure, undefined);
+  await bridge.close();
+  assert.deepEqual(bridge.stats(), zeroStats());
+});
+
 test("connectBridge joins an actual socket close after constructor rejection", async (t) => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "pifamily-connect-"));
   const socketPath = path.join(directory, "bridge.sock");
@@ -310,13 +330,19 @@ function zeroStats() {
 }
 
 async function waitForStats(t, bridge, want) {
-  while (true) {
+  await waitFor(t, () => {
     try {
       assert.deepEqual(bridge.stats(), want);
-      return;
-    } catch (error) {
-      if (t.signal?.aborted) throw error;
-      await new Promise((resolve) => setImmediate(resolve));
+      return true;
+    } catch {
+      return false;
     }
+  });
+}
+
+async function waitFor(t, predicate) {
+  while (!predicate()) {
+    if (t.signal?.aborted) throw t.signal.reason;
+    await new Promise((resolve) => setImmediate(resolve));
   }
 }
