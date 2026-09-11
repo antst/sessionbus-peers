@@ -455,8 +455,19 @@ through replacement and quit. The new session's receipt proves the native leaf
 append, not persistence or model consumption. Root review is in
 `review-pi-interactive-installed-root`. The preceding observer hello failure
 was a fixture product label over the daemon's 32-character limit, before any
-native launch; it remains a separate retained outcome. Busy delivery and
-interrupt recovery are still separate acceptance rows.
+native launch; it remains a separate retained outcome.
+
+The subsequent interactive busy-delivery attempt on `aa096e8` demonstrated a
+queued receipt while a real Sessionbus tool reply was held. The native
+transcript remained byte-identical until the reply was released. After the
+assistant completed, the delivered custom message appeared exactly once as
+its next child entry. Independent raw replay confirms that behavior in
+`review-pi-interactive-busy-installed-root`. The fixture itself exited with a
+verifier error: it expected protocol 1 on the sink's local identity before the
+SDK normalized its copy for admission. The later idle-write step was not
+attempted. Cleanup withdrew the Peers and joined owned processes; it used
+fixture TERM, not normal Ctrl-D. This is evidence for busy delivery and settled
+draining, not a full fixture pass or an interrupt-recovery claim.
 
 The first installed Pi checkpoint must distinguish these authorities:
 
