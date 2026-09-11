@@ -90,7 +90,9 @@ context. No stale captured context may execute a tool or receive a delivery.
 Pi has one current native session per process. New/resume/fork tears down the
 old AgentSession and extension runner; the old Peer is withdrawn, then the new
 native ID is reported. Rename updates the same identity, including clearing a
-name. Existing native titles win over a wrapper's initial name.
+name. Existing native titles win over a wrapper's initial name. Whenever the
+current native title is empty, including after replacement or title clearing,
+the public Peer uses the wrapper's initial name to satisfy the hello protocol.
 
 OMP also has one selected main session, but replaces it in place. Its
 `session_switch` event covers new, fork and resume; reload switches to the
