@@ -3,7 +3,8 @@
 `kilo-peer` supplies managed interactive and lane entry points from one permanent
 installation. Native server/TUI hooks run inside Kilo's existing Bun runtime.
 The wrapper adds no Node runtime or separate interactive broker. Source behavior
-is bound to Kilo 7.6.2; actual installed acceptance is pending for this checkpoint.
+is bound to Kilo 7.6.2. Installed Linux results and the limits
+are recorded in [ACCEPTANCE.md](../docs/designs/kilo-0.5.0/ACCEPTANCE.md).
 
 ## Build and install
 
@@ -90,10 +91,12 @@ Peers merely by closing and resuming native history.
 
 Normal launcher exit, TERM and HUP join the direct native child and remove launch
 resources. Foreground INT retains native behavior. Abrupt launcher death can leave
-a stale directory; any observed native orphan cleanup belongs to Kilo's watchdog,
-not the wrapper. Lane close aborts owned work and follows native TERM disposal;
+a stale directory. Installed KILL observation records native and Peer absence
+without attributing which native exit mechanism ran; stale-directory removal is
+operator cleanup. Lane close aborts owned work and follows native TERM disposal;
 forced close and exact exit diagnostics require separate evidence from the close
-RPC result. This checkpoint has no installed lifetime claim.
+RPC result. Installed lifecycle results and their limits are recorded in
+[ACCEPTANCE.md](../docs/designs/kilo-0.5.0/ACCEPTANCE.md).
 
 Interactive bounds are 128 owned sessions (including retiring owners), 16 pending
 identity establishments, 256 owned HTTP operations, 64 messages/1 MiB per-owner
