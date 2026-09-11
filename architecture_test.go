@@ -57,8 +57,11 @@ func TestRepositoryBoundary(t *testing.T) {
 	if !equalStrings(gotCommands, wantCommands) {
 		t.Errorf("peer command roots = %v, want %v", gotCommands, wantCommands)
 	}
-	if got := directoryNames(t, "internal"); !equalStrings(got, []string{"testsocket"}) {
-		t.Errorf("internal roots = %v, want [testsocket]", got)
+	if got := directoryNames(t, "internal"); !equalStrings(got, []string{"cmd", "testsocket"}) {
+		t.Errorf("internal roots = %v, want [cmd testsocket]", got)
+	}
+	if got := directoryNames(t, "internal/cmd"); !equalStrings(got, []string{"gen-opencode-tool"}) {
+		t.Errorf("internal commands = %v, want only the shared native declaration generator", got)
 	}
 	if _, err := os.Stat(".github/workflows/release.yml"); !os.IsNotExist(err) {
 		t.Fatal("initial peers root must not contain a release workflow")
@@ -204,10 +207,10 @@ func TestOpenCodePackageBoundary(t *testing.T) {
 	if err := json.Unmarshal(read(t, "opencode/package.json"), &manifest); err != nil {
 		t.Fatal(err)
 	}
-	if manifest.Name != "@sessionbus/opencode" || manifest.Bin["sessionbus-opencode-install"] != "bin.mjs" {
-		t.Fatalf("OpenCode name/bin is invalid: %#v", manifest)
+	if manifest.Name != "@sessionbus/opencode" || len(manifest.Bin) != 0 {
+		t.Fatalf("OpenCode native package unexpectedly requires a Node installer: %#v", manifest)
 	}
-	wantFiles := []string{"README.md", "bin.mjs", "commands", "install.mjs", "sessionbus.mjs", "skills"}
+	wantFiles := []string{"README.md", "activation.mjs", "delivery.mjs", "endpoint.mjs", "forward.mjs", "gate.mjs", "owners.mjs", "peer.mjs", "readiness.mjs", "server.mjs", "sessionbus-tool.json", "skills", "tui.mjs"}
 	sort.Strings(manifest.Files)
 	if !equalStrings(manifest.Files, wantFiles) {
 		t.Errorf("OpenCode package files = %v, want %v", manifest.Files, wantFiles)
@@ -215,7 +218,7 @@ func TestOpenCodePackageBoundary(t *testing.T) {
 	if manifest.Repository.Type != "git" || manifest.Repository.URL != "git+https://github.com/antst/sessionbus-peers.git" || manifest.Repository.Directory != "opencode" {
 		t.Errorf("OpenCode repository metadata is invalid: %#v", manifest.Repository)
 	}
-	if manifest.Dependencies["@sessionbus/kit"] != "https://pkg.pr.new/@sessionbus/kit@8cc6a59" || strings.HasPrefix(manifest.Dependencies["@sessionbus/kit"], "file:") {
+	if len(manifest.Dependencies) != 1 || manifest.Dependencies["@sessionbus/kit"] != "https://pkg.pr.new/@sessionbus/kit@8cc6a59" || strings.HasPrefix(manifest.Dependencies["@sessionbus/kit"], "file:") {
 		t.Errorf("OpenCode kit dependency is not exact: %q", manifest.Dependencies["@sessionbus/kit"])
 	}
 	workflow := read(t, ".github/workflows/pkg-pr-new.yml")
@@ -297,8 +300,12 @@ func TestRetainedManifestCommandReachability(t *testing.T) {
 	if err := json.Unmarshal(read(t, "opencode/package.json"), &openCode); err != nil {
 		t.Fatal(err)
 	}
-	if target := openCode.Bin["sessionbus-opencode-install"]; target != "bin.mjs" || !regular(t, filepath.Join("opencode", target)) {
-		t.Errorf("OpenCode bin target is unresolved: %q", target)
+	if len(openCode.Bin) != 0 || !regular(t, "opencode/server.mjs") || !regular(t, "opencode/tui.mjs") {
+		t.Error("OpenCode native entries are missing or Node installer remains")
+	}
+	installer := read(t, "scripts/release/install-product")
+	if !bytes.Contains(installer, []byte(`"$root/opencode-peer" --sessionbus-install --plugin-dir "$root/plugin"`)) || bytes.Contains(installer, []byte("node ")) {
+		t.Error("OpenCode archive does not use its Go maintenance executable")
 	}
 	if _, err := os.Stat(".claude-plugin"); !os.IsNotExist(err) {
 		t.Fatal("obsolete repository marketplace must not provide an alternate Claude install route")

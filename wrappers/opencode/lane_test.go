@@ -48,7 +48,7 @@ func fakeNativeHTTP() {
 	if strings.Join(os.Args[1:], " ") != "serve --hostname 127.0.0.1 --port 0" {
 		os.Exit(5)
 	}
-	for _, key := range []string{host.SocketEnv, host.LocalKeyEnv, host.TokenEnv, host.SessionIDEnv, host.NameEnv, host.GroupsEnv} {
+	for _, key := range []string{host.SocketEnv, host.LocalKeyEnv, host.TokenEnv, host.SessionIDEnv, host.NameEnv, host.GroupsEnv, InteractiveLaunchEnv} {
 		if os.Getenv(key) != "" {
 			os.Exit(6)
 		}
@@ -313,6 +313,7 @@ func newWorkerProductFixture(t *testing.T, decorate func(*Wrapper) kit.WorkerCal
 	t.Setenv(host.SocketEnv, socket)
 	t.Setenv(host.TokenEnv, "token")
 	t.Setenv("OPENCODE_TEST_NATIVE", "1")
+	t.Setenv(InteractiveLaunchEnv, `{"foreign":"interactive launch"}`)
 	path, err := os.Executable()
 	if err != nil {
 		t.Fatal(err)

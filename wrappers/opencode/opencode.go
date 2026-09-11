@@ -6,7 +6,6 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"io"
 	"net"
@@ -61,9 +60,6 @@ func New(socket, provisional, executable string) *Wrapper {
 }
 func (p *Wrapper) SetCaller(c *kit.Caller) { p.caller = c }
 func (p *Wrapper) SetShutdown(f func())    { p.shutdown = f }
-func (p *Wrapper) SetCall(f func(context.Context, string, any) (json.RawMessage, error)) {
-	p.SetCaller(kit.NewCaller(f))
-}
 func (*Wrapper) Hello(context.Context) (kit.HelloDescription, error) {
 	return kit.HelloDescription{Product: Product, Version: "1.18.29", SupportsMessageRun: true, SupportedOpenFields: []string{"cwd", "permission_mode", "model", "arguments"}, ExtraArguments: []kit.ExtraArgument{{Name: "--agent", Description: "Native agent", TakesValue: true}, {Name: "--print-logs", Description: "Print native logs"}, {Name: "--log-level", Description: "Native log level", TakesValue: true}, {Name: "--mdns", Description: "Native mDNS discovery"}, {Name: "--mdns-domain", Description: "Native mDNS domain", TakesValue: true}, {Name: "--cors", Description: "Native allowed CORS origin", TakesValue: true}}}, nil
 }
@@ -123,7 +119,7 @@ func (p *Wrapper) Open(ctx context.Context, request kit.OpenRequest) (result kit
 	cmd := exec.Command(p.executable, append([]string{"serve", "--hostname", "127.0.0.1", "--port", "0"}, args...)...)
 	cmd.Dir = cwd
 	cmd.Stdin = strings.NewReader("")
-	cmd.Env = scrub(os.Environ(), host.SocketEnv, host.LocalKeyEnv, host.TokenEnv, host.SessionIDEnv, host.NameEnv, host.GroupsEnv, LaneSocketEnv, "SESSIONBUS_OPENCODE_LAUNCH_DIR", "OPENCODE_SERVER_USERNAME", "OPENCODE_SERVER_PASSWORD")
+	cmd.Env = scrub(os.Environ(), host.SocketEnv, host.LocalKeyEnv, host.TokenEnv, host.SessionIDEnv, host.NameEnv, host.GroupsEnv, LaneSocketEnv, "SESSIONBUS_OPENCODE_LAUNCH_DIR", InteractiveLaunchEnv, "OPENCODE_SERVER_USERNAME", "OPENCODE_SERVER_PASSWORD")
 	cmd.Env = append(cmd.Env, LaneSocketEnv+"="+endpoint.Path, "OPENCODE_SERVER_USERNAME=sessionbus", "OPENCODE_SERVER_PASSWORD="+password)
 	var logs boundedLog
 	cmd.Stderr = &logs

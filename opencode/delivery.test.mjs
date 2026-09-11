@@ -2,7 +2,8 @@
 
 import assert from "node:assert/strict";
 import test from "node:test";
-import { NativeDelivery } from "./delivery.mjs";
+import { readFile } from "node:fs/promises";
+import { NativeDelivery, renderDelivery } from "./delivery.mjs";
 
 const message = (n, body = "hello") => ({ message_id: `message_${n}`, body, from: { product: "test", session_id: "sender", groups: [] } });
 function deferred() { let resolve; const promise = new Promise((yes) => { resolve = yes; }); return { promise, resolve }; }
@@ -72,4 +73,19 @@ test("owned cancellation joins an attempted native handoff without replay", asyn
   assert.equal(signal.aborted, true); assert.equal(closed, false);
   release.resolve(); await disposing; assert.equal((await receipt).disposition, "rejected");
   await f.delivery.idle(); assert.equal(attempts, 1);
+});
+
+// Unchanged shared expected bytes preserve the historical renderer contract.
+test("native delivery matches the retained shared message envelope", async () => {
+  const fixture = JSON.parse(await readFile(new URL("../wrappers/host/testdata/native-message-envelope.json", import.meta.url), "utf8"));
+  assert.equal(renderDelivery(fixture.message), fixture.rendered);
+});
+
+test("queued receipt survives later sender cancellation until native idle", async (t) => {
+  let status = "busy";
+  const f = setup(t, { status: async () => status });
+  const sender = new AbortController();
+  assert.equal((await f.delivery.enqueue(sender.signal, message(1))).disposition, "queued_for_next_turn");
+  sender.abort(); status = "idle"; await f.delivery.idle();
+  assert.equal(f.submissions.length, 1);
 });

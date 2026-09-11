@@ -33,11 +33,12 @@ Each command installs only that peer and its plugin into your normal user
 installation under `~/.local`; it does not install the native vendor product,
 daemon or hub. Use your normal login shell with `~/.local/bin` on PATH. Linux
 and macOS, amd64 and arm64 archives are provided. No Go or npm is needed on the
-target. OpenCode's native JavaScript plugin additionally requires Node.js
-(recommended: Node 24 LTS, at least 24.15, or Node 26+); its
-locked production dependencies are bundled. The other installers use Go binaries
-and native plugin management commands. Grok/Qwen install their native plugin
-globally; Claude/Codex retain their documented managed-launch activation.
+target. OpenCode uses its Go installer and small plugin in the native product's
+existing Bun runtime; no separate Node or Bun installation is required. Its
+only JavaScript runtime dependency is the bundled pinned Sessionbus kit.
+Grok/Qwen install their native plugin globally; Claude/Codex retain their
+documented managed-launch activation. OpenCode registers tiny server/TUI hooks
+that stay inert in ordinary launches, plus one globally discoverable skill.
 
 Downloads are verified against `SHA256SUMS`. The default is the **development
 prerelease** published from tested builds of merged `develop` pushes. Pin an actual release tag by

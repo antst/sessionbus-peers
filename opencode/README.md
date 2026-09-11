@@ -1,50 +1,83 @@
-# Sessionbus OpenCode plugin
+# Sessionbus for OpenCode
 
-Install this package in exactly one supported OpenCode plugin location. The
-same plugin serves lane and peer mode: a lane uses the wrapper's private socket,
-while an interactive session publishes one peer from native lifecycle events.
-
-`sessionbus-opencode-install` transactionally adds the exact package specifier
-to the `plugin` array in the user OpenCode config. During development, pass a
-product-verified local or tarball specifier:
+Install the permanent Go launcher and native plugin on Linux or macOS:
 
 ```sh
-sessionbus-opencode-install --specifier file:/absolute/path/to/sessionbus-peers/opencode
+curl -fsSL https://raw.githubusercontent.com/antst/sessionbus-peers/develop/scripts/install-opencode.sh | sh
+opencode-peer -n project -g development,reviews
 ```
 
-Run `sessionbus-opencode-install --remove` to remove the managed entry. The
-installer follows OpenCode's native global-config selection, removes its owned
-string or tuple entry from every merged JSON/JSONC file, and preserves comments,
-config keys, and unrelated plugin entries. OpenCode resolves the configured
-package; the installer does not copy plugin source into its config directory.
+The archive contains the Go installer/launcher, a small JavaScript plugin that
+runs inside OpenCode's existing Bun runtime, and the pinned Sessionbus kit.
+No separate Node, npm, Bun installation, Go broker, or native OpenCode patch is
+required on the target. Source builds use Go and npm. The inspected released
+native interface is OpenCode 1.18.29/1.18.30; installed acceptance is reported
+separately from source compatibility.
 
-The plugin registers the `sessionbus` tool and uses OpenCode's v2 session API
-for native delivery. OpenCode must run without `--pure`, which disables external
-plugins.
+The installer edits only owned entries in native global server/TUI JSON/JSONC
+configuration, preserving comments and unrelated settings/plugins. Repeat
+installation converges. It installs one generic Sessionbus skill; ordinary
+OpenCode still discovers the tiny plugin and skill, but exposes no Sessionbus
+tool, peer, queue or action listener without a valid managed launch.
 
-The package pins an immutable `@sessionbus/kit` commit preview in
-`package.json` and `package-lock.json`. The initial split publishes
-this OpenCode package only through pkg.pr.new previews; it does not claim a
-stable `@sessionbus/opencode` registry release. A first registry version must
-be published manually before trusted publishing can be configured.
+The same executable provides explicit maintenance:
 
-The `list` result includes `self_info` with the bound caller's canonical
-`session_id`, optional `name`, `product`, and `groups`. It stays the originating
-caller when querying another host or filtering out its row. Use that ID to
-recognize self. Older daemons can omit it; names and row order are not an
-identity fallback.
+```sh
+opencode-peer --sessionbus-install --plugin-dir /absolute/permanent/plugin
+opencode-peer --sessionbus-install --specifier @sessionbus/opencode@EXACT_VERSION
+opencode-peer --sessionbus-install --remove
+```
 
-The managed Go launcher uses the native authenticated loopback HTTP transport.
-Caller topology flags are reserved; the native 1.18.29/1.18.30 network options
-(`hostname`, `port`, `mdns`, `mdns-domain`, `cors`) declare no short aliases.
-Existing nonempty `OPENCODE_SERVER_*` authentication values are preserved;
-otherwise the launcher generates a private per-launch password. These are
-native environment variables and can be inherited by native shell-tool children.
-The Sessionbus launch binding is snapshotted and scrubbed separately in each
-native plugin context. Local-key Sessionbus transport is unsupported by this
-build and fails before managed launch.
+The native plugin package has no installer bin. Immutable package previews are
+available through pkg.pr.new; this does not claim a stable npm release.
 
-SIGTERM and SIGHUP cancel managed lifetime, join the direct native child, and
-remove the private launch directory. SIGINT remains a native TUI action.
-Abrupt launcher SIGKILL can leave the native TUI, its peers, and the unique
-runtime directory alive; no extra supervisor or recovery process is installed.
+Native selection flags, including new/resume/fork behavior, remain native.
+Wrapper `-n` applies once to the first selected native session and publishes the
+name only after native confirmation. Repeated comma-separated `-g` groups are
+combined before `--`; native arguments after `--` are retained. Home has no
+fabricated session. Native title changes update the same peer connection, and
+an unnamed native session has no invented bus name.
+
+Each selected session remains addressable until native deletion or TUI disposal.
+The public tool takes exactly `action` and `arguments`. Native tool context
+binds every call to its actual session, including delayed old-session calls
+and child/subagent calls. An interactive child becomes an addressable peer;
+inbound input can run it outside the parent task. A lane child instead uses the
+verified ancestor lane's single Worker capability.
+
+The shared actions provide list/send/spawn/describe/run/start/wait/status/
+interrupt/close/forget/ack. Status/wait do not consume results; acknowledge the
+returned run explicitly. `list.self_info`, when supplied by the daemon, identifies
+the caller even if filters exclude its row. Older daemons may omit it; names
+and row ordering are not identity fallbacks.
+
+Interactive delivery keeps bounded unsent input while native status is busy and
+drains on native idle. A confirmed native handoff is `written`, not proof of
+model consumption in that turn. Attempted input is never replayed after an
+uncertain response, cancellation or terminal race. Native storage remains
+native; no wrapper history, result journal or restart recovery is added.
+
+The managed launcher selects authenticated native loopback HTTP so owned
+requests can be cancelled and joined. Caller hostname/port/mDNS/CORS switches
+and enabled pure mode conflict and fail clearly; native network options have
+no short aliases in the inspected releases. Existing nonempty
+`OPENCODE_SERVER_*` credentials are preserved, otherwise the launcher generates
+a private password. Native auth environment can reach native shell-tool children.
+Sessionbus launch variables are snapshotted and scrubbed in both native contexts.
+Local-key Sessionbus transport is unsupported and fails before managed launch.
+HTTP cancellation does not imply model cancellation. Remote attach requires a
+separately equipped server and is not claimed by this local topology.
+
+SIGTERM and SIGHUP join the direct native child and remove launch resources;
+SIGINT remains a native TUI action. Abrupt launcher SIGKILL can leave the native
+TUI, its peers and the unique directory alive. No extra supervisor is installed.
+A failed TUI ownership claim is never transferred or recovered in that launch.
+
+Owners are bounded to 128 including retirement, with 16 pending identity
+establishments and 256 owned HTTP operations. Each owner retains at most 64
+unsent messages/1 MiB, with a 16 MiB aggregate FIFO. The kit adapter shares a
+256-work limit between tools and delivery, so a burst can reject new work.
+The resident bridge allows eight connections, 2 MiB ingress, 8 MiB responses,
+256 work and 32 MiB retained payload. Native SDK response parsing allocations
+are outside these wrapper bounds. Kit ready reassignment is observed at its
+pinned reconnect scheduler boundary; a failed attempt is never hello admission.

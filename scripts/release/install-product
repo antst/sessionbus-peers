@@ -5,7 +5,6 @@ src=$(CDPATH='' cd "$(dirname "$0")" && pwd -P)
 product=$(cat "$src/ROLE")
 case "$product" in grok|qwen|opencode) ;; *) echo 'Unknown product' >&2; exit 1;; esac
 command -v "$product" >/dev/null || { echo "Install native $product first." >&2; exit 1; }
-if [ "$product" = opencode ]; then command -v node >/dev/null || { echo 'OpenCode plugin installation requires Node.js.' >&2; exit 1; }; fi
 root="$HOME/.local/libexec/sessionbus/$product"
 [ ! -L "$root" ] || { echo 'Indirect package root; review before replacing.' >&2; exit 1; }
 mkdir -p "$root" "$HOME/.local/bin"
@@ -35,8 +34,7 @@ case "$product" in
   qwen extensions install "$root/plugin" --consent --scope user
   ;;
  opencode)
-  specifier=$(node --input-type=module -e 'import {pathToFileURL} from "node:url"; console.log(pathToFileURL(process.argv[1]).href)' "$root/plugin")
-  node "$root/plugin/bin.mjs" --specifier "$specifier"
+  "$root/opencode-peer" --sessionbus-install --plugin-dir "$root/plugin"
   ;;
 esac
 printf 'Installed %s. Ensure ~/.local/bin is on your login PATH.\n' "$HOME/.local/bin/$product-peer"

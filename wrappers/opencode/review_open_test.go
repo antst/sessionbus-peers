@@ -62,9 +62,9 @@ func TestReviewCancelledFailedOpenBreaksHeldRollback(t *testing.T) {
 		t.Fatal(err)
 	}
 	p := New(filepath.Join(testsocket.Directory(t), "bus.sock"), "unused", executable)
-	p.SetCall(func(context.Context, string, any) (json.RawMessage, error) {
+	p.SetCaller(kit.NewCaller(func(context.Context, string, any) (json.RawMessage, error) {
 		return nil, errors.New("unexpected Caller action")
-	})
+	}))
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	done := make(chan struct{})

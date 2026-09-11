@@ -4,7 +4,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -72,10 +71,6 @@ func run(ctx context.Context, arguments []string) error {
 	product := opencode.New(os.Getenv(host.SocketEnv), host.LaunchTokenDigest(os.Getenv(host.TokenEnv)), executable)
 	worker := sessionkit.NewWorker(product)
 	product.SetShutdown(worker.Shutdown)
-	product.SetCall(func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-		var result json.RawMessage
-		err := worker.Call(ctx, method, params, &result)
-		return result, err
-	})
+	product.SetCaller(worker.Caller())
 	return worker.Serve(ctx)
 }

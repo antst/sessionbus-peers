@@ -215,3 +215,23 @@ for (const boundary of ["route", "deletion"]) {
     await client.dispose(); await endpoint.dispose();
   });
 }
+
+test("deletion during initial native rename cannot rehello late title", { timeout: 5000 }, async (t) => {
+  const entered = deferred(), release = deferred();
+  const f = await fixture(t, { name: "first", update: async ({ sessionID, title }) => {
+    entered.resolve(); await release.promise; return result(info(sessionID, title));
+  } });
+  const selecting = assert.rejects(f.owners.select("ses_initial"), /deleted/);
+  await entered.promise;
+  const wire = f.wires.get("ses_initial"), closed = once(wire.stream, "close");
+  f.events.emit("session.deleted", { properties: { info: { id: "ses_initial" } } });
+  release.resolve(); await selecting; await closed;
+  await f.owners.select("ses_later");
+  assert.deepEqual(f.updates, [{ sessionID: "ses_initial", title: "first" }]);
+});
+
+test("actual sole Caller preserves originating self_info with filtered rows", { timeout: 5000 }, async (t) => {
+  const value = { sessions: [], self_info: { session_id: "ses_native@host", product: "opencode", groups: ["group"] } };
+  const f = await fixture(t, { call: (wire, request) => wire.result(request, value) });
+  assert.deepEqual(await f.action("ses_native"), value);
+});
