@@ -76,3 +76,23 @@ func TestLegacyHistoryRejectsPriorMissingRepeatedAndOversized(t *testing.T) {
 		})
 	}
 }
+
+func TestLegacyHistoryRejectsParentOutsideOwnedRange(t *testing.T) {
+	for _, before := range []bool{true, false} {
+		t.Run(map[bool]string{true: "before initial", false: "after final"}[before], func(t *testing.T) {
+			user := historyMessage("msg_initial", "user", "", "input", false)
+			parent := historyMessage("msg_other", "user", "", "other", false)
+			final := historyMessage("msg_final", "assistant", parent.Info.ID, "answer", false)
+			page := []withParts{user, final, parent}
+			if before {
+				page = []withParts{parent, user, final}
+			}
+			s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _ = json.NewEncoder(w).Encode(page) }))
+			defer s.Close()
+			c := newLaneHTTP(s.URL, "/work", "u", "p")
+			if _, err := c.historyResult(context.Background(), "ses_test", user.Info.ID, final); err == nil {
+				t.Fatal("out-of-range user parent accepted")
+			}
+		})
+	}
+}

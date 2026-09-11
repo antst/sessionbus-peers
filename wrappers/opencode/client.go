@@ -214,6 +214,7 @@ func (c *laneHTTP) historyResult(ctx context.Context, session, initial string, f
 	}
 	var out strings.Builder
 	inside := false
+	users := map[string]bool{}
 	for i := len(reversePages) - 1; i >= 0; i-- {
 		for _, m := range reversePages[i] {
 			if m.Info.ID == initial {
@@ -221,6 +222,7 @@ func (c *laneHTTP) historyResult(ctx context.Context, session, initial string, f
 					return "", errors.New("native initial message not a user")
 				}
 				inside = true
+				users[m.Info.ID] = true
 				continue
 			}
 			if !inside {
@@ -228,6 +230,9 @@ func (c *laneHTTP) historyResult(ctx context.Context, session, initial string, f
 					return "", errPriorAssistant
 				}
 				continue
+			}
+			if m.Info.Role == "user" {
+				users[m.Info.ID] = true
 			}
 			if m.Info.Role == "assistant" && !m.Info.Summary {
 				for _, raw := range m.Parts {
@@ -244,6 +249,9 @@ func (c *laneHTTP) historyResult(ctx context.Context, session, initial string, f
 			if m.Info.ID == final.Info.ID {
 				if m.Info.Role != "assistant" || m.Info.ParentID != final.Info.ParentID {
 					return "", errors.New("native final history disagrees")
+				}
+				if !users[m.Info.ParentID] {
+					return "", errors.New("native final parent is not a user in the owned history interval")
 				}
 				return out.String(), nil
 			}
