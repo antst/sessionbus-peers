@@ -98,6 +98,32 @@ func TestInteractivePlanRecognizesMaintenanceOnlyAsFirstArgument(t *testing.T) {
 	}
 }
 
+func TestInteractivePlanProtectsWrapperValuesBeforeNativeClassification(t *testing.T) {
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+	for _, test := range []struct {
+		args     []string
+		wantArgs []string
+		name     string
+		groups   string
+	}{
+		{[]string{"-n", "--help"}, []string{}, "--help", `[]`},
+		{[]string{"--peer-name", "--print"}, []string{}, "--print", `[]`},
+		{[]string{"-g", "--list-models"}, []string{}, "", `["--list-models"]`},
+		{[]string{"-g", "-n", "--"}, []string{"--"}, "", `["-n"]`},
+	} {
+		plan, passthrough, err := InteractivePlan(test.args, nil)
+		if err != nil || passthrough || !reflect.DeepEqual(plan.Args, test.wantArgs) {
+			t.Fatalf("%#v -> %#v passthrough=%v err=%v", test.args, plan.Args, passthrough, err)
+		}
+		if got := interactiveEnvironmentValue(plan.Env, host.NameEnv); got != test.name {
+			t.Fatalf("%#v name = %q", test.args, got)
+		}
+		if got := interactiveEnvironmentValue(plan.Env, host.GroupsEnv); got != test.groups {
+			t.Fatalf("%#v groups = %q", test.args, got)
+		}
+	}
+}
+
 func TestInteractivePlanSelectsPeerShortNameAndNativeLongName(t *testing.T) {
 	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
 	plan, passthrough, err := InteractivePlan([]string{"-n", "peer name", "--name", "native title"}, nil)
@@ -122,7 +148,9 @@ func TestInteractivePlanRejectsTopologyOverride(t *testing.T) {
 }
 
 func TestInteractivePlanRejectsInvalidWrapperValue(t *testing.T) {
-	if _, native, err := InteractivePlan([]string{"-g"}, nil); err == nil || native {
-		t.Fatalf("missing group accepted: native=%v err=%v", native, err)
+	for _, args := range [][]string{{"-g"}, {"-g", ""}, {"-g", "--"}, {"--peer-name="}, {"-n", "--"}} {
+		if _, native, err := InteractivePlan(args, nil); err == nil || native {
+			t.Fatalf("%#v accepted: native=%v err=%v", args, native, err)
+		}
 	}
 }

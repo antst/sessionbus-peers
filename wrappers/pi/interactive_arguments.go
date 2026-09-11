@@ -31,6 +31,9 @@ func InteractivePlan(arguments, environment []string) (host.ExecPlan, bool, erro
 	if nativeNonTUI(arguments) {
 		return host.ExecPlan{Path: "pi", Args: arguments, Env: environment}, true, nil
 	}
+	if err := wrapperBoundaryError(arguments); err != nil {
+		return host.ExecPlan{}, false, err
+	}
 	plan, _, err := host.ClassifiedInteractivePlan("pi", arguments, environment, host.PeerIdentity{}, func(value string) bool {
 		if strings.Contains(value, "=") {
 			return false
@@ -68,6 +71,20 @@ func nativeNonTUI(arguments []string) bool {
 		if argument == "--" {
 			return false
 		}
+		name, value, attached := strings.Cut(argument, "=")
+		if name == "-g" || name == "--group" || name == "-n" || name == "--peer-name" {
+			if attached {
+				if strings.TrimSpace(value) == "" {
+					return false
+				}
+				continue
+			}
+			if index+1 == len(arguments) || arguments[index+1] == "--" || strings.TrimSpace(arguments[index+1]) == "" {
+				return false
+			}
+			index++
+			continue
+		}
 		switch argument {
 		case "-h", "--help", "-v", "--version", "-p", "--print", "--list-models":
 			return true
@@ -91,6 +108,28 @@ func nativeNonTUI(arguments []string) bool {
 		}
 	}
 	return false
+}
+
+func wrapperBoundaryError(arguments []string) error {
+	for index := 0; index < len(arguments); index++ {
+		argument := arguments[index]
+		if argument == "--" {
+			return nil
+		}
+		if argument != "-g" && argument != "--group" && argument != "-n" && argument != "--peer-name" {
+			continue
+		}
+		if index+1 < len(arguments) && arguments[index+1] == "--" {
+			if argument == "-g" || argument == "--group" {
+				return errors.New("-g/--group requires a non-empty value")
+			}
+			return errors.New("-n/--peer-name requires a non-empty value")
+		}
+		if index+1 < len(arguments) {
+			index++
+		}
+	}
+	return nil
 }
 
 func interactiveEnvironmentValue(environment []string, name string) string {
