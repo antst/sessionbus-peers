@@ -541,6 +541,109 @@ test("failed Task child reports its end without retiring the healthy primary", a
   assert.equal(extension.stats().bindings, 1);
 });
 
+test("actual Unix bridge reports a failed Task child end while the primary remains healthy", async (t) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "omp-extension-child-end-"));
+  fs.chmodSync(directory, 0o700);
+  const socketPath = path.join(directory, "bridge.sock");
+  const server = net.createServer();
+  const accepted = deferred();
+  server.on("connection", (socket) => accepted.resolve(socket));
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(socketPath, resolve);
+  });
+  t.after(async () => {
+    await new Promise((resolve) => server.close(resolve));
+    fs.rmSync(directory, { recursive: true, force: true });
+  });
+
+  const extension = createOMPExtension({
+    launch: { directory, owner_pid: process.ppid, socket: socketPath, topology: "interactive" },
+    createToken: deterministicTokens(),
+  });
+  const primary = nativeFixture("unix-main", "tui", "/work/main", "main");
+  const child = nativeFixture("unix-child", "print", "/work/child", "child");
+  extension(primary.pi);
+  extension(child.pi);
+  const primaryStart = primary.emit("session_start");
+  const socket = await accepted.promise;
+  const deliveryEntered = deferred();
+  const releaseDelivery = deferred();
+  const childEnd = deferred();
+  const childReady = deferred();
+  const host = new PrivateBridge(socket, {
+    role: "host",
+    handler: async ({ method, params }) => {
+      if (method === "owner.ready") {
+        const description = await host.call("native.describe", {
+          owner_token: params.owner_token,
+          session_id: params.session_id,
+        });
+        assert.equal(description.session_id, params.session_id);
+        if (params.session_id === "unix-child") childReady.resolve(params);
+        return { owner_token: params.owner_token, session_id: params.session_id };
+      }
+      if (method === "delivery.observe") {
+        if (params.session_id === "unix-child" && params.phase === "claimed") {
+          deliveryEntered.resolve();
+          await releaseDelivery.promise;
+        }
+        return params;
+      }
+      if (method === "session_end") {
+        if (params.session_id === "unix-child") childEnd.resolve(params);
+        return { owner_token: params.owner_token, session_id: params.session_id };
+      }
+      if (method === "tool.call") {
+        return {
+          owner_token: params.owner_token,
+          session_id: params.session_id,
+          call_id: params.call_id,
+          result: { action: params.action },
+        };
+      }
+      throw new BridgeCallError("method_not_found", `unexpected method ${method}`);
+    },
+  });
+  await host.ready();
+  await primaryStart;
+  await child.emit("session_start");
+  await childReady.promise;
+
+  assert.equal((await host.call("native.stage", {
+    owner_token: "token2-child-2",
+    session_id: "unix-child",
+    message_id: "unix-child-delivery",
+    body: "child body",
+  })).queued, true);
+  const injected = await child.emit("before_agent_start", {
+    type: "before_agent_start",
+    prompt: "child prompt",
+  }, child.context());
+  await deliveryEntered.promise;
+  await child.emit("message_start", {
+    type: "message_start",
+    message: nativeCustom({ ...injected.message, content: "changed body" }),
+  }, child.context());
+  const ending = child.emit("session_shutdown", { type: "session_shutdown" }, child.context());
+  const ended = await childEnd.promise;
+  assert.equal(ended.owner_token, "token2-child-2");
+  releaseDelivery.resolve();
+  await assert.rejects(ending, /changed Sessionbus delivery identity/);
+
+  const primaryResult = await primary.pi.tool.execute(
+    "unix-primary-after-child",
+    { action: "list", arguments: {} },
+    undefined,
+    undefined,
+    primary.context(),
+  );
+  assert.equal(primaryResult.details.session_id, "unix-main");
+  await primary.emit("session_shutdown", { type: "session_shutdown" }, primary.context());
+  await host.close();
+  assert.deepEqual(extension.stats(), { bindings: 0, reports: 0, retainedBytes: 0 });
+});
+
 test("bounded report worker aborts a factory without spawning per-report work", async () => {
   const owner = new FakeOwner();
   const held = owner.hold("owner.ready");
