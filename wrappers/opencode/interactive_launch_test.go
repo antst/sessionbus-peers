@@ -89,7 +89,7 @@ func TestCompiledInteractiveLaunchOwnsChildAndResources(t *testing.T) {
 			if report.PPID != command.Process.Pid || report.Launch.PID != command.Process.Pid || report.OldID != "" {
 				t.Fatalf("wrong direct native ownership: %+v", report)
 			}
-			if !slices.Equal(report.Args, []string{"--hostname=127.0.0.1", "--port=0", "--session", "ses_resume"}) || report.CWD != canonicalBin {
+			if !slices.Equal(report.Args, []string{"--hostname=127.0.0.1", "--port=0", "-s", "ses_resume"}) || report.CWD != canonicalBin {
 				t.Fatalf("native argv/cwd changed: %+v", report)
 			}
 			if !slices.Equal(report.Launch.Groups, []string{"one", "two"}) || report.Launch.Name != "initial" {
