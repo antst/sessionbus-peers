@@ -3,22 +3,28 @@
   "version": "0.1.0-pre.1",
   "license": "MIT",
   "type": "module",
-  "main": "./sessionbus.mjs",
-  "bin": {
-    "sessionbus-opencode-install": "bin.mjs"
-  },
+  "main": "./server.mjs",
   "scripts": {
-    "test": "node --test sessionbus.test.mjs install.test.mjs"
+    "test": "node --test forward.test.mjs readiness.test.mjs endpoint.test.mjs server.test.mjs peer.test.mjs owners.test.mjs delivery.test.mjs tui.test.mjs review-delivery-*.test.mjs"
   },
   "exports": {
-    ".": "./sessionbus.mjs"
+    ".": "./server.mjs",
+    "./server": "./server.mjs",
+    "./tui": "./tui.mjs"
   },
   "files": [
     "README.md",
-    "bin.mjs",
-    "install.mjs",
-    "sessionbus.mjs",
-    "commands",
+    "server.mjs",
+    "tui.mjs",
+    "forward.mjs",
+    "endpoint.mjs",
+    "readiness.mjs",
+    "activation.mjs",
+    "gate.mjs",
+    "owners.mjs",
+    "peer.mjs",
+    "delivery.mjs",
+    "sessionbus-tool.json",
     "skills"
   ],
   "publishConfig": {
@@ -29,12 +35,7 @@
     "url": "git+https://github.com/antst/sessionbus-peers.git",
     "directory": "opencode"
   },
-  "peerDependencies": {
-    "@opencode-ai/plugin": "1.18.29",
-    "@opencode-ai/sdk": "1.18.29"
-  },
   "dependencies": {
-    "@sessionbus/kit": "https://pkg.pr.new/@sessionbus/kit@8cc6a59",
-    "jsonc-parser": "3.3.1"
+    "@sessionbus/kit": "https://pkg.pr.new/@sessionbus/kit@0b35c99"
   }
 }

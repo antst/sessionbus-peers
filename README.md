@@ -33,11 +33,12 @@ Each command installs only that peer and its plugin into your normal user
 installation under `~/.local`; it does not install the native vendor product,
 daemon or hub. Use your normal login shell with `~/.local/bin` on PATH. Linux
 and macOS, amd64 and arm64 archives are provided. No Go or npm is needed on the
-target. OpenCode's native JavaScript plugin additionally requires Node.js
-(recommended: Node 24 LTS, at least 24.15, or Node 26+); its
-locked production dependencies are bundled. The other installers use Go binaries
-and native plugin management commands. Grok/Qwen install their native plugin
-globally; Claude/Codex retain their documented managed-launch activation.
+target. OpenCode uses its Go installer and small plugin in the native product's
+existing Bun runtime; no separate Node or Bun installation is required. Its
+only JavaScript runtime dependency is the bundled pinned Sessionbus kit.
+Grok/Qwen install their native plugin globally; Claude/Codex retain their
+documented managed-launch activation. OpenCode registers tiny server/TUI hooks
+that stay inert in ordinary launches, plus one globally discoverable skill.
 
 Downloads are verified against `SHA256SUMS`. The default is the **development
 prerelease** published from tested builds of merged `develop` pushes. Pin an actual release tag by
@@ -77,15 +78,18 @@ git clone https://github.com/antst/sessionbus.git && cd sessionbus && GOBIN="$HO
 `go.mod` carries a `replace` directive. Clone it and install from the checkout
 instead.
 
-Install the product peers from this repository:
+Clone and check the product sources:
 
 ```sh
-git clone https://github.com/antst/sessionbus-peers.git && cd sessionbus-peers && go test -race ./... && GOBIN="$HOME/.local/bin" go install ./cmd/opencode-peer
+git clone https://github.com/antst/sessionbus-peers.git && cd sessionbus-peers && go test -race ./...
 ```
 
-That command installs `opencode-peer` in
-`~/.local/bin`. Claude, Codex, Grok and Qwen use their bundled archive recipes below so
-each launcher and native plugin share one installation.
+Build and install each product's archive using the recipes below. An isolated
+`go install ./cmd/opencode-peer` installs only a command; it does not install the
+required native server/TUI hooks, pinned kit or generic skill. OpenCode uses
+`scripts/package-product opencode ./dist` and the archive's Go maintenance
+installer, as documented in [`opencode/README.md`](opencode/README.md). Its public
+`opencode-peer` front door and lane worker share that permanent installation.
 
 Claude's candidate is one Go binary with its bundled native plugin
 in [`claude/`](claude/README.md). Build its archive with `scripts/package-claude`
@@ -114,13 +118,16 @@ installer in [`qwen/README.md`](qwen/README.md). Its lane private alias resolves
 the installed sibling `qwen-peer-mcp` binary. The extension contains one generic
 skill and no ordinary MCP server. Managed interactive launches supply native MCP
 configuration; lanes supply it per session. The accepted interactive session-switch
-limitation is documented there. Sessionbus uses `opencode-peer` for the retained OpenCode lane source.
+limitation is documented there. OpenCode uses one Go launcher/lane worker and
+small native Bun server/TUI hooks. A retained lane ID cannot register as an
+interactive Peer, even after lane close; native history is not automatically
+reclassified. Native-only interactive resume is a separate supported path.
 
 Complete each product hookup using only the retained integration:
 
 - Claude: use the bundled candidate recipe and scoped status in [`claude/README.md`](claude/README.md).
 - Codex: build with `scripts/package-codex ./dist` and use the archive's installer as documented in [`codex/README.md`](codex/README.md).
-- OpenCode: install the pkg.pr.new preview rooted at `opencode/`, then run its `sessionbus-opencode-install` executable from `bin.mjs`.
+- OpenCode: build with `scripts/package-product opencode ./dist` and run the archive installer in [`opencode/README.md`](opencode/README.md). The npm preview contains native hooks, not an installer executable.
 - Grok: build with `scripts/package-product grok ./dist` and run the archive installer in [`grok/README.md`](grok/README.md).
 - Qwen: build the archive with `scripts/package-product qwen ./dist` and follow [`qwen/README.md`](qwen/README.md); registering only the plugin does not install the required private sibling alias.
 
@@ -140,17 +147,18 @@ GOWORK=off go build ./cmd/...
 GOWORK=off go test ./...
 ```
 
-To install the standalone commands into a development prefix:
+Standalone command builds are useful for development checks:
 
 ```sh
-GOBIN="$PWD/bin" GOWORK=off go install ./cmd/grok-peer ./cmd/qwen-peer ./cmd/opencode-peer
+GOWORK=off go build ./cmd/grok-peer ./cmd/qwen-peer ./cmd/opencode-peer
 ```
 
-No binary release workflow is part of the initial split. The commands are
-built from source until a separately reviewed release workflow exists.
+Use the archive installers for a runnable product integration. The binary
+release workflow publishes those complete archives; building a command alone
+does not perform the native plugin hookup.
 
-The OpenCode integration is rooted at [`opencode/`](opencode/). It is published
-only as a [pkg.pr.new](https://pkg.pr.new/) preview in the initial repository;
+The OpenCode native plugin is rooted at [`opencode/`](opencode/). Its JavaScript
+package is published as a [pkg.pr.new](https://pkg.pr.new/) preview;
 `@sessionbus/opencode` is not claimed as a stable registry release. Its first
 registry version must be published manually before npm trusted publishing can
 be configured in a later reviewed change.

@@ -1,4 +1,4 @@
-github.com/antst/sessionbus/bus/sdk/go f415cf720584
+github.com/antst/sessionbus/bus/sdk/go 8cc6a59fec72
 ===================================================
 
 MIT License

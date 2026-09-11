@@ -6,8 +6,36 @@
 > commit recorded by the split archive manifest. Host evidence paths are
 > immutable external artifacts, not repository paths.
 
-Flat fact list for OpenCode as a Sessionbus product. Runtime evidence was
-captured on the dedicated `umka-dev1` test host under
+## Current rewrite scope
+
+The Go launcher/lane worker, native Bun hooks, ordinary activation and installer
+are documented in [the current OpenCode README](../../opencode/README.md).
+[Implementation and costs](../designs/opencode-0.5.0/IMPLEMENTATION.md) and
+[the acceptance index](../designs/opencode-0.5.0/ACCEPTANCE.md) distinguish source
+review, actual installed observations, failures and accepted limits.
+
+The September 11 installed composition established native-only quiet resume,
+confirmed title/groups and an actual generic list call on native 1.18.30. It
+also established a cross-kind restriction: a retained Sessionbus lane ID cannot
+register as an interactive Peer, even after close. Opening the same native
+history does not reclassify it. This is separate from successful native-only
+interactive resume. The first default-model parent-child collection failed and
+is retained without an invented cause. Subsequent explicit-model parent/lane
+composition passed with actual tools, completion pointers and complete answers.
+The final selected rows also establish native old-session/child attribution
+across TUI navigation, queued and idle delivery, exact lane resume/seed,
+interruption after a native operation longer than five minutes, and scoped
+normal/TERM/HUP/KILL cleanup. The acceptance index preserves raw evidence and
+its limits, including the separate KILL stale-directory operator cleanup.
+
+## Retained earlier product evidence
+
+The following fact list preserves earlier implementations and probes, including
+their contradictions and unverified statements. References below to "current"
+describe those captured revisions, not the rewrite's selected runtime. In
+particular, old v2 loop/bootstrap retries and installation dependencies are not
+the new lane/installer design. Runtime evidence was captured on the dedicated
+`umka-dev1` test host under
 `/home/antst/agentbus-evidence/opencode-probes-20260906T174118Z`.
 
 ## Version and process surface

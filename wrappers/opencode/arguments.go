@@ -95,9 +95,19 @@ var passthroughCommands = []string{"completion", "acp", "mcp", "attach", "run", 
 
 func InteractivePlan(arguments, environment []string) (host.ExecPlan, bool, error) {
 	positional := false
+	pureBooleanValue := false
 	plan, native, err := host.ClassifiedInteractivePlan("opencode", arguments, environment, host.PeerIdentity{}, func(value string) bool {
 		return slices.Contains(interactiveValueOptions, value)
 	}, func(value string) bool {
+		if pureBooleanValue {
+			pureBooleanValue = false
+			if value == "true" || value == "false" {
+				return false
+			}
+		}
+		if value == "--pure" {
+			pureBooleanValue = true
+		}
 		if value == "-h" || value == "--help" || value == "-v" || value == "--version" {
 			return true
 		}
@@ -110,14 +120,12 @@ func InteractivePlan(arguments, environment []string) (host.ExecPlan, bool, erro
 	if err != nil || native {
 		return plan, native, err
 	}
-	for index := 0; index < len(plan.Args); index++ {
-		name, _, attached := strings.Cut(plan.Args[index], "=")
-		if name == "--pure" {
-			return host.ExecPlan{}, false, errors.New("--pure disables the sessionbus OpenCode plugin")
-		}
-		if slices.Contains(interactiveValueOptions, name) && !attached {
-			index++
-		}
+	if err := validateManagedTopology(plan.Args, plan.Env); err != nil {
+		return host.ExecPlan{}, false, err
+	}
+	plan.Env, err = normalizeManagedIdentity(plan.Env)
+	if err != nil {
+		return host.ExecPlan{}, false, err
 	}
 	if !slices.ContainsFunc(plan.Env, func(value string) bool { return strings.HasPrefix(value, host.SocketEnv+"=") }) {
 		plan.Env = append(plan.Env, host.SocketEnv+"="+sessionkit.Socket())
