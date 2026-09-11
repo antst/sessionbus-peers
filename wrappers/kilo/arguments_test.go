@@ -69,3 +69,47 @@ func TestKiloNativePassthroughAndValueArity(t *testing.T) {
 		}
 	}
 }
+
+func TestKiloResumeAliasAndNativeYoloBoundaries(t *testing.T) {
+	for _, args := range [][]string{{"--yolo", "--resume", "ses_exact"}, {"--resume=ses_exact", "--yolo"}} {
+		plan, native, err := InteractivePlan(args, nil)
+		if err != nil || native {
+			t.Fatal(args, err)
+		}
+		want := []string{"--yolo", "-s", "ses_exact"}
+		if args[0] != "--yolo" {
+			want = []string{"-s", "ses_exact", "--yolo"}
+		}
+		if !slices.Equal(plan.Args, want) {
+			t.Fatalf("wrong alias/yolo argv: %q", plan.Args)
+		}
+	}
+	for _, flag := range []string{"-n", "--peer-name", "-g", "--group", "--worktree", "--model", "--agent", "--prompt"} {
+		args := []string{flag, "--resume", "--yolo"}
+		plan, native, err := InteractivePlan(args, nil)
+		if err != nil || native {
+			t.Fatalf("value %s: %v", flag, err)
+		}
+		want := args
+		if slices.Contains([]string{"-n", "--peer-name", "-g", "--group"}, flag) {
+			want = []string{"--yolo"}
+		}
+		if !slices.Equal(plan.Args, want) {
+			t.Fatalf("rewrote a value: %q", plan.Args)
+		}
+	}
+	for _, args := range [][]string{{"--resume"}, {"--resume="}, {"--resume", "--"}, {"--resume", " "}} {
+		if _, _, err := InteractivePlan(args, nil); err == nil {
+			t.Fatal("missing ID accepted", args)
+		}
+	}
+	for _, args := range [][]string{{"run", "--resume"}, {"--help", "--resume"}, {"run", "--resume=ses_exact", "--yolo"}, {"--", "--resume", "ses_exact", "--yolo"}} {
+		plan, native, err := InteractivePlan(args, nil)
+		if err != nil || !slices.Equal(plan.Args, args) {
+			t.Fatalf("native boundary changed %q: %+v %v", args, plan, err)
+		}
+		if args[0] != "--" && !native {
+			t.Fatal("lost native passthrough")
+		}
+	}
+}

@@ -3,7 +3,6 @@
 package opencode
 
 import (
-	"errors"
 	"slices"
 	"strings"
 
@@ -15,41 +14,8 @@ import (
 var interactiveValueOptions = opencodefamily.OpenCodeInteractiveValueOptions()
 var passthroughCommands = []string{"completion", "acp", "mcp", "attach", "run", "debug", "providers", "agent", "upgrade", "uninstall", "serve", "web", "models", "stats", "export", "import", "github", "pr", "session", "plugin", "db"}
 
-// resumeAlias rewrites the wrapper's --resume <id> and --resume=<id> into the
-// native two-token "-s <id>" form in place, before the literal "--". Wrapper
-// value flags (-g/--group, -n/--peer-name) and native value options keep their
-// following token untouched, so a value of "--resume" is never rewritten. The
-// ID is forwarded verbatim; native OpenCode remains the selection authority.
 func resumeAlias(arguments []string) ([]string, error) {
-	result := make([]string, 0, len(arguments))
-	for index := 0; index < len(arguments); index++ {
-		argument := arguments[index]
-		if argument == "--" {
-			return append(result, arguments[index:]...), nil
-		}
-		switch {
-		case argument == "--resume":
-			if index+1 == len(arguments) || arguments[index+1] == "--" || strings.TrimSpace(arguments[index+1]) == "" {
-				return nil, errors.New("--resume requires a native session ID")
-			}
-			result, index = append(result, "-s", arguments[index+1]), index+1
-			continue
-		case strings.HasPrefix(argument, "--resume="):
-			_, id, _ := strings.Cut(argument, "=")
-			if strings.TrimSpace(id) == "" {
-				return nil, errors.New("--resume requires a native session ID")
-			}
-			result = append(result, "-s", id)
-			continue
-		}
-		result = append(result, argument)
-		wrapperValue := argument == "-g" || argument == "--group" || argument == "-n" || argument == "--peer-name"
-		if (wrapperValue || slices.Contains(interactiveValueOptions, argument)) && index+1 < len(arguments) {
-			index++
-			result = append(result, arguments[index])
-		}
-	}
-	return result, nil
+	return opencodefamily.OpenCodeResumeAlias(arguments)
 }
 
 func InteractivePlan(arguments, environment []string) (host.ExecPlan, bool, error) {

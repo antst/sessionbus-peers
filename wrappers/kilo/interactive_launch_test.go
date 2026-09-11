@@ -51,7 +51,7 @@ func TestCompiledKiloLauncherDirectLifetimeAndNativeResources(t *testing.T) {
 			defer listener.Close()
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
-			command := exec.CommandContext(ctx, filepath.Join(bin, "launcher"), "--session", "ses_resume", "-g", "one,two", "-n", "initial")
+			command := exec.CommandContext(ctx, filepath.Join(bin, "launcher"), "--yolo", "--resume", "ses_resume", "-g", "one,two", "-n", "initial")
 			command.Dir = bin
 			command.Env = []string{"PATH=" + bin, "HOME=" + bin, "SESSIONBUS_SOCKET=" + filepath.Join(directory, "bus.sock"), "SESSIONBUS_SESSION_ID=stale", "SESSIONBUS_OPENCODE_LAUNCH=stale", "KILO_NO_DAEMON=old", "KILO_PARENT_PID=1", "KILO_TEST_SOCKET=" + listener.Addr().String(), "KILO_TEST_MODE=" + mode}
 			if mode == "exit" {
@@ -97,7 +97,7 @@ func TestCompiledKiloLauncherDirectLifetimeAndNativeResources(t *testing.T) {
 			if report.Daemon != "1" || report.Resource != filepath.Join(bin, "tree-sitter") {
 				t.Fatalf("native topology/resources mismatch: %+v", report)
 			}
-			if report.CWD != canonicalBin || !slices.Equal(report.Args, []string{"--hostname=127.0.0.1", "--port=0", "--session", "ses_resume"}) {
+			if report.CWD != canonicalBin || !slices.Equal(report.Args, []string{"--hostname=127.0.0.1", "--port=0", "--yolo", "-s", "ses_resume"}) {
 				t.Fatalf("argv/cwd changed: %+v", report)
 			}
 			if !slices.Equal(report.Launch.Groups, []string{"one", "two"}) || report.Launch.Name != "initial" {

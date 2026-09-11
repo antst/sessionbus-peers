@@ -21,7 +21,11 @@ var nativeBooleanOptions = []string{"--pure", "--mini", "--continue", "-c", "--f
 // executable or injecting topology. Native arguments after -- remain literal.
 func InteractivePlan(arguments, environment []string) (host.ExecPlan, bool, error) {
 	positional, booleanValue := false, false
-	plan, native, err := host.ClassifiedInteractivePlan("kilo", arguments, environment, host.PeerIdentity{}, func(value string) bool {
+	aliased, aliasErr := opencodefamily.KiloResumeAlias(arguments)
+	if aliasErr != nil {
+		aliased = arguments
+	}
+	plan, native, err := host.ClassifiedInteractivePlan("kilo", aliased, environment, host.PeerIdentity{}, func(value string) bool {
 		return slices.Contains(interactiveValueOptions, value)
 	}, func(value string) bool {
 		if booleanValue {
@@ -42,8 +46,14 @@ func InteractivePlan(arguments, environment []string) (host.ExecPlan, bool, erro
 		positional = true
 		return slices.Contains(passthroughCommands, value)
 	})
-	if err != nil || native {
+	if native {
+		return host.ExecPlan{Path: plan.Path, Args: arguments, Env: plan.Env}, true, err
+	}
+	if err != nil {
 		return plan, native, err
+	}
+	if aliasErr != nil {
+		return host.ExecPlan{}, false, aliasErr
 	}
 	if err := opencodefamily.ValidateKiloTopology(plan.Args, plan.Env); err != nil {
 		return host.ExecPlan{}, false, err
