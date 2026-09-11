@@ -87,11 +87,21 @@ func TestNativeResolverDirectOverrideAndResources(t *testing.T) {
 func TestNativeResolverUsesOnlyNativeSelectedCache(t *testing.T) {
 	t.Setenv("KILO_BIN_PATH", "")
 	root, front := npmFixture(t)
+	// Model macOS's /var -> /private/var parent alias on every platform.
+	alias := filepath.Join(t.TempDir(), "npm-parent-alias")
+	if err := os.Symlink(root, alias); err != nil {
+		t.Fatal(err)
+	}
+	root = alias
 	nativeFixture(t, filepath.Join(root, "node_modules", "@kilocode", "cli-linux-x64", "bin", "kilo"))
 	if _, err := ResolveNativeExecutable(front); err == nil || !strings.Contains(err.Error(), "cache is unavailable") {
 		t.Fatalf("missing selected cache must not invoke platform fallback: %v", err)
 	}
 	cache := nativeFixture(t, filepath.Join(root, "bin", ".kilo"))
+	cache, err := filepath.EvalSymlinks(cache)
+	if err != nil {
+		t.Fatal(err)
+	}
 	result, err := ResolveNativeExecutable(front)
 	if err != nil || result.Path != cache {
 		t.Fatalf("cache: %#v %v", result, err)
