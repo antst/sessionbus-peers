@@ -75,6 +75,16 @@ standard library; adding selected dependency source bytes to them would be wrong
 | Installed regular members | 30 | 30 |
 | Installed regular bytes | 5,451,956 | 5,475,230 |
 
+Compared with OpenCode's accepted [502 measurement](../opencode-0.5.0/IMPLEMENTATION.md),
+its linked binary grew from 5,230,754 to 5,292,194 bytes (**+61,440**), and archive
+regular bytes grew from 5,384,199 to 5,453,708 (**+69,509**). OpenCode also links
+the shared family engine, including reachable branches of the fixed Kilo policy
+switches; sharing source does not eliminate that linked cost. The intervening
+changes also include shared skill registration and JS readiness changes, alongside
+other source and payload updates. These are cumulative measured deltas, not a
+per-change allocation of binary bytes; the JS readiness change contributes to
+payload rather than the Go binary.
+
 The two installations occupy **10,927,186 regular-file bytes** in this snapshot.
 Subrows overlap their totals. Install scripts and ROLE archive metadata are not
 permanent members. Public executable aliases resolve to each installed binary
