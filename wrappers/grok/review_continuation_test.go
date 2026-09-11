@@ -11,7 +11,7 @@ func TestReviewOverflowCannotReleaseLiveContinuation(t *testing.T) {
 	h := newContinuationHarness(t)
 	original := h.start(t, 2, "g/1", "owned-first")
 	writeWorkerRequest(t, h.bus, 3, "message.deliver", delivery("overflow-continuation"))
-	interject := readACP(t, h.observerRead)
+	interject := h.expectInterject(t, 3, nil)
 	var params struct{ Text string }
 	must(t, json.Unmarshal(interject.Params, &params))
 	h.terminal(t, "p-g/1", "end_turn")

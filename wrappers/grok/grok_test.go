@@ -519,7 +519,13 @@ type workerResponse struct {
 	Error  json.RawMessage `json:"error"`
 }
 
+type workerRead struct {
+	response workerResponse
+	err      error
+}
+
 type workerReader struct {
+	frames     <-chan workerRead
 	connection net.Conn
 	nextID     int
 	requestIDs map[int]int
@@ -567,8 +573,7 @@ func readWorkerResponse(t *testing.T, reader *workerReader, id int) workerRespon
 		return response
 	}
 	for {
-		var response workerResponse
-		must(t, json.Unmarshal(readLine(t, reader.reader), &response))
+		response := reader.readResponse(t)
 		if workerReady(t, reader, response) {
 			continue
 		}
@@ -578,6 +583,24 @@ func readWorkerResponse(t *testing.T, reader *workerReader, id int) workerRespon
 		}
 		reader.pending[response.ID] = response
 	}
+}
+
+// Continuation fixtures may own an asynchronous frame reader so an early bus
+// response can be observed while waiting for the native observer. All other
+// fixtures keep their original synchronous reader.
+func (reader *workerReader) readResponse(t *testing.T) workerResponse {
+	t.Helper()
+	if reader.frames != nil {
+		next, ok := <-reader.frames
+		if !ok {
+			t.Fatal("worker frame reader closed")
+		}
+		must(t, next.err)
+		return next.response
+	}
+	var response workerResponse
+	must(t, json.Unmarshal(readLine(t, reader.reader), &response))
+	return response
 }
 
 func workerReady(t *testing.T, reader *workerReader, response workerResponse) bool {
@@ -598,8 +621,7 @@ func readWorkerReady(t *testing.T, reader *workerReader, id int) map[string]any 
 }
 func readWorkerReadyID(t *testing.T, reader *workerReader, key string) map[string]any {
 	for reader.ready[key] == nil {
-		var response workerResponse
-		must(t, json.Unmarshal(readLine(t, reader.reader), &response))
+		response := reader.readResponse(t)
 		if !workerReady(t, reader, response) {
 			response.ID = reader.requestIDs[response.ID]
 			reader.pending[response.ID] = response

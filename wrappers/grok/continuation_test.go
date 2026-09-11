@@ -20,7 +20,8 @@ import (
 type continuationHarness struct {
 	p                           *Wrapper
 	bus                         *workerReader
-	primaryRead, observerRead   *json.Decoder
+	primaryRead                 *json.Decoder
+	observerRead                <-chan continuationACPRead
 	primaryWrite, observerWrite *json.Encoder
 }
 
@@ -55,7 +56,9 @@ func newContinuationHarness(t *testing.T, configure ...func(*grokSeedProduct)) *
 	writeWorkerRequest(t, reader, 1, "session.open", map[string]any{"name": "continuation@local", "groups": []string{}, "open": map[string]any{}})
 	opened := readWorkerResponse(t, reader, 1)
 	check(t, opened.Error == nil, "Open failed: %s", opened.Error)
+	observerRead, stopReaders, joinReaders := continuationReaders(reader, json.NewDecoder(or))
 	t.Cleanup(func() {
+		stopReaders()
 		_ = c.Close()
 		p.primary.close()
 		p.observer.close()
@@ -63,10 +66,11 @@ func newContinuationHarness(t *testing.T, configure ...func(*grokSeedProduct)) *
 		sw.Close()
 		or.Close()
 		osw.Close()
+		joinReaders()
 		<-served
 		l.Close()
 	})
-	return &continuationHarness{p, reader, json.NewDecoder(rr), json.NewDecoder(or), json.NewEncoder(sw), json.NewEncoder(osw)}
+	return &continuationHarness{p, reader, json.NewDecoder(rr), observerRead, json.NewEncoder(sw), json.NewEncoder(osw)}
 }
 func (h *continuationHarness) notify(t *testing.T, method string, params map[string]any) {
 	t.Helper()
@@ -115,7 +119,7 @@ func testContinuation(t *testing.T, fallback, lost bool) {
 	h := newContinuationHarness(t)
 	original := h.start(t, 2, "g/1", "owned-first")
 	writeWorkerRequest(t, h.bus, 3, "message.deliver", delivery("once-marker"))
-	interject := readACP(t, h.observerRead)
+	interject := h.expectInterject(t, 3, nil)
 	check(t, interject.Method == "_x.ai/interject", "not native interject")
 	var params struct{ Text string }
 	must(t, json.Unmarshal(interject.Params, &params))
@@ -190,18 +194,17 @@ func TestInterjectCancellationPreservesAttemptedNativeAccounting(t *testing.T) {
 			original := h.start(t, 2, "g/1", "owned-first")
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
-			type deliveryResult struct {
-				receipt kit.DeliveryReceipt
-				err     error
-			}
-			returned := make(chan deliveryResult, 1)
+			returned := make(chan continuationDeliveryResult, 1)
 			if !submitted {
 				cancel()
 			}
-			go func() { r, e := h.p.Deliver(ctx, delivery("cancel-marker"), nil); returned <- deliveryResult{r, e} }()
+			go func() {
+				r, e := h.p.Deliver(ctx, delivery("cancel-marker"), nil)
+				returned <- continuationDeliveryResult{r, e}
+			}()
 			var interject acpFrame
 			if submitted {
-				interject = readACP(t, h.observerRead)
+				interject = h.expectInterject(t, 0, returned)
 				cancel()
 			}
 			result := <-returned
@@ -229,7 +232,7 @@ func TestInterjectCancellationPreservesAttemptedNativeAccounting(t *testing.T) {
 			} else {
 				barrier := make(chan error, 1)
 				go func() { barrier <- h.p.observer.request(context.Background(), "barrier", nil, nil) }()
-				f := readACP(t, h.observerRead)
+				f := h.readObserver(t)
 				check(t, f.Method == "barrier", "cancelled unsent message reached native")
 				replyACP(t, h.observerWrite, f, map[string]any{})
 				must(t, <-barrier)
@@ -283,7 +286,7 @@ func TestWaitingInterjectCannotWakeRetiredRun(t *testing.T) {
 	check(t, receipt.Disposition == "rejected", "retired run was woken: %+v", receipt)
 	barrier := make(chan error, 1)
 	go func() { barrier <- h.p.observer.request(context.Background(), "barrier", nil, nil) }()
-	f := readACP(t, h.observerRead)
+	f := h.readObserver(t)
 	check(t, f.Method == "barrier", "retired run got native interject")
 	replyACP(t, h.observerWrite, f, map[string]any{})
 	must(t, <-barrier)
@@ -293,7 +296,7 @@ func TestOwnedNativeOutputOverflowIsUnavailable(t *testing.T) {
 	h := newContinuationHarness(t)
 	original := h.start(t, 2, "g/1", "owned-first")
 	writeWorkerRequest(t, h.bus, 3, "message.deliver", delivery("overflow-seed"))
-	interject := readACP(t, h.observerRead)
+	interject := h.expectInterject(t, 3, nil)
 	var params struct{ Text string }
 	must(t, json.Unmarshal(interject.Params, &params))
 	h.terminal(t, "p-g/1", "end_turn")
@@ -320,7 +323,7 @@ func TestObserverLossSettlesUnclassifiedRunWithoutNativeTerminal(t *testing.T) {
 	h := newContinuationHarness(t)
 	h.start(t, 2, "g/1", "owned-first")
 	writeWorkerRequest(t, h.bus, 3, "message.deliver", delivery("unclassified"))
-	readACP(t, h.observerRead)
+	h.expectInterject(t, 3, nil)
 	h.p.observer.close()
 	response := readWorkerResponse(t, h.bus, 3)
 	var receipt kit.DeliveryReceipt
@@ -351,7 +354,7 @@ func TestObserverWriteGateCannotSubmitAfterNativeTerminal(t *testing.T) {
 	check(t, (<-returned) != nil, "interject attempted after native terminal")
 	barrier := make(chan error, 1)
 	go func() { barrier <- h.p.observer.request(context.Background(), "barrier", nil, nil) }()
-	f := readACP(t, h.observerRead)
+	f := h.readObserver(t)
 	check(t, f.Method == "barrier", "terminal-crossed interject reached native")
 	replyACP(t, h.observerWrite, f, map[string]any{})
 	must(t, <-barrier)
