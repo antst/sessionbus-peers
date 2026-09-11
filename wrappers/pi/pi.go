@@ -39,6 +39,8 @@ type Wrapper struct {
 	failure      error
 	ended        bool
 	run          *sessionkit.Run
+	runCancel    context.CancelCauseFunc
+	active       *piNativeTurn
 	handoff      host.Handoff
 	losing       bool
 	closeOnce    sync.Once
@@ -262,9 +264,9 @@ func (p *Wrapper) observeNative(frame json.RawMessage) error {
 		return errors.New("Pi native emitted an invalid event")
 	}
 	if envelope.Type == "extension_ui_request" {
-		return errors.New("Pi native requested unsupported startup UI")
+		return p.observeNativeUI(frame)
 	}
-	return nil
+	return p.observeRunEvent(envelope.Type, frame)
 }
 
 func (p *Wrapper) handleBridge(ctx context.Context, method string, raw json.RawMessage) (json.RawMessage, error) {
@@ -311,6 +313,56 @@ func (p *Wrapper) handleBridge(ctx context.Context, method string, raw json.RawM
 				Result    json.RawMessage `json:"result"`
 			}{request.SessionID, request.CallID, actionResult}
 		}
+	case "run.input":
+		var request struct {
+			SessionID string          `json:"session_id"`
+			Source    string          `json:"source"`
+			Text      string          `json:"text"`
+			Settling  json.RawMessage `json:"settling"`
+		}
+		if err = decodePiBridge(raw, []string{"session_id", "source", "text", "settling"}, &request); err == nil {
+			var settling bool
+			settling, err = piBridgeBool(request.Settling)
+			if err == nil {
+				err = p.recordRunInput(request.SessionID, request.Source, request.Text, settling)
+			}
+			result = map[string]string{"session_id": request.SessionID}
+		}
+	case "run.preflight":
+		var request struct {
+			SessionID string          `json:"session_id"`
+			Prompt    string          `json:"prompt"`
+			Settling  json.RawMessage `json:"settling"`
+		}
+		if err = decodePiBridge(raw, []string{"session_id", "prompt", "settling"}, &request); err == nil {
+			var settling bool
+			settling, err = piBridgeBool(request.Settling)
+			if err == nil {
+				err = p.recordRunPreflight(request.SessionID, request.Prompt, settling)
+			}
+			result = map[string]string{"session_id": request.SessionID}
+		}
+	case "run.start":
+		var request struct {
+			SessionID string          `json:"session_id"`
+			Settling  json.RawMessage `json:"settling"`
+		}
+		if err = decodePiBridge(raw, []string{"session_id", "settling"}, &request); err == nil {
+			var settling bool
+			settling, err = piBridgeBool(request.Settling)
+			if err == nil {
+				err = p.recordRunStart(request.SessionID, settling)
+			}
+			result = map[string]string{"session_id": request.SessionID}
+		}
+	case "run.settling":
+		var request struct {
+			SessionID string `json:"session_id"`
+		}
+		if err = decodePiBridge(raw, []string{"session_id"}, &request); err == nil {
+			err = p.recordRunSettling(request.SessionID)
+			result = map[string]string{"session_id": request.SessionID}
+		}
 	default:
 		err = pifamily.NewBridgeCallError("method_not_found", "Pi bridge method is unavailable")
 	}
@@ -320,6 +372,17 @@ func (p *Wrapper) handleBridge(ctx context.Context, method string, raw json.RawM
 	}
 	body, marshalErr := json.Marshal(result)
 	return body, marshalErr
+}
+
+func piBridgeBool(raw json.RawMessage) (bool, error) {
+	trimmed := bytes.TrimSpace(raw)
+	if bytes.Equal(trimmed, []byte("true")) {
+		return true, nil
+	}
+	if bytes.Equal(trimmed, []byte("false")) {
+		return false, nil
+	}
+	return false, errors.New("Pi bridge boolean is invalid")
 }
 
 func decodePiBridge(raw json.RawMessage, fields []string, target any) error {
@@ -505,13 +568,24 @@ func (p *Wrapper) loseInternal(err error, closeBridge bool) {
 	}
 }
 
-// Run wiring follows in the native-terminal checkpoint. The method is present
-// now so the first owned Open/Close path can be driven through the real Worker.
-func (*Wrapper) Run(context.Context, *sessionkit.Run, sessionkit.RunInput) (sessionkit.TurnResult, error) {
-	return sessionkit.TurnResult{}, errors.New("Pi native Run is not available in this checkpoint")
-}
-
 func (p *Wrapper) Interrupt(ctx context.Context, run *sessionkit.Run) error {
+	p.mu.Lock()
+	matching, turn, cancel := p.run == run, p.active, p.runCancel
+	p.mu.Unlock()
+	if matching {
+		if turn != nil {
+			turn.mu.Lock()
+			admitted := turn.admitted
+			turn.mu.Unlock()
+			if admitted {
+				return turn.Interrupt(ctx)
+			}
+		}
+		if cancel != nil {
+			cancel(errPiRunInterrupted)
+			return nil
+		}
+	}
 	return p.handoff.Interrupt(ctx, run)
 }
 
@@ -519,7 +593,7 @@ func (p *Wrapper) Deliver(ctx context.Context, request sessionkit.DeliveryReques
 	return p.handoff.Deliver(ctx, request, nil)
 }
 
-func (p *Wrapper) Close(ctx context.Context, request sessionkit.SessionCloseRequest) error {
+func (p *Wrapper) Close(ctx context.Context, _ sessionkit.SessionCloseRequest) error {
 	p.closeOnce.Do(func() {
 		p.mu.Lock()
 		p.closing = true
@@ -582,9 +656,6 @@ func (p *Wrapper) Close(ctx context.Context, request sessionkit.SessionCloseRequ
 			p.closeErr = errors.New("Pi native session did not confirm shutdown")
 		}
 		p.closeErr = errors.Join(p.closeErr, childErr, ctx.Err())
-		if request.Forget {
-			p.closeErr = errors.Join(p.closeErr, errors.New("Pi native session forget is unavailable in this checkpoint"))
-		}
 		p.closeErr = errors.Join(p.closeErr, process.Cleanup())
 		if cancel != nil {
 			cancel(errors.New("Pi owner closed"))

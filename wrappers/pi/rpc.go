@@ -154,7 +154,9 @@ func newNativeRPC(input io.WriteCloser, output io.ReadCloser, observe func(json.
 	rpc := &nativeRPC{
 		input: input, output: output, observe: observe, limits: limits,
 		ctx: ctx, cancel: cancel, pending: make(map[string]*nativeRPCPending),
-		writes:         make(chan *nativeRPCWrite, limits.maxPendingWrites),
+		// One extra slot owns the zero-byte EOF marker. It can be queued behind
+		// every admitted write without weakening the normal write bound.
+		writes:         make(chan *nativeRPCWrite, limits.maxPendingWrites+1),
 		inputCloseDone: make(chan struct{}), readerDone: make(chan struct{}),
 		writerDone: make(chan struct{}), done: make(chan struct{}),
 	}
@@ -184,44 +186,52 @@ func (rpc *nativeRPC) Stats() nativeRPCStats {
 // Call writes one correlated Pi command. fields must not replace the owned id
 // or type. A nil result accepts a successful response without data.
 func (rpc *nativeRPC) Call(ctx context.Context, command string, fields map[string]any, result any) error {
+	_, err := rpc.callWithAdmission(ctx, command, fields, result)
+	return err
+}
+
+// callWithAdmission reports whether the command crossed the atomic writer
+// queue boundary. Its caller can then distinguish a pre-write rejection from
+// a submitted command whose response or write disposition became uncertain.
+func (rpc *nativeRPC) callWithAdmission(ctx context.Context, command string, fields map[string]any, result any) (bool, error) {
 	if ctx == nil {
-		return errors.New("Pi native RPC call requires context")
+		return false, errors.New("Pi native RPC call requires context")
 	}
 	if err := ctx.Err(); err != nil {
-		return err
+		return false, err
 	}
 	if err := validNativeRPCCommand(command); err != nil {
-		return err
+		return false, err
 	}
 	id, pending, write, err := rpc.admitCall(ctx, command, fields)
 	if err != nil {
-		return err
+		return false, err
 	}
 	completed, responded, writeErr := waitNativeRPCAdmission(ctx, write, pending)
 	if responded {
-		return rpc.consumeResult(completed, result)
+		return true, rpc.consumeResult(completed, result)
 	}
 	if writeErr != nil {
 		if completed, ok := rpc.abandonPending(id, pending); ok {
-			return rpc.consumeResult(completed, result)
+			return true, rpc.consumeResult(completed, result)
 		}
 		// A cancelled or failed write can be partial. Retire the transport so
 		// an uncertain command cannot outlive its owner.
 		if ctx.Err() != nil {
 			rpc.stop(ctx.Err(), false)
-			return ctx.Err()
+			return true, ctx.Err()
 		}
-		return writeErr
+		return true, writeErr
 	}
 
 	select {
 	case completed := <-pending.result:
-		return rpc.consumeResult(completed, result)
+		return true, rpc.consumeResult(completed, result)
 	case <-ctx.Done():
 		if completed, ok := rpc.abandonPending(id, pending); ok {
-			return rpc.consumeResult(completed, result)
+			return true, rpc.consumeResult(completed, result)
 		}
-		return ctx.Err()
+		return true, ctx.Err()
 	}
 }
 
@@ -333,6 +343,62 @@ func (rpc *nativeRPC) encodeCommand(id, command string, fields map[string]any) (
 	return append(body, '\n'), nil
 }
 
+// CancelUI writes the only uncorrelated native input used by a managed Pi
+// lane. Dialog cancellation has the native request ID but produces no response
+// frame, so representing it as Call would retain a result wait forever.
+func (rpc *nativeRPC) CancelUI(ctx context.Context, requestID string) error {
+	if ctx == nil {
+		return errors.New("Pi native UI cancellation requires context")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if !utf8.ValidString(requestID) || requestID == "" || len(requestID) > 256 || strings.IndexFunc(requestID, unicode.IsControl) >= 0 {
+		return errors.New("Pi native UI request identity is invalid")
+	}
+	body, err := json.Marshal(map[string]any{
+		"type": "extension_ui_response", "id": requestID, "cancelled": true,
+	})
+	if err != nil || len(body) == 0 || len(body) > rpc.limits.maxInputFrame {
+		return fmt.Errorf("%w: invalid UI cancellation frame", errNativeRPCProtocol)
+	}
+	body = append(body, '\n')
+	write := newNativeRPCWrite(body)
+
+	rpc.outboundMu.Lock()
+	defer rpc.outboundMu.Unlock()
+	if err = ctx.Err(); err != nil {
+		return err
+	}
+	rpc.mu.Lock()
+	if rpc.stopped || rpc.inputEnding {
+		err = rpc.connectionErrorLocked()
+		rpc.mu.Unlock()
+		return err
+	}
+	if rpc.pendingWrites >= rpc.limits.maxPendingWrites ||
+		rpc.retainedBytes+rpc.pendingBytes > rpc.limits.maxRetainedBytes-len(body) {
+		rpc.mu.Unlock()
+		return errNativeRPCBusy
+	}
+	rpc.pendingWrites++
+	rpc.pendingBytes += len(body)
+	rpc.writes <- write
+	rpc.mu.Unlock()
+
+	if err = waitNativeRPCWrite(ctx, write); err != nil {
+		// Cancellation while an admitted write is unresolved leaves its byte
+		// boundary uncertain. Retire the transport rather than pretending that
+		// the native dialog was or was not canceled.
+		if ctx.Err() != nil {
+			rpc.stop(ctx.Err(), false)
+			return ctx.Err()
+		}
+		return err
+	}
+	return nil
+}
+
 // EndInput closes native stdin only after all correlated calls and retained
 // responses have settled. Pi then owns its graceful shutdown and stdout EOF.
 func (rpc *nativeRPC) EndInput(ctx context.Context) error {
@@ -355,7 +421,7 @@ func (rpc *nativeRPC) EndInput(ctx context.Context) error {
 		rpc.outboundMu.Unlock()
 		return err
 	}
-	if len(rpc.pending) != 0 || rpc.pendingWrites != 0 || rpc.retainedBytes != 0 {
+	if len(rpc.pending) != 0 || rpc.retainedBytes != 0 {
 		rpc.mu.Unlock()
 		rpc.outboundMu.Unlock()
 		return errNativeRPCBusy
@@ -363,7 +429,6 @@ func (rpc *nativeRPC) EndInput(ctx context.Context) error {
 	write := newNativeRPCWrite(nil)
 	write.end = true
 	rpc.inputEnding = true
-	rpc.pendingWrites++
 	rpc.writes <- write
 	rpc.mu.Unlock()
 	rpc.outboundMu.Unlock()
@@ -434,9 +499,6 @@ func (rpc *nativeRPC) writeLoop() {
 			return
 		case write := <-rpc.writes:
 			if write.end {
-				rpc.mu.Lock()
-				rpc.pendingWrites--
-				rpc.mu.Unlock()
 				err := rpc.input.Close()
 				rpc.mu.Lock()
 				rpc.inputCloseErr = err
@@ -472,7 +534,9 @@ func (rpc *nativeRPC) drainWrites(err error) {
 	for {
 		select {
 		case write := <-rpc.writes:
-			rpc.releaseWrite(len(write.body))
+			if !write.end {
+				rpc.releaseWrite(len(write.body))
+			}
 			write.complete(err)
 		default:
 			return

@@ -80,6 +80,10 @@ func runPiNativeHelper(mode string) error {
 			id, name = arguments[index+1], "retained native title"
 		}
 	}
+	sessionFile := filepath.Join(cwd, id+".jsonl")
+	if err = os.WriteFile(sessionFile, []byte("owned native history\n"), 0o600); err != nil {
+		return err
+	}
 	var bridge *pifamily.Bridge
 	bridge, err = pifamily.NewBridge(connection, pifamily.BridgeNative,
 		func(_ context.Context, method string, raw json.RawMessage) (json.RawMessage, error) {
@@ -110,6 +114,15 @@ func runPiNativeHelper(mode string) error {
 
 	reader := bufio.NewScanner(os.Stdin)
 	writer := bufio.NewWriter(os.Stdout)
+	history := make([]map[string]any, 0)
+	var leaf any
+	if mode == "run-offbranch" {
+		history = []map[string]any{
+			{"id": "selected", "parentId": nil, "type": "custom", "data": map[string]any{"owned": true}},
+			{"id": "file-tail", "parentId": nil, "type": "custom", "data": map[string]any{"other": true}},
+		}
+		leaf = "selected"
+	}
 	for reader.Scan() {
 		var command map[string]json.RawMessage
 		if json.Unmarshal(reader.Bytes(), &command) != nil {
@@ -122,10 +135,118 @@ func runPiNativeHelper(mode string) error {
 		response := map[string]any{"id": requestID, "type": "response", "command": kind, "success": true}
 		switch kind {
 		case "get_state":
-			response["data"] = piNativeState{SessionID: id, SessionName: name, SessionFile: filepath.Join(launch.Directory, id+".jsonl")}
+			response["data"] = piNativeState{SessionID: id, SessionName: name, SessionFile: sessionFile}
 		case "set_session_name":
 			if json.Unmarshal(command["name"], &name) != nil || name == "" {
 				return errors.New("helper received invalid native name")
+			}
+		case "get_entries":
+			if mode == "run-offbranch" {
+				var since string
+				if raw, present := command["since"]; present {
+					if json.Unmarshal(raw, &since) != nil || since != "file-tail" {
+						return fmt.Errorf("helper received wrong append cursor %q", since)
+					}
+					response["data"] = map[string]any{"entries": []map[string]any{
+						{"id": "entry-user", "parentId": "selected", "type": "message", "message": map[string]any{"role": "user", "content": "owned prompt expanded"}},
+						{"id": "entry-answer", "parentId": "entry-user", "type": "message", "message": map[string]any{"role": "assistant", "content": "native answer", "stopReason": "stop"}},
+					}, "leafId": "entry-answer"}
+				} else {
+					response["data"] = map[string]any{"entries": history, "leafId": leaf}
+				}
+			} else {
+				response["data"] = map[string]any{"entries": history, "leafId": leaf}
+			}
+		case "prompt":
+			var prompt string
+			if mode != "run" && mode != "run-abort" && mode != "run-offbranch" && mode != "run-hold" && mode != "handled" || json.Unmarshal(command["message"], &prompt) != nil || prompt == "" {
+				return errors.New("helper received invalid native prompt")
+			}
+			var echo struct {
+				SessionID string `json:"session_id"`
+			}
+			witnesses := []struct {
+				method string
+				params any
+			}{
+				{"run.input", map[string]any{"session_id": id, "source": "rpc", "text": prompt, "settling": false}},
+				{"run.preflight", map[string]any{"session_id": id, "prompt": prompt + " expanded", "settling": false}},
+				{"run.start", map[string]any{"session_id": id, "settling": false}},
+			}
+			if mode == "handled" {
+				witnesses = nil
+			} else if mode == "run-hold" {
+				witnesses = witnesses[:1]
+			}
+			for _, witness := range witnesses {
+				if err = bridge.Call(context.Background(), witness.method, witness.params, &echo); err != nil || echo.SessionID != id {
+					return errors.Join(err, errors.New("helper Run witness was not acknowledged"))
+				}
+			}
+			if mode == "run-hold" {
+				continue
+			}
+			body, _ := json.Marshal(response)
+			if _, err = writer.Write(append(body, '\n')); err != nil {
+				return err
+			}
+			if mode == "handled" {
+				if err = writer.Flush(); err != nil {
+					return err
+				}
+				continue
+			}
+			for _, event := range []any{
+				map[string]any{"type": "agent_start"},
+				map[string]any{"type": "message_start", "message": map[string]any{"role": "user", "content": []any{map[string]string{"type": "text", "text": prompt + " expanded"}}}},
+			} {
+				body, _ = json.Marshal(event)
+				if _, err = writer.Write(append(body, '\n')); err != nil {
+					return err
+				}
+			}
+			if err = writer.Flush(); err != nil {
+				return err
+			}
+			if mode == "run-abort" {
+				continue
+			}
+			if mode != "run-offbranch" {
+				history = []map[string]any{
+					{"id": "entry-user", "parentId": nil, "type": "message", "message": map[string]any{"role": "user", "content": prompt + " expanded"}},
+					{"id": "entry-answer", "parentId": "entry-user", "type": "message", "message": map[string]any{"role": "assistant", "content": "native answer", "stopReason": "stop"}},
+				}
+				leaf = "entry-answer"
+			}
+			if err = bridge.Call(context.Background(), "run.settling", map[string]string{"session_id": id}, &echo); err != nil || echo.SessionID != id {
+				return errors.Join(err, errors.New("helper settling witness was not acknowledged"))
+			}
+			if _, err = fmt.Fprintln(writer, `{"type":"agent_settled"}`); err != nil {
+				return err
+			}
+			if err = writer.Flush(); err != nil {
+				return err
+			}
+			continue
+		case "abort":
+			if mode == "run-abort" {
+				history = []map[string]any{
+					{"id": "entry-user", "parentId": nil, "type": "message", "message": map[string]any{"role": "user", "content": "owned prompt expanded"}},
+					{"id": "entry-answer", "parentId": "entry-user", "type": "message", "message": map[string]any{"role": "assistant", "content": "", "stopReason": "aborted"}},
+				}
+				leaf = "entry-answer"
+				var echo struct {
+					SessionID string `json:"session_id"`
+				}
+				if err = bridge.Call(context.Background(), "run.settling", map[string]string{"session_id": id}, &echo); err != nil || echo.SessionID != id {
+					return errors.Join(err, errors.New("helper abort settling witness was not acknowledged"))
+				}
+				if _, err = fmt.Fprintln(writer, `{"type":"agent_settled"}`); err != nil {
+					return err
+				}
+				if err = writer.Flush(); err != nil {
+					return err
+				}
 			}
 		default:
 			return fmt.Errorf("helper received unexpected command %s", kind)
@@ -223,6 +344,26 @@ func TestPiOwnedOpenCloseFreshAndResume(t *testing.T) {
 				t.Fatalf("bridge retained work: %+v", stats)
 			}
 		})
+	}
+}
+
+func TestPiCloseForgetLeavesNativeHistoryToDaemonRowOwnership(t *testing.T) {
+	wrapper, cwd := newPiTestWrapper(t, "normal")
+	if _, err := wrapper.Open(context.Background(), sessionkit.OpenRequest{
+		Name: "managed@local", Open: sessionkit.OpenOptions{Cwd: cwd},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	history := filepath.Join(cwd, "pi-fresh.jsonl")
+	launchDirectory := wrapper.process.directory
+	if err := wrapper.Close(context.Background(), sessionkit.SessionCloseRequest{Forget: true}); err != nil {
+		t.Fatal(err)
+	}
+	if body, err := os.ReadFile(history); err != nil || string(body) != "owned native history\n" {
+		t.Fatalf("native history after row forget = %q, %v", body, err)
+	}
+	if _, err := os.Stat(launchDirectory); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("private launch directory survived Forget Close: %v", err)
 	}
 }
 
