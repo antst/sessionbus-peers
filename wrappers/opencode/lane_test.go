@@ -56,10 +56,14 @@ func fakeNativeHTTP() {
 	var mu sync.Mutex
 	var history []withParts
 	var aborts int
+	var rejections int
 	var hold chan struct{}
 	var interrupted bool
 	var permission any
 	events := make(chan any, 256)
+	eventEnd := make(chan struct{})
+	started := make(chan struct{})
+	var startOnce sync.Once
 	var helper net.Conn
 	var init sync.Once
 	emit := func(kind string, properties any) { events <- map[string]any{"type": kind, "properties": properties} }
@@ -92,6 +96,8 @@ func fakeNativeHTTP() {
 					b, _ := json.Marshal(e)
 					_, _ = fmt.Fprintf(w, "data: %s\n\n", b)
 					w.(http.Flusher).Flush()
+				case <-eventEnd:
+					return
 				case <-r.Context().Done():
 					return
 				}
@@ -143,6 +149,13 @@ func fakeNativeHTTP() {
 			gate := hold
 			mu.Unlock()
 			emit("session.status", map[string]any{"sessionID": id, "status": map[string]string{"type": "busy"}})
+			startOnce.Do(func() { close(started) })
+			if text == "hold-permission" {
+				emit("permission.asked", map[string]any{"id": "per_fixture", "sessionID": id, "permission": "bash", "patterns": []string{"fixture"}, "metadata": map[string]any{}})
+			}
+			if text == "hold-question" {
+				emit("question.asked", map[string]any{"id": "que_fixture", "sessionID": id, "questions": []any{}})
+			}
 			if strings.HasPrefix(text, "hold") {
 				select {
 				case <-gate:
@@ -201,6 +214,39 @@ func fakeNativeHTTP() {
 			}
 			mu.Unlock()
 			reply(true)
+		case r.URL.Path == "/permission/per_fixture/reply" || r.URL.Path == "/question/que_fixture/reject":
+			if r.Method != "POST" {
+				http.Error(w, "method", 405)
+				return
+			}
+			if r.URL.Path == "/permission/per_fixture/reply" {
+				var body struct {
+					Reply string `json:"reply"`
+				}
+				if json.NewDecoder(r.Body).Decode(&body) != nil || body.Reply != "reject" {
+					http.Error(w, "must reject", 400)
+					return
+				}
+			}
+			mu.Lock()
+			rejections++
+			if hold != nil {
+				close(hold)
+				hold = nil
+			}
+			mu.Unlock()
+			reply(true)
+		case r.URL.Path == "/fixture/started":
+			select {
+			case <-started:
+				reply(true)
+			case <-r.Context().Done():
+			}
+		case r.URL.Path == "/fixture/exit":
+			os.Exit(7)
+		case r.URL.Path == "/fixture/end-events":
+			close(eventEnd)
+			reply(true)
 		case r.URL.Path == "/fixture/release":
 			mu.Lock()
 			if hold != nil {
@@ -211,7 +257,7 @@ func fakeNativeHTTP() {
 			reply(true)
 		case r.URL.Path == "/fixture/state":
 			mu.Lock()
-			reply(map[string]any{"aborts": aborts, "messages": history, "permission": permission})
+			reply(map[string]any{"aborts": aborts, "messages": history, "permission": permission, "rejections": rejections})
 			mu.Unlock()
 		default:
 			http.Error(w, r.URL.Path, 404)
@@ -562,5 +608,58 @@ func TestLegacyResidentToolUsesNativeChildAncestry(t *testing.T) {
 		} else if !strings.Contains(string(result["result"]), `"isError":true`) && len(result["error"]) == 0 {
 			t.Fatalf("unrelated/missing identity accepted: %s", result)
 		}
+	}
+}
+
+func TestLegacyWorkerEventLossJoinsHeldRunAndOwnedChild(t *testing.T) {
+	for _, route := range []string{"/fixture/end-events", "/fixture/exit"} {
+		t.Run(route, func(t *testing.T) {
+			f := newWorkerFixture(t)
+			f.start(t, 1, "hold-event-loss")
+			if _, err := f.p.client.call(f.ctx, "GET", "/fixture/started", nil, 200); err != nil {
+				t.Fatal(err)
+			}
+			f.p.mu.Lock()
+			run := f.p.run
+			childDone := f.p.childDone
+			f.p.mu.Unlock()
+			if run == nil {
+				t.Fatal("no owned Run after native request started")
+			}
+			// Owner cancellation may race the fixture control response; its bytes are
+			// not the assertion. Join the actual Run, daemon EOF and native child.
+			_, _ = f.p.client.call(f.ctx, "POST", route, nil, 200)
+			for name, done := range map[string]<-chan struct{}{"run": run.Done(), "bus": f.done, "child": childDone} {
+				select {
+				case <-done:
+				case <-f.ctx.Done():
+					t.Fatalf("%s did not settle after owner loss", name)
+				}
+			}
+		})
+	}
+}
+
+func TestLegacyWorkerRejectsNativePermissionAndQuestionWithoutGrant(t *testing.T) {
+	for _, input := range []string{"hold-permission", "hold-question"} {
+		t.Run(input, func(t *testing.T) {
+			f := newWorkerFixture(t)
+			f.start(t, 1, input)
+			result := f.wait(t, 1)
+			if result.Result == nil || result.Result.Outcome != "completed" {
+				t.Fatalf("native execution not settled: %+v", result)
+			}
+			raw, err := f.p.client.call(f.ctx, "GET", "/fixture/state", nil, 200)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var state struct {
+				Rejections int
+				Permission any
+			}
+			if json.Unmarshal(raw, &state) != nil || state.Rejections != 1 || state.Permission != nil {
+				t.Fatalf("native rejection/default policy: %s", raw)
+			}
+		})
 	}
 }
