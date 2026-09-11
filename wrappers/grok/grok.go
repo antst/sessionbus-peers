@@ -49,7 +49,6 @@ type Wrapper struct {
 	staged        []string
 	stagedBytes   int
 	run           *sessionkit.Run
-	active        *nativePrompt
 	pendingPrompt *nativePrompt
 	answers       map[string]*strings.Builder
 	closing       bool
@@ -453,9 +452,6 @@ func (p *Wrapper) executeRun(ctx context.Context, run *sessionkit.Run, seed sess
 	}
 	p.mu.Lock()
 	p.answers = nil
-	if p.active == turn {
-		p.active = nil
-	}
 	if p.pendingPrompt == turn {
 		p.pendingPrompt = nil
 	}
@@ -497,6 +493,8 @@ type nativePrompt struct {
 func (p *Wrapper) startPrompt(ctx context.Context, primary *acpClient, id, prompt string) (*nativePrompt, error) {
 	t := &nativePrompt{ctx: ctx, changed: make(chan struct{}), owner: p, client: primary, sessionID: id, promptText: prompt, admitted: make(chan struct{}), done: make(chan struct{})}
 	p.mu.Lock()
+	// Publish the sole native request owner before any native-visible write.
+	// Admission, delivery and interruption all consult this same owner.
 	p.pendingPrompt = t
 	p.mu.Unlock()
 	started := make(chan error, 1)
@@ -511,16 +509,11 @@ func (p *Wrapper) startPrompt(ctx context.Context, primary *acpClient, id, promp
 		close(t.done)
 	}()
 	if err := <-started; err != nil {
-		p.mu.Lock()
-		if p.pendingPrompt == t {
-			p.pendingPrompt = nil
-		}
-		p.mu.Unlock()
-		return nil, err
+		// The write may already have admitted a native event or an interrupt.
+		// Keep its registered owner through failure cleanup and join the sender.
+		<-t.done
+		return t, err
 	}
-	p.mu.Lock()
-	p.active = t
-	p.mu.Unlock()
 	return t, nil
 }
 
@@ -531,7 +524,7 @@ func (t *nativePrompt) Wait(ctx context.Context) (sessionkit.TurnResult, error) 
 func (t *nativePrompt) Interrupt(ctx context.Context) error {
 	p := t.owner
 	p.mu.Lock()
-	if t.retiring || p.active != t || p.closing || p.nativeFailure != nil || len(t.segments) > 0 && t.segments[len(t.segments)-1].terminal {
+	if !t.attempted || t.retiring || p.pendingPrompt != t || p.closing || p.nativeFailure != nil || len(t.segments) > 0 && t.segments[len(t.segments)-1].terminal {
 		p.mu.Unlock()
 		return nil
 	}
@@ -619,7 +612,7 @@ func (p *Wrapper) receive(frame acpFrame) {
 
 func (p *Wrapper) Interrupt(ctx context.Context, run *sessionkit.Run) error {
 	p.mu.Lock()
-	native := p.active
+	native := p.pendingPrompt
 	if p.run != run {
 		native = nil
 	}

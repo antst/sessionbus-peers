@@ -18,6 +18,16 @@ The exact message/session actor acknowledgement is permanent admission and produ
 
 Register before write and distinguish known pre-submission refusal from attempted delivery. A pre-submission cancellation/refusal removes the reservation without changing native work. A definite native refusal likewise settles it without replay. After attempted submission, caller cancellation may end the caller wait but must not discard native accounting: retain the correlation until native acknowledgement/classification or connection failure. Never hold the primary reader or owner mutex on a bus write or a waiting caller.
 
+## Admission ownership correction (2026-09-11)
+
+The native prompt has one owner, registered before the primary write. Primary notifications, delivery and interruption all consult that owner; there is no separately published active pointer after Write returns. A child may read and admit a frame before its parent's Write returns. Delivery therefore awaits the owner's primary admission event before submitting on the observer stream, with caller cancellation, prompt completion/failure and primary loss settling that wait. This prevents both an early rejection of an admitted prompt and an observer interject reaching native idle before the primary prompt is admitted.
+
+An interrupt can join an attempted prompt while its original write is still returning. The existing primary write gate preserves prompt-before-cancel ordering, and callback/fallback share the same owned interrupt. A failed start retains the prompt for failure retirement and joins its sender outside the owner mutex. Existing shared Run.Done retirement at the next admission and interrupt joining remain required.
+
+Controlled regressions hold the actual first prompt pipe write after native reads it, exercise delivery/admission/loss/cancellation and interrupt/write failure, and require a healthy following run. The same test bodies fail against the previous runtime. Continuation fixtures observe either the native interject or the actual early delivery result with one reader per stream; they cannot silently wait for a frame after delivery already returned.
+
+Separate open policy item: the existing rejection after native terminal/retirement is retained here, as specified above and exercised by the retirement test. Its compatibility with the earlier owner release rule requiring failed steer to queue or return a truthful product error needs its own disposition. This admission correction does not establish that the terminal-but-unretired rejection satisfies that rule.
+
 ## Completion and output
 
 Do not return from the existing Run callback while an admitted submission's scheduling is unresolved or a bound native continuation is running. Original session/prompt result, primary terminal state, pending submission classification and continuation completion must all settle before publishing the shared terminal. The same primary stream captures the continuation's output and actual terminal even though it has no new session/prompt RPC of ours.
