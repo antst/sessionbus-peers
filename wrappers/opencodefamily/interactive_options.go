@@ -16,6 +16,10 @@ import (
 
 var openCodeInteractiveValueOptions = []string{"--log-level", "--port", "--hostname", "--mdns-domain", "--cors", "-m", "--model", "-s", "--session", "--prompt", "--agent", "--replay-limit"}
 
+var kiloInteractiveValueOptions = []string{"--log-level", "--port", "--hostname", "--mdns-domain", "--mdnsDomain", "--cors", "-m", "--model", "-s", "--session", "--prompt", "--agent", "--worktree", "--replay-limit", "--replayLimit"}
+
+func KiloInteractiveValueOptions() []string { return slices.Clone(kiloInteractiveValueOptions) }
+
 // OpenCodeInteractiveValueOptions returns the fixed native options that consume
 // one argument in the managed front door. Callers cannot alter the shared list.
 func OpenCodeInteractiveValueOptions() []string { return slices.Clone(openCodeInteractiveValueOptions) }
@@ -24,8 +28,22 @@ func OpenCodeInteractiveValueOptions() []string { return slices.Clone(openCodeIn
 // yes, on, 1, y are true; false, no, off, 0, n are false. Malformed values are
 // left intact for the native parser rather than silently treated as false.
 func ValidateOpenCodeTopology(arguments, environment []string) error {
-	if slices.Contains([]string{"true", "yes", "on", "1", "y"}, InteractiveEnvironmentValue(environment, "OPENCODE_PURE")) {
-		return errors.New("OPENCODE_PURE disables the required managed OpenCode plugins")
+	return validateNativeTopology(arguments, environment, false)
+}
+func ValidateKiloTopology(arguments, environment []string) error {
+	return validateNativeTopology(arguments, environment, true)
+}
+func validateNativeTopology(arguments, environment []string, kilo bool) error {
+	product, label, pure, values := "opencode", "OpenCode", "OPENCODE_PURE", openCodeInteractiveValueOptions
+	if kilo {
+		product, label, pure, values = "kilo", "Kilo", "KILO_PURE", kiloInteractiveValueOptions
+	}
+	value := InteractiveEnvironmentValue(environment, pure)
+	// Kilo TUI's truthy getter lowercases true/1, while its server retains the
+	// exact Effect boolean grammar. Reject either enabling interpretation;
+	// leave other malformed environment values intact for native validation.
+	if slices.Contains([]string{"true", "yes", "on", "1", "y"}, value) || kilo && strings.ToLower(value) == "true" {
+		return fmt.Errorf("%s disables the required managed %s plugins", pure, label)
 	}
 	for index := 0; index < len(arguments); index++ {
 		if arguments[index] == "--" {
@@ -34,7 +52,7 @@ func ValidateOpenCodeTopology(arguments, environment []string) error {
 		key, value, attached := strings.Cut(arguments[index], "=")
 		switch key {
 		case "--hostname", "--port", "--mdns", "--no-mdns", "--mdns-domain", "--mdnsDomain", "--cors":
-			return fmt.Errorf("opencode-peer owns native loopback HTTP topology; %s conflicts", key)
+			return fmt.Errorf("%s-peer owns native loopback HTTP topology; %s conflicts", product, key)
 		case "--pure":
 			if attached && value == "false" {
 				continue
@@ -43,13 +61,29 @@ func ValidateOpenCodeTopology(arguments, environment []string) error {
 				index++
 				continue
 			}
-			return errors.New("--pure disables the required managed OpenCode plugins (only explicit false is compatible)")
+			return fmt.Errorf("--pure disables the required managed %s plugins (only explicit false is compatible)", label)
+		case "--mini":
+			if !kilo {
+				break
+			}
+			if attached && value == "false" {
+				continue
+			}
+			if !attached && index+1 < len(arguments) && arguments[index+1] == "false" {
+				index++
+				continue
+			}
+			return errors.New("--mini is incompatible with the managed Kilo TUI plugin and loopback topology")
+		case "--no-mini":
+			if kilo && attached {
+				return errors.New("--no-mini takes no assigned value in managed mode")
+			}
 		case "--no-pure":
 			if attached {
 				return errors.New("--no-pure takes no assigned value in managed mode")
 			}
 		}
-		if slices.Contains(openCodeInteractiveValueOptions, key) && !attached {
+		if slices.Contains(values, key) && !attached {
 			index++
 		}
 	}

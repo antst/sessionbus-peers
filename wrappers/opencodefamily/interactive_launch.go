@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"syscall"
 
@@ -19,6 +20,12 @@ import (
 )
 
 const OpenCodeInteractiveLaunchEnv = "SESSIONBUS_OPENCODE_LAUNCH"
+const KiloInteractiveLaunchEnv = "SESSIONBUS_KILO_LAUNCH"
+
+type interactiveProduct struct {
+	name, label, launch, password string
+	kilo                          bool
+}
 
 type InteractiveLaunchBinding struct {
 	Directory string   `json:"directory"`
@@ -31,7 +38,17 @@ type InteractiveLaunchBinding struct {
 // RunOpenCodeInteractive retains only direct-child/transient-directory ownership. All
 // interactive Peer/Caller state belongs to the native TUI plugin. Abrupt launcher
 // death cannot promise native retirement or removal of the launch directory.
-func RunOpenCodeInteractive(ctx context.Context, plan host.ExecPlan) (err error) {
+func RunOpenCodeInteractive(ctx context.Context, plan host.ExecPlan) error {
+	return runInteractive(ctx, plan, interactiveProduct{"opencode", "OpenCode", OpenCodeInteractiveLaunchEnv, "OPENCODE_SERVER_PASSWORD", false})
+}
+
+// RunKiloInteractive requires the caller's already resolved direct executable
+// and resource environment; it never invokes the npm shim or a broker.
+func RunKiloInteractive(ctx context.Context, plan host.ExecPlan) error {
+	return runInteractive(ctx, plan, interactiveProduct{"kilo", "Kilo", KiloInteractiveLaunchEnv, "KILO_SERVER_PASSWORD", true})
+}
+
+func runInteractive(ctx context.Context, plan host.ExecPlan, product interactiveProduct) (err error) {
 	path, err := exec.LookPath(plan.Path)
 	if err != nil {
 		return err
@@ -39,7 +56,7 @@ func RunOpenCodeInteractive(ctx context.Context, plan host.ExecPlan) (err error)
 	if err = ctx.Err(); err != nil {
 		return err
 	}
-	if err = ValidateOpenCodeTopology(plan.Args, plan.Env); err != nil {
+	if err = validateNativeTopology(plan.Args, plan.Env, product.kilo); err != nil {
 		return err
 	}
 	socket := InteractiveEnvironmentValue(plan.Env, host.SocketEnv)
@@ -53,13 +70,13 @@ func RunOpenCodeInteractive(ctx context.Context, plan host.ExecPlan) (err error)
 	if err = os.MkdirAll(root, 0o700); err != nil {
 		return err
 	}
-	directory, err := os.MkdirTemp(root, "opencode-")
+	directory, err := os.MkdirTemp(root, product.name+"-")
 	if err != nil {
 		return err
 	}
 	defer func() { err = errors.Join(err, os.RemoveAll(directory)) }()
 	if len(filepath.Join(directory, "actions.sock")) >= 104 {
-		return errors.New("managed OpenCode endpoint exceeds Unix socket path limit")
+		return errors.New("managed " + product.label + " endpoint exceeds Unix socket path limit")
 	}
 	var groups []string
 	if err = json.Unmarshal([]byte(InteractiveEnvironmentValue(plan.Env, host.GroupsEnv)), &groups); err != nil {
@@ -73,13 +90,17 @@ func RunOpenCodeInteractive(ctx context.Context, plan host.ExecPlan) (err error)
 		return errors.New("managed launch metadata exceeds 64 KiB")
 	}
 	environment := slices.DeleteFunc(slices.Clone(plan.Env), func(entry string) bool { return strings.HasPrefix(entry, "SESSIONBUS_") })
-	environment = append(environment, OpenCodeInteractiveLaunchEnv+"="+string(binding))
-	if InteractiveEnvironmentValue(environment, "OPENCODE_SERVER_PASSWORD") == "" {
+	environment = append(environment, product.launch+"="+string(binding))
+	if InteractiveEnvironmentValue(environment, product.password) == "" {
 		var secret [32]byte
 		if _, err = rand.Read(secret[:]); err != nil {
 			return err
 		}
-		environment = setInteractiveEnvironment(environment, "OPENCODE_SERVER_PASSWORD", hex.EncodeToString(secret[:]))
+		environment = setInteractiveEnvironment(environment, product.password, hex.EncodeToString(secret[:]))
+	}
+	if product.kilo {
+		environment = setInteractiveEnvironment(environment, "KILO_NO_DAEMON", "1")
+		environment = setInteractiveEnvironment(environment, "KILO_PARENT_PID", strconv.Itoa(os.Getpid()))
 	}
 	// Existing nonempty native credentials remain native settings. Both the TUI
 	// process and its native Worker inherit this exact environment.
