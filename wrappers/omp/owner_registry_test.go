@@ -30,6 +30,7 @@ type ownerNativeFixture struct {
 	shutdowns    []ownerDescribeRequest
 	stageHook    func(ownerStageRequest)
 	stageResult  func(ownerStageRequest) ownerStageResult
+	stageRaw     func(ownerStageRequest) json.RawMessage
 }
 
 func (fixture *ownerNativeFixture) handle(_ context.Context, method string, raw json.RawMessage) (json.RawMessage, error) {
@@ -55,12 +56,16 @@ func (fixture *ownerNativeFixture) handle(_ context.Context, method string, raw 
 		if fixture.stageHook != nil {
 			fixture.stageHook(request)
 		}
+		if fixture.stageRaw != nil {
+			return fixture.stageRaw(request), nil
+		}
 		if fixture.stageResult != nil {
 			return json.Marshal(fixture.stageResult(request))
 		}
+		queued := true
 		return json.Marshal(ownerStageResult{
 			OwnerToken: request.OwnerToken, SessionID: request.SessionID,
-			MessageID: request.MessageID, Queued: true,
+			MessageID: request.MessageID, Queued: &queued,
 		})
 	case "native.shutdown":
 		var request ownerDescribeRequest
@@ -525,14 +530,13 @@ func TestOwnerRegistryReturnsNativeQueueCapacityWithoutRetiringOwner(t *testing.
 		"owner-token": {OwnerToken: "owner-token", SessionID: "native-session", CWD: "/work"},
 	}}
 	fixture.stageResult = func(request ownerStageRequest) ownerStageResult {
+		queued := request.MessageID != "full"
 		result := ownerStageResult{
-			OwnerToken: request.OwnerToken, SessionID: request.SessionID, MessageID: request.MessageID,
+			OwnerToken: request.OwnerToken, SessionID: request.SessionID, MessageID: request.MessageID, Queued: &queued,
 		}
-		if request.MessageID == "full" {
+		if !queued {
 			result.Reason = "queue_full"
-			return result
 		}
-		result.Queued = true
 		return result
 	}
 	registry, native := ownerRegistryPair(t, OwnerRegistryOptions{
@@ -563,6 +567,102 @@ func TestOwnerRegistryReturnsNativeQueueCapacityWithoutRetiringOwner(t *testing.
 	}
 	if err := registry.Err(); err != nil {
 		t.Fatalf("native capacity rejection retired owner: %v", err)
+	}
+}
+
+func TestOwnerRegistryRejectsAmbiguousNativeQueueCapacity(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		raw  string
+	}{
+		{name: "missing queued", raw: `{"owner_token":"owner-token","session_id":"native-session","message_id":"bad","reason":"queue_full"}`},
+		{name: "null queued", raw: `{"owner_token":"owner-token","session_id":"native-session","message_id":"bad","queued":null,"reason":"queue_full"}`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			listener := ownerBusListener(t)
+			directory := t.TempDir()
+			fixture := &ownerNativeFixture{descriptions: map[string]ownerDescribeResult{
+				"owner-token": {OwnerToken: "owner-token", SessionID: "native-session", CWD: "/work"},
+			}}
+			fixture.stageRaw = func(ownerStageRequest) json.RawMessage { return json.RawMessage(test.raw) }
+			registry, native := ownerRegistryPair(t, OwnerRegistryOptions{
+				Topology: ownerTopologyInteractive, Socket: listener.Addr().String(), Directory: directory,
+			}, fixture)
+			_, _, _ = ownerReady(t, registry, native, listener, ownerReadyRequest{
+				Topology: ownerTopologyInteractive, Directory: directory, Scope: ownerScopePrimary,
+				Mode: ownerModeTUI, OwnerToken: "owner-token", SessionID: "native-session",
+			})
+			state, err := registry.current("owner-token", "native-session")
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = registry.deliver(ownerTestContext(t), state, kit.DeliveryRequest{
+				MessageID: "bad", From: kit.DeliverySource{SessionID: "sender", Product: "codex-peer", Groups: []string{}}, Body: "body",
+			})
+			if err == nil || !strings.Contains(err.Error(), "acknowledgement is invalid") {
+				t.Fatalf("ambiguous native capacity result = %v", err)
+			}
+			select {
+			case <-registry.Done():
+			case <-ownerTestContext(t).Done():
+				t.Fatal("ambiguous native capacity result did not retire registry")
+			}
+		})
+	}
+}
+
+func TestOwnerRegistryRejectsCapacityAfterNativeClaim(t *testing.T) {
+	listener := ownerBusListener(t)
+	directory := t.TempDir()
+	entered, release := make(chan struct{}), make(chan struct{})
+	fixture := &ownerNativeFixture{descriptions: map[string]ownerDescribeResult{
+		"owner-token": {OwnerToken: "owner-token", SessionID: "native-session", CWD: "/work"},
+	}}
+	fixture.stageHook = func(ownerStageRequest) { close(entered); <-release }
+	fixture.stageResult = func(request ownerStageRequest) ownerStageResult {
+		queued := false
+		return ownerStageResult{
+			OwnerToken: request.OwnerToken, SessionID: request.SessionID, MessageID: request.MessageID,
+			Queued: &queued, Reason: "queue_full",
+		}
+	}
+	registry, native := ownerRegistryPair(t, OwnerRegistryOptions{
+		Topology: ownerTopologyInteractive, Socket: listener.Addr().String(), Directory: directory,
+	}, fixture)
+	_, _, _ = ownerReady(t, registry, native, listener, ownerReadyRequest{
+		Topology: ownerTopologyInteractive, Directory: directory, Scope: ownerScopePrimary,
+		Mode: ownerModeTUI, OwnerToken: "owner-token", SessionID: "native-session",
+	})
+	state, err := registry.current("owner-token", "native-session")
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := make(chan error, 1)
+	go func() {
+		_, callErr := registry.deliver(ownerTestContext(t), state, kit.DeliveryRequest{
+			MessageID: "claimed", From: kit.DeliverySource{SessionID: "sender", Product: "codex-peer", Groups: []string{}}, Body: "body",
+		})
+		result <- callErr
+	}()
+	select {
+	case <-entered:
+	case <-ownerTestContext(t).Done():
+		t.Fatal("native stage did not begin")
+	}
+	if err = native.Call(ownerTestContext(t), "delivery.observe", ownerDeliveryObserveRequest{
+		OwnerToken: "owner-token", SessionID: "native-session", ReportSequence: 1,
+		BatchToken: "batch-one", Phase: "claimed", MessageIDs: []string{"claimed"},
+	}, nil); err != nil {
+		t.Fatal(err)
+	}
+	close(release)
+	if err = <-result; err == nil || !strings.Contains(err.Error(), "already claimed") {
+		t.Fatalf("capacity result after claim = %v", err)
+	}
+	select {
+	case <-registry.Done():
+	case <-ownerTestContext(t).Done():
+		t.Fatal("capacity result after claim did not retire registry")
 	}
 }
 
