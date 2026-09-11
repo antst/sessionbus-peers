@@ -26,6 +26,7 @@ const (
 // response and a completed request write are distinct, reusable observations.
 // Seven ordinary slots plus one reserved cancellation slot bound retained bodies; no buffers are preallocated to the caps.
 type laneHTTP struct {
+	kind                                    nativeKind
 	endpoint, directory, username, password string
 	dial                                    func(context.Context, string, string) (net.Conn, error)
 	slots                                   chan struct{}
@@ -88,7 +89,7 @@ type nativeBody struct {
 
 func (b *nativeBody) Close() error { b.close(); return b.ReadCloser.Close() }
 
-func encodeNative(body any) ([]byte, error) {
+func encodeNativeFor(kind nativeKind, body any) ([]byte, error) {
 	if body == nil {
 		return nil, nil
 	}
@@ -97,7 +98,7 @@ func encodeNative(body any) ([]byte, error) {
 		return nil, err
 	}
 	if len(b) > maxNativeRequest {
-		return nil, errors.New("OpenCode request exceeds 1 MiB")
+		return nil, kind.err("request exceeds 1 MiB")
 	}
 	return b, nil
 }
@@ -107,7 +108,7 @@ func (c *laneHTTP) prepare(ctx context.Context, method, path string, body []byte
 		return nil, err
 	}
 	if len(body) > maxNativeRequest {
-		return nil, errors.New("OpenCode request exceeds 1 MiB")
+		return nil, c.kind.err("request exceeds 1 MiB")
 	}
 	target, err := url.Parse(c.endpoint + path)
 	if err != nil {
@@ -122,7 +123,7 @@ func (c *laneHTTP) prepare(ctx context.Context, method, path string, body []byte
 	}
 	r.GetBody = nil // Never make a submitted mutating request replayable.
 	r.SetBasicAuth(c.username, c.password)
-	r.Header.Set("x-opencode-directory", c.directory)
+	r.Header.Set("x-"+c.kind.name()+"-directory", c.directory)
 	if body != nil {
 		r.Header.Set("Content-Type", "application/json")
 	}
@@ -145,7 +146,7 @@ func (c *laneHTTP) start(r *http.Request, slots chan struct{}, expected ...int) 
 	select {
 	case slots <- struct{}{}:
 	default:
-		return nil, errors.New("OpenCode HTTP work limit reached")
+		return nil, c.kind.err("HTTP work limit reached")
 	}
 	o := &httpOperation{written: make(chan struct{}), done: make(chan struct{})}
 	go func() {
@@ -161,7 +162,7 @@ func (c *laneHTTP) start(r *http.Request, slots chan struct{}, expected ...int) 
 		o.data, o.err = io.ReadAll(io.LimitReader(response.Body, maxNativeResponse+1))
 		if len(o.data) > maxNativeResponse {
 			o.data = nil
-			o.err = errors.New("OpenCode response exceeds 8 MiB")
+			o.err = c.kind.err("response exceeds 8 MiB")
 		}
 		if o.err == nil {
 			accepted := false
@@ -169,17 +170,17 @@ func (c *laneHTTP) start(r *http.Request, slots chan struct{}, expected ...int) 
 				accepted = accepted || s == o.status
 			}
 			if !accepted {
-				o.err = fmt.Errorf("OpenCode %s %s returned HTTP %d", r.Method, r.URL.Path, o.status)
+				o.err = fmt.Errorf("%s %s %s returned HTTP %d", c.kind.title(), r.Method, r.URL.Path, o.status)
 			}
 		}
 		// Exchange always settles the write before parsing any response.
-		o.wrote(errors.New("OpenCode request write was not confirmed"))
+		o.wrote(c.kind.err("request write was not confirmed"))
 	}()
 	return o, nil
 }
 
 func (c *laneHTTP) call(ctx context.Context, method, path string, body any, expected ...int) ([]byte, error) {
-	b, err := encodeNative(body)
+	b, err := encodeNativeFor(c.kind, body)
 	if err != nil {
 		return nil, err
 	}
@@ -209,7 +210,7 @@ func (c *laneHTTP) events(ctx context.Context, observe func([]byte) error) (<-ch
 	}
 	if response.StatusCode != http.StatusOK {
 		response.Body.Close()
-		return nil, fmt.Errorf("OpenCode events HTTP %d", response.StatusCode)
+		return nil, fmt.Errorf("%s events HTTP %d", c.kind.title(), response.StatusCode)
 	}
 	done := make(chan error, 1)
 	go func() {
@@ -234,7 +235,7 @@ func (c *laneHTTP) events(ctx context.Context, observe func([]byte) error) (<-ch
 				part := strings.TrimPrefix(line, "data:")
 				part = strings.TrimPrefix(part, " ")
 				if len(data)+len(part)+1 > maxNativeResponse {
-					done <- errors.New("OpenCode event exceeds 8 MiB")
+					done <- c.kind.err("event exceeds 8 MiB")
 					return
 				}
 				if len(data) > 0 {
@@ -246,7 +247,7 @@ func (c *laneHTTP) events(ctx context.Context, observe func([]byte) error) (<-ch
 		if err := scanner.Err(); err != nil {
 			done <- err
 		} else {
-			done <- errors.New("OpenCode event stream ended")
+			done <- c.kind.err("event stream ended")
 		}
 	}()
 	return done, nil

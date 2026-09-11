@@ -63,7 +63,7 @@ func (p *Wrapper) executeRun(ctx context.Context, run *kit.Run, input kit.RunInp
 	if strings.TrimSpace(text) == "" {
 		return kit.TurnResult{}, errors.New("empty native Run input")
 	}
-	id, err := randomMessageID()
+	id, err := p.nextMessageID()
 	if err != nil {
 		return kit.TurnResult{}, err
 	}
@@ -77,10 +77,10 @@ func (p *Wrapper) executeRun(ctx context.Context, run *kit.Run, input kit.RunInp
 	}
 	if !p.opened || p.closing || p.ctx.Err() != nil || p.run != nil {
 		p.mu.Unlock()
-		return kit.TurnResult{}, errors.New("OpenCode lane unavailable or busy")
+		return kit.TurnResult{}, p.kind.err("lane unavailable or busy")
 	}
 	combined := append(append([]string{}, p.staged...), text)
-	b, err := encodeNative(p.promptBody(id, strings.Join(combined, "\n"), false))
+	b, err := encodeNativeFor(p.kind, p.promptBody(id, strings.Join(combined, "\n"), false))
 	if err != nil {
 		p.mu.Unlock()
 		return kit.TurnResult{}, err
@@ -195,7 +195,7 @@ func (p *Wrapper) executeRun(ctx context.Context, run *kit.Run, input kit.RunInp
 			result.Outcome = "interrupted"
 		}
 	} else {
-		complete, err := completedNativeAssistant(final)
+		complete, err := completedAssistantFor(p.kind, final)
 		if err != nil {
 			return kit.TurnResult{}, err
 		}
@@ -212,8 +212,8 @@ func (p *Wrapper) executeRun(ctx context.Context, run *kit.Run, input kit.RunInp
 // Native prompt.ts keeps running on ordinary tool calls, even when a provider
 // reports finish=stop. Provider-executed tools and cleanup-marked interrupted
 // orphans are the native exceptions; error terminals take precedence above.
-func completedNativeAssistant(final withParts) (bool, error) {
-	if final.Info.Time.Completed == nil || final.Info.Finish == "" || final.Info.Finish == "tool-calls" || final.Info.Finish == "unknown" {
+func completedAssistantFor(kind nativeKind, final withParts) (bool, error) {
+	if final.Info.Time.Completed == nil || final.Info.Finish == "" || final.Info.Finish == "tool-calls" || (final.Info.Finish == "unknown" && kind != kiloNative) {
 		return false, nil
 	}
 	for _, raw := range final.Parts {
@@ -328,24 +328,24 @@ func (p *Wrapper) Deliver(ctx context.Context, request kit.DeliveryRequest, run 
 	p.mu.Lock()
 	if !p.opened || p.closing || p.ctx.Err() != nil {
 		p.mu.Unlock()
-		return kit.DeliveryReceipt{}, errors.New("OpenCode lane unavailable")
+		return kit.DeliveryReceipt{}, p.kind.err("lane unavailable")
 	}
 	if ctx.Err() != nil {
 		p.mu.Unlock()
 		return kit.DeliveryReceipt{}, ctx.Err()
 	}
 	t := p.active
-	if t == nil || t.run != run || !t.accepting {
+	if p.kind == kiloNative || t == nil || t.run != run || !t.accepting {
 		if len(p.staged) >= 256 || p.stagedBytes+len(text) > maxNativeRequest {
 			p.mu.Unlock()
 			return kit.DeliveryReceipt{Disposition: "rejected", Reason: "stage_full"}, nil
 		}
 		// A queued prefix must leave room for at least one minimal explicit
 		// input. Account for JSON escaping, separators and configured fields.
-		// This placeholder has the exact size of randomMessageID; it is never
+		// This placeholder has the exact product message-ID size; it is never
 		// submitted as native identity.
 		prospective := append(append([]string{}, p.staged...), text, "x")
-		if _, err := encodeNative(p.promptBody("msg_00000000000000000000000000000000", strings.Join(prospective, "\n"), false)); err != nil {
+		if _, err := encodeNativeFor(p.kind, p.promptBody(p.stagedMessageID(), strings.Join(prospective, "\n"), false)); err != nil {
 			p.mu.Unlock()
 			return kit.DeliveryReceipt{Disposition: "rejected", Reason: "stage_full"}, nil
 		}
@@ -358,12 +358,12 @@ func (p *Wrapper) Deliver(ctx context.Context, request kit.DeliveryRequest, run 
 		p.mu.Unlock()
 		return kit.DeliveryReceipt{Disposition: "rejected", Reason: "run_input_limit"}, nil
 	}
-	id, err := randomMessageID()
+	id, err := p.nextMessageID()
 	if err != nil {
 		p.mu.Unlock()
 		return kit.DeliveryReceipt{}, err
 	}
-	b, err := encodeNative(p.promptBody(id, text, true))
+	b, err := encodeNativeFor(p.kind, p.promptBody(id, text, true))
 	if err != nil {
 		p.mu.Unlock()
 		return kit.DeliveryReceipt{Disposition: "rejected", Reason: "message_too_large"}, nil

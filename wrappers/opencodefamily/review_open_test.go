@@ -19,7 +19,7 @@ import (
 	kit "github.com/antst/sessionbus/bus/sdk/go"
 )
 
-func reviewStalledRollbackNative() {
+func reviewStalledRollbackNative(kind nativeKind) {
 	cwd, _ := os.Getwd()
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -47,21 +47,38 @@ func reviewStalledRollbackNative() {
 			http.NotFound(w, r)
 		}
 	})}
-	fmt.Printf("opencode server listening on http://%s\n", l.Addr())
+	nativeName := "opencode"
+	if kind == kiloNative {
+		nativeName = "kilo"
+	}
+	fmt.Printf("%s server listening on http://%s\n", nativeName, l.Addr())
 	_ = srv.Serve(l)
 }
 
 func TestReviewCancelledFailedOpenBreaksHeldRollback(t *testing.T) {
+	testCancelledFailedOpenBreaksHeldRollback(t, openCodeNative)
+}
+func TestKiloCancelledFailedOpenBreaksHeldRollback(t *testing.T) {
+	testCancelledFailedOpenBreaksHeldRollback(t, kiloNative)
+}
+func testCancelledFailedOpenBreaksHeldRollback(t *testing.T, kind nativeKind) {
 	entered := make(chan struct{})
 	notify := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { close(entered) }))
 	defer notify.Close()
-	t.Setenv("OPENCODE_TEST_NATIVE", "1")
+	if kind == kiloNative {
+		t.Setenv("KILO_TEST_NATIVE", "1")
+	} else {
+		t.Setenv("OPENCODE_TEST_NATIVE", "1")
+	}
 	t.Setenv("OPENCODE_REVIEW_ROLLBACK_NOTIFY", notify.URL)
 	executable, err := os.Executable()
 	if err != nil {
 		t.Fatal(err)
 	}
 	p := NewOpenCode(filepath.Join(testsocket.Directory(t), "bus.sock"), "unused", executable)
+	if kind == kiloNative {
+		p = NewKilo(p.socket, "unused", executable)
+	}
 	p.SetCaller(kit.NewCaller(func(context.Context, string, any) (json.RawMessage, error) {
 		return nil, errors.New("unexpected Caller action")
 	}))

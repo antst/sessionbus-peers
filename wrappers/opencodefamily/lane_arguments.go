@@ -41,11 +41,17 @@ var serverRules = []host.ArgumentRule{
 }
 
 func launchArguments(open sessionkit.OpenOptions) ([]string, *modelRef, string, error) {
+	return launchArgumentsFor(openCodeNative, open)
+}
+func launchArgumentsFor(kind nativeKind, open sessionkit.OpenOptions) ([]string, *modelRef, string, error) {
+	if kind == kiloNative && open.PermissionMode != "" && open.PermissionMode != "default" {
+		return nil, nil, "", fmt.Errorf("unsupported value permission_mode=%s", open.PermissionMode)
+	}
 	if open.PermissionMode != "" && open.PermissionMode != "default" && open.PermissionMode != "bypassPermissions" {
 		return nil, nil, "", fmt.Errorf("unsupported value permission_mode=%s", open.PermissionMode)
 	}
 	if open.ReasoningEffort != "" {
-		return nil, nil, "", errors.New("OpenCode does not support reasoning_effort")
+		return nil, nil, "", kind.err("does not support reasoning_effort")
 	}
 	validated, err := host.BuildArguments(open.Arguments, serverRules)
 	if err != nil {

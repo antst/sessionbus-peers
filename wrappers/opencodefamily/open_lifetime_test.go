@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -22,7 +23,7 @@ import (
 	kit "github.com/antst/sessionbus/bus/sdk/go"
 )
 
-func fakeOpenFailureNative(mode string) {
+func fakeOpenFailureNative(mode string, kind nativeKind) {
 	if mode == "early-exit" {
 		os.Exit(7)
 	}
@@ -55,16 +56,30 @@ func fakeOpenFailureNative(mode string) {
 			http.NotFound(w, r)
 		}
 	})}
-	fmt.Printf("opencode server listening on http://%s\n", l.Addr())
+	nativeName := "opencode"
+	if kind == kiloNative {
+		nativeName = "kilo"
+	}
+	fmt.Printf("%s server listening on http://%s\n", nativeName, l.Addr())
 	_ = srv.Serve(l)
 }
 func TestLegacyFailedOpenDeletesOnlyFreshAndReaps(t *testing.T) {
+	testFailedOpenDeletesOnlyFreshAndReaps(t, openCodeNative)
+}
+func TestKiloFailedOpenDeletesOnlyFreshAndReaps(t *testing.T) {
+	testFailedOpenDeletesOnlyFreshAndReaps(t, kiloNative)
+}
+func testFailedOpenDeletesOnlyFreshAndReaps(t *testing.T, kind nativeKind) {
 	for _, mode := range []string{"fresh", "resume", "early-exit"} {
 		t.Run(mode, func(t *testing.T) {
 			calls := make(chan string, 16)
 			notify := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { b, _ := io.ReadAll(r.Body); calls <- string(b) }))
 			defer notify.Close()
-			t.Setenv("OPENCODE_TEST_NATIVE", "1")
+			if kind == kiloNative {
+				t.Setenv("KILO_TEST_NATIVE", "1")
+			} else {
+				t.Setenv("OPENCODE_TEST_NATIVE", "1")
+			}
 			t.Setenv("OPENCODE_TEST_OPEN_MODE", mode)
 			t.Setenv("OPENCODE_TEST_OPEN_NOTIFY", notify.URL)
 			executable, err := os.Executable()
@@ -72,6 +87,9 @@ func TestLegacyFailedOpenDeletesOnlyFreshAndReaps(t *testing.T) {
 				t.Fatal(err)
 			}
 			p := NewOpenCode(filepath.Join(testsocket.Directory(t), "bus.sock"), "unused", executable)
+			if kind == kiloNative {
+				p = NewKilo(p.socket, "unused", executable)
+			}
 			p.SetCaller(kit.NewCaller(func(context.Context, string, any) (json.RawMessage, error) {
 				return nil, errors.New("unexpected Caller action")
 			}))
@@ -102,6 +120,12 @@ func TestLegacyFailedOpenDeletesOnlyFreshAndReaps(t *testing.T) {
 			}
 			if mode == "early-exit" && !strings.Contains(err.Error(), "exit status 7") {
 				t.Fatalf("early native exit diagnostic lost: %v", err)
+			}
+			if kind == kiloNative && mode != "early-exit" {
+				var killed *exec.ExitError
+				if !errors.As(err, &killed) || killed.Sys().(syscall.WaitStatus).Signal() != syscall.SIGKILL {
+					t.Fatalf("failed pre-adoption Open did not preserve forced-child diagnostic: %v", err)
+				}
 			}
 			if p.endpoint != nil {
 				if _, err := os.Stat(p.endpoint.Path); !os.IsNotExist(err) {

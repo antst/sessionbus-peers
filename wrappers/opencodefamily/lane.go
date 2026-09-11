@@ -30,6 +30,11 @@ const (
 )
 
 type Wrapper struct {
+	kind               nativeKind
+	messageIDs         messageIDs
+	termOnce           sync.Once
+	forceOnce          sync.Once
+	stopErr            error
 	socket, executable string
 	caller             *kit.Caller
 	shutdown           func()
@@ -61,17 +66,17 @@ func NewOpenCode(socket, provisional, executable string) *Wrapper {
 }
 func (p *Wrapper) SetCaller(c *kit.Caller) { p.caller = c }
 func (p *Wrapper) SetShutdown(f func())    { p.shutdown = f }
-func (*Wrapper) Hello(context.Context) (kit.HelloDescription, error) {
-	return kit.HelloDescription{Product: Product, SupportsMessageRun: true, SupportedOpenFields: []string{"cwd", "permission_mode", "model", "arguments"}, ExtraArguments: []kit.ExtraArgument{{Name: "--agent", Description: "Native agent", TakesValue: true}, {Name: "--print-logs", Description: "Print native logs"}, {Name: "--log-level", Description: "Native log level", TakesValue: true}, {Name: "--mdns", Description: "Native mDNS discovery"}, {Name: "--mdns-domain", Description: "Native mDNS domain", TakesValue: true}, {Name: "--cors", Description: "Native allowed CORS origin", TakesValue: true}}}, nil
+func (p *Wrapper) Hello(context.Context) (kit.HelloDescription, error) {
+	return kit.HelloDescription{Product: p.kind.name() + "-peer", SupportsMessageRun: true, SupportedOpenFields: []string{"cwd", "permission_mode", "model", "arguments"}, ExtraArguments: []kit.ExtraArgument{{Name: "--agent", Description: "Native agent", TakesValue: true}, {Name: "--print-logs", Description: "Print native logs"}, {Name: "--log-level", Description: "Native log level", TakesValue: true}, {Name: "--mdns", Description: "Native mDNS discovery"}, {Name: "--mdns-domain", Description: "Native mDNS domain", TakesValue: true}, {Name: "--cors", Description: "Native allowed CORS origin", TakesValue: true}}}, nil
 }
 func (p *Wrapper) Open(ctx context.Context, request kit.OpenRequest) (result kit.OpenResult, err error) {
 	if !filepath.IsAbs(p.executable) {
-		return result, errors.New("OpenCode executable must be absolute")
+		return result, p.kind.err("executable must be absolute")
 	}
 	if p.caller == nil {
-		return result, errors.New("OpenCode lane Caller unavailable")
+		return result, p.kind.err("lane Caller unavailable")
 	}
-	args, model, agent, err := launchArguments(request.Open)
+	args, model, agent, err := launchArgumentsFor(p.kind, request.Open)
 	if err != nil {
 		return result, err
 	}
@@ -92,7 +97,7 @@ func (p *Wrapper) Open(ctx context.Context, request kit.OpenRequest) (result kit
 	p.mu.Lock()
 	if p.ctx != nil || p.closing {
 		p.mu.Unlock()
-		return result, errors.New("OpenCode owner already used")
+		return result, p.kind.err("owner already used")
 	}
 	p.ctx, p.cancel = context.WithCancelCause(context.WithoutCancel(ctx))
 	p.model, p.agent = model, agent
@@ -127,7 +132,11 @@ func (p *Wrapper) Open(ctx context.Context, request kit.OpenRequest) (result kit
 	cmd.Dir = cwd
 	cmd.Stdin = strings.NewReader("")
 	cmd.Env = scrub(os.Environ(), host.SocketEnv, host.LocalKeyEnv, host.TokenEnv, host.SessionIDEnv, host.NameEnv, host.GroupsEnv, LaneSocketEnv, "SESSIONBUS_OPENCODE_LAUNCH_DIR", opencodeInteractiveLaunchEnv, "OPENCODE_SERVER_USERNAME", "OPENCODE_SERVER_PASSWORD")
-	cmd.Env = append(cmd.Env, LaneSocketEnv+"="+endpoint.Path, "OPENCODE_SERVER_USERNAME=sessionbus", "OPENCODE_SERVER_PASSWORD="+password)
+	if p.kind == kiloNative {
+		cmd.Env = scrub(cmd.Env, "SESSIONBUS_KILO_LAUNCH", "KILO_SERVER_USERNAME", "KILO_SERVER_PASSWORD", "KILO_PARENT_PID")
+		cmd.Env = append(cmd.Env, "KILO_PARENT_PID="+strconv.Itoa(os.Getpid()))
+	}
+	cmd.Env = append(cmd.Env, LaneSocketEnv+"="+endpoint.Path, p.kind.envPrefix()+"_SERVER_USERNAME=sessionbus", p.kind.envPrefix()+"_SERVER_PASSWORD="+password)
 	var logs boundedLog
 	cmd.Stderr = &logs
 	output, writer, err := os.Pipe()
@@ -153,7 +162,7 @@ func (p *Wrapper) Open(ctx context.Context, request kit.OpenRequest) (result kit
 		p.childErr = e
 		close(p.childDone)
 		p.mu.Unlock()
-		p.fail(errors.New("OpenCode server exited"))
+		p.fail(p.kind.err("server exited"))
 	}()
 	go func() {
 		defer p.workers.Done()
@@ -163,12 +172,12 @@ func (p *Wrapper) Open(ctx context.Context, request kit.OpenRequest) (result kit
 		announced := false
 		for scan.Scan() {
 			line := scan.Text()
-			if strings.HasPrefix(line, "opencode server listening on ") {
+			if strings.HasPrefix(line, p.kind.name()+" server listening on ") {
 				if announced {
-					p.fail(errors.New("OpenCode announced multiple listeners"))
+					p.fail(p.kind.err("announced multiple listeners"))
 					return
 				}
-				address, e := listenerURL(strings.TrimPrefix(line, "opencode server listening on "))
+				address, e := listenerURL(strings.TrimPrefix(line, p.kind.name()+" server listening on "))
 				if e != nil {
 					p.fail(e)
 					return
@@ -180,11 +189,15 @@ func (p *Wrapper) Open(ctx context.Context, request kit.OpenRequest) (result kit
 		if e := scan.Err(); e != nil {
 			p.fail(e)
 		} else {
-			p.fail(errors.New("OpenCode stdout ended"))
+			p.fail(p.kind.err("stdout ended"))
 		}
 	}()
 	go func() {
 		defer p.workers.Done()
+		if p.kind == kiloNative {
+			p.monitorKilo()
+			return
+		}
 		<-p.ctx.Done()
 		_ = cmd.Process.Kill()
 		_ = output.Close()
@@ -206,6 +219,7 @@ func (p *Wrapper) Open(ctx context.Context, request kit.OpenRequest) (result kit
 		return result, context.Cause(startupCtx)
 	}
 	client := newLaneHTTP(address, cwd, "sessionbus", password)
+	client.kind = p.kind
 	p.mu.Lock()
 	p.client = client
 	p.mu.Unlock()
@@ -251,7 +265,7 @@ func (p *Wrapper) Open(ctx context.Context, request kit.OpenRequest) (result kit
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if ctx.Err() != nil || startupCtx.Err() != nil || p.ctx.Err() != nil || p.closing || !endpoint.live() {
-		return result, errors.New("OpenCode integration ended before Open adoption")
+		return result, p.kind.err("integration ended before Open adoption")
 	}
 	startup()
 	if ctx.Err() != nil || startupCtx.Err() != nil {
@@ -262,7 +276,7 @@ func (p *Wrapper) Open(ctx context.Context, request kit.OpenRequest) (result kit
 }
 func (p *Wrapper) fail(err error) {
 	if err == nil {
-		err = errors.New("OpenCode integration ended")
+		err = p.kind.err("integration ended")
 	}
 	p.mu.Lock()
 	if p.cancel != nil {
@@ -282,6 +296,9 @@ func (p *Wrapper) clearRun(run *kit.Run) {
 	}
 }
 func (p *Wrapper) Close(ctx context.Context, request kit.SessionCloseRequest) error {
+	if p.kind == kiloNative {
+		return p.closeKilo(ctx, request)
+	}
 	p.closeOnce.Do(func() {
 		p.mu.Lock()
 		p.closing = true
@@ -291,7 +308,7 @@ func (p *Wrapper) Close(ctx context.Context, request kit.SessionCloseRequest) er
 			p.closeErr = client.remove(ctx, id)
 		}
 		if cancel != nil {
-			cancel(errors.New("OpenCode owner closing"))
+			cancel(p.kind.err("owner closing"))
 		}
 		if cmd != nil {
 			_ = cmd.Process.Kill()

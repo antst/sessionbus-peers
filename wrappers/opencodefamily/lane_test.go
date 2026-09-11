@@ -10,10 +10,12 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -24,7 +26,7 @@ import (
 )
 
 func TestMain(m *testing.M) {
-	if os.Getenv("OPENCODE_TEST_NATIVE") == "1" {
+	if os.Getenv("OPENCODE_TEST_NATIVE") == "1" || os.Getenv("KILO_TEST_NATIVE") == "1" {
 		fakeNativeHTTP()
 		os.Exit(0)
 	}
@@ -35,12 +37,21 @@ func fakePart(session, id, kind, text string) json.RawMessage {
 	return b
 }
 func fakeNativeHTTP() {
+	kind := openCodeNative
+	nativeName, authPrefix := "opencode", "OPENCODE"
+	if os.Getenv("KILO_TEST_NATIVE") == "1" {
+		kind = kiloNative
+		nativeName, authPrefix = "kilo", "KILO"
+		if os.Getenv("KILO_PARENT_PID") != strconv.Itoa(os.Getppid()) || os.Getenv("SESSIONBUS_KILO_LAUNCH") != "" {
+			os.Exit(8)
+		}
+	}
 	if mode := os.Getenv("OPENCODE_TEST_OPEN_MODE"); mode != "" {
-		fakeOpenFailureNative(mode)
+		fakeOpenFailureNative(mode, kind)
 		return
 	}
 	if os.Getenv("OPENCODE_REVIEW_ROLLBACK_NOTIFY") != "" {
-		reviewStalledRollbackNative()
+		reviewStalledRollbackNative(kind)
 		return
 	}
 	cwd, _ := os.Getwd()
@@ -61,6 +72,7 @@ func fakeNativeHTTP() {
 	var history []withParts
 	var aborts int
 	var rejections int
+	var creates, loads, patches, deletes int
 	var hold chan struct{}
 	var interrupted bool
 	var permission any
@@ -72,11 +84,15 @@ func fakeNativeHTTP() {
 	started := make(chan struct{})
 	var startOnce sync.Once
 	var helper net.Conn
+	helperEnded := make(chan struct{})
+	termSeen := make(chan struct{})
+	closeRelease := make(chan struct{})
+	var closeReleaseOnce sync.Once
 	var init sync.Once
 	emit := func(kind string, properties any) { events <- map[string]any{"type": kind, "properties": properties} }
 	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		u, p, ok := r.BasicAuth()
-		if !ok || u != os.Getenv("OPENCODE_SERVER_USERNAME") || p != os.Getenv("OPENCODE_SERVER_PASSWORD") || r.Header.Get("x-opencode-directory") != cwd || r.URL.Query().Get("directory") != cwd {
+		if !ok || u != os.Getenv(authPrefix+"_SERVER_USERNAME") || p != os.Getenv(authPrefix+"_SERVER_PASSWORD") || r.Header.Get("x-"+nativeName+"-directory") != cwd || r.URL.Query().Get("directory") != cwd {
 			http.Error(w, "scope", 403)
 			return
 		}
@@ -92,6 +108,9 @@ func fakeNativeHTTP() {
 				_, err = bufio.NewReader(helper).ReadBytes('\n')
 				if err != nil {
 					panic(err)
+				}
+				if kind == kiloNative {
+					go func() { _, _ = io.Copy(io.Discard, helper); close(helperEnded) }()
 				}
 			})
 			w.Header().Set("Content-Type", "text/event-stream")
@@ -116,15 +135,26 @@ func fakeNativeHTTP() {
 			_ = json.NewDecoder(r.Body).Decode(&req)
 			mu.Lock()
 			permission = req["permission"]
+			if r.Method == "POST" {
+				creates++
+			} else {
+				patches++
+			}
 			mu.Unlock()
 			reply(nativeSession{ID: id, Title: req["title"].(string), Directory: cwd})
 		case r.URL.Path == "/session/"+id && r.Method == "GET":
+			mu.Lock()
+			loads++
+			mu.Unlock()
 			reply(nativeSession{ID: id, Title: "lane", Directory: cwd})
 		case r.URL.Path == "/session/ses_child":
 			reply(nativeSession{ID: "ses_child", ParentID: id, Directory: cwd})
 		case r.URL.Path == "/session/ses_other":
 			reply(nativeSession{ID: "ses_other", Directory: cwd})
 		case r.URL.Path == "/session/"+id && r.Method == "DELETE":
+			mu.Lock()
+			deletes++
+			mu.Unlock()
 			reply(true)
 		case r.URL.Path == "/session/"+id+"/message" && r.Method == "GET":
 			mu.Lock()
@@ -150,6 +180,10 @@ func fakeNativeHTTP() {
 				} `json:"parts"`
 			}
 			_ = json.NewDecoder(r.Body).Decode(&req)
+			if kind == kiloNative && (req.NoReply || len(req.MessageID) != 30) {
+				http.Error(w, "Kilo requires one native-shaped explicit prompt and no noReply", 400)
+				return
+			}
 			text := req.Parts[0].Text
 			user := withParts{Info: nativeInfo{ID: req.MessageID, SessionID: id, Role: "user"}, Parts: []json.RawMessage{fakePart(id, req.MessageID, "text", text)}}
 			mu.Lock()
@@ -228,6 +262,10 @@ func fakeNativeHTTP() {
 			mu.Unlock()
 			reply(answer)
 		case r.URL.Path == "/session/"+id+"/abort":
+			if kind == kiloNative && r.URL.Query().Get("scope") != "" {
+				http.Error(w, "must retain native default tree cancellation", 400)
+				return
+			}
 			mu.Lock()
 			aborts++
 			interrupted = true
@@ -259,6 +297,17 @@ func fakeNativeHTTP() {
 			}
 			mu.Unlock()
 			reply(true)
+		case r.URL.Path == "/fixture/term":
+			select {
+			case <-termSeen:
+				reply(true)
+			case <-r.Context().Done():
+			}
+		case r.URL.Path == "/fixture/close-release":
+			w.Header().Set("Content-Length", "4")
+			_, _ = io.WriteString(w, "true")
+			w.(http.Flusher).Flush()
+			closeReleaseOnce.Do(func() { close(closeRelease) })
 		case r.URL.Path == "/fixture/projection-pending":
 			select {
 			case <-projectionStarted:
@@ -286,13 +335,34 @@ func fakeNativeHTTP() {
 			reply(true)
 		case r.URL.Path == "/fixture/state":
 			mu.Lock()
-			reply(map[string]any{"aborts": aborts, "messages": history, "permission": permission, "rejections": rejections})
+			reply(map[string]any{"aborts": aborts, "messages": history, "permission": permission, "rejections": rejections, "creates": creates, "loads": loads, "patches": patches, "deletes": deletes})
 			mu.Unlock()
 		default:
 			http.Error(w, r.URL.Path, 404)
 		}
 	})}
-	fmt.Printf("opencode server listening on http://%s\n", l.Addr())
+	if kind == kiloNative {
+		signals := make(chan os.Signal, 1)
+		signal.Notify(signals, syscall.SIGTERM)
+		defer signal.Stop(signals)
+		go func() {
+			<-signals
+			mu.Lock()
+			if expected := os.Getenv("KILO_TEST_EXPECT_DELETE"); expected != "" && expected != strconv.Itoa(deletes) {
+				os.Exit(9)
+			}
+			mu.Unlock()
+			close(termSeen)
+			if os.Getenv("KILO_TEST_HOLD_CLOSE") == "1" {
+				<-closeRelease
+			}
+			// Native disposal cannot finish until the owned endpoint releases
+			// the resident request/stream. This is a controlled disposal gate.
+			<-helperEnded
+			_ = srv.Close()
+		}()
+	}
+	fmt.Printf("%s server listening on http://%s\n", nativeName, l.Addr())
 	_ = srv.Serve(l)
 }
 
@@ -312,6 +382,12 @@ func newWorkerFixture(t *testing.T) *workerFixture {
 	return newWorkerProductFixture(t, nil)
 }
 func newWorkerProductFixture(t *testing.T, decorate func(*Wrapper) kit.WorkerCallbacks) *workerFixture {
+	return newWorkerKindFixture(t, openCodeNative, decorate)
+}
+func newWorkerKindFixture(t *testing.T, kind nativeKind, decorate func(*Wrapper) kit.WorkerCallbacks) *workerFixture {
+	return newWorkerRequestFixture(t, kind, decorate, "")
+}
+func newWorkerRequestFixture(t *testing.T, kind nativeKind, decorate func(*Wrapper) kit.WorkerCallbacks, resume string) *workerFixture {
 	t.Helper()
 	dir := testsocket.Directory(t)
 	socket := filepath.Join(dir, "bus.sock")
@@ -321,13 +397,22 @@ func newWorkerProductFixture(t *testing.T, decorate func(*Wrapper) kit.WorkerCal
 	}
 	t.Setenv(host.SocketEnv, socket)
 	t.Setenv(host.TokenEnv, "token")
-	t.Setenv("OPENCODE_TEST_NATIVE", "1")
+	if kind == kiloNative {
+		t.Setenv("KILO_TEST_NATIVE", "1")
+		t.Setenv("KILO_PARENT_PID", "1")
+		t.Setenv("SESSIONBUS_KILO_LAUNCH", `{"foreign":"kilo launch"}`)
+	} else {
+		t.Setenv("OPENCODE_TEST_NATIVE", "1")
+	}
 	t.Setenv(opencodeInteractiveLaunchEnv, `{"foreign":"interactive launch"}`)
 	path, err := os.Executable()
 	if err != nil {
 		t.Fatal(err)
 	}
 	p := NewOpenCode(socket, "unused", path)
+	if kind == kiloNative {
+		p = NewKilo(socket, "unused", path)
+	}
 	var product kit.WorkerCallbacks = p
 	if decorate != nil {
 		product = decorate(p)
@@ -386,7 +471,7 @@ func newWorkerProductFixture(t *testing.T, decorate func(*Wrapper) kit.WorkerCal
 		t.Fatal(ctx.Err())
 	}
 	var opened kit.OpenResult
-	f.call(t, "session.open", kit.OpenRequest{Name: "lane@local", Groups: []string{}, Open: kit.OpenOptions{Cwd: t.TempDir()}}, &opened)
+	f.call(t, "session.open", kit.OpenRequest{Name: "lane@local", Groups: []string{}, ResumeSessionID: resume, Open: kit.OpenOptions{Cwd: t.TempDir()}}, &opened)
 	if opened.SessionID != "ses_native" {
 		t.Fatal(opened)
 	}

@@ -4,7 +4,7 @@ package opencodefamily
 import (
 	"context"
 	"encoding/json"
-	"errors"
+	"fmt"
 	"net"
 	"sync"
 
@@ -90,27 +90,27 @@ func (o *laneToolOwner) End() {
 	o.initialized = false
 	e.mu.Unlock()
 	if lost {
-		e.owner.fail(errors.New("OpenCode resident tool connection ended"))
+		e.owner.fail(e.owner.kind.err("resident tool connection ended"))
 	}
 }
 func (o *laneToolOwner) Action(ctx context.Context, action string, args json.RawMessage) (json.RawMessage, error) {
 	return o.ActionWithMeta(ctx, action, args, nil)
 }
 func (o *laneToolOwner) ActionWithMeta(ctx context.Context, action string, args, meta json.RawMessage) (json.RawMessage, error) {
+	p := o.endpoint.owner
 	var envelope map[string]json.RawMessage
 	var identity struct {
 		SessionID string `json:"session_id"`
 		MessageID string `json:"message_id"`
 	}
-	if json.Unmarshal(meta, &envelope) != nil || json.Unmarshal(envelope["sessionbus.opencode"], &identity) != nil || !validNativeID(identity.SessionID) || !validMessageID(identity.MessageID) {
-		return nil, errors.New("missing or malformed native OpenCode tool identity")
+	if json.Unmarshal(meta, &envelope) != nil || json.Unmarshal(envelope["sessionbus."+p.kind.name()], &identity) != nil || !validNativeID(identity.SessionID) || !validMessageID(identity.MessageID) {
+		return nil, fmt.Errorf("missing or malformed native %s tool identity", p.kind.title())
 	}
-	p := o.endpoint.owner
 	p.mu.Lock()
 	ready, caller := p.opened && !p.closing, p.caller
 	p.mu.Unlock()
 	if !ready || caller == nil {
-		return nil, errors.New("OpenCode lane not adopted")
+		return nil, p.kind.err("lane not adopted")
 	}
 	if err := p.ownsSession(ctx, identity.SessionID); err != nil {
 		return nil, err
@@ -122,7 +122,7 @@ func (p *Wrapper) ownsSession(ctx context.Context, id string) error {
 	root, c, life := p.id, p.client, p.ctx
 	p.mu.Unlock()
 	if root == "" || c == nil || life == nil || life.Err() != nil {
-		return errors.New("OpenCode native owner unavailable")
+		return p.kind.err("native owner unavailable")
 	}
 	combined, cancel := context.WithCancel(ctx)
 	stop := context.AfterFunc(life, cancel)
@@ -134,7 +134,7 @@ func (p *Wrapper) ownsSession(ctx context.Context, id string) error {
 			return nil
 		}
 		if !validNativeID(id) || seen[id] {
-			return errors.New("OpenCode tool is outside lane ancestry")
+			return p.kind.err("tool is outside lane ancestry")
 		}
 		seen[id] = true
 		s, e := c.get(combined, id)
@@ -143,7 +143,7 @@ func (p *Wrapper) ownsSession(ctx context.Context, id string) error {
 		}
 		id = s.ParentID
 	}
-	return errors.New("OpenCode ancestry exceeds 32 sessions")
+	return p.kind.err("ancestry exceeds 32 sessions")
 }
 func (e *laneEndpoint) Close() error {
 	e.mu.Lock()

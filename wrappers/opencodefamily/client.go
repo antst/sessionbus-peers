@@ -63,7 +63,7 @@ func (c *laneHTTP) get(ctx context.Context, id string) (nativeSession, error) {
 	}
 	var s nativeSession
 	if json.Unmarshal(b, &s) != nil || s.ID != id || s.Directory != c.directory {
-		return s, errors.New("OpenCode returned different session identity/directory")
+		return s, c.kind.err("returned different session identity/directory")
 	}
 	return s, nil
 }
@@ -85,7 +85,7 @@ func (c *laneHTTP) openSession(ctx context.Context, id, title, permission string
 	}
 	var s nativeSession
 	if json.Unmarshal(b, &s) != nil || !validNativeID(s.ID) || s.Directory != c.directory || s.Title != title || (id != "" && s.ID != id) {
-		return s, errors.New("OpenCode did not confirm opened native identity/settings")
+		return s, c.kind.err("did not confirm opened native identity/settings")
 	}
 	return s, nil
 }
@@ -96,7 +96,7 @@ func (c *laneHTTP) remove(ctx context.Context, id string) error {
 	}
 	var deleted bool
 	if json.Unmarshal(b, &deleted) != nil || !deleted {
-		return errors.New("OpenCode did not confirm session deletion")
+		return c.kind.err("did not confirm session deletion")
 	}
 	return nil
 }
@@ -107,14 +107,14 @@ func (c *laneHTTP) ready(ctx context.Context) error {
 	}
 	var ids []string
 	if json.Unmarshal(b, &ids) != nil || ids == nil {
-		return errors.New("OpenCode tool inventory malformed")
+		return c.kind.err("tool inventory malformed")
 	}
 	for _, id := range ids {
 		if id == ToolName {
 			return nil
 		}
 	}
-	return errors.New("OpenCode Sessionbus tool is not registered")
+	return c.kind.err("Sessionbus tool is not registered")
 }
 func decodeParts(b []byte, session string) (withParts, error) {
 	var m withParts
