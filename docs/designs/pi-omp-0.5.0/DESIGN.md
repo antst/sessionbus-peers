@@ -273,6 +273,9 @@ The same ownership rule applies to Pi's native RPC writer.
 OMP has an explicit same-request `prompt_result`, including
 `agentInvoked:false`. Its immediate RPC success acknowledges the command,
 not admission or completion; a later error with the same request ID can follow.
+Skill and consumed builtin commands may also return an exact `agentInvoked`
+boolean in that initial response. Preserve this native fact separately from
+the ordinary response with omitted data; it does not replace run attribution.
 Its RPC path does not emit Pi's `input` event. The OMP admission witness must
 use hooks actually reached by RPC, together with the native start event.
 Only `agent_end.isTerminal:true` ends the owned interval; maintenance can emit
