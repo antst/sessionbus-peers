@@ -67,6 +67,8 @@ jobs:
         run: ./scripts/package-codex "${RUNNER_TEMP}/codex archive"
       - name: Historical Codex installer fixture
         run: ./scripts/test-codex-mcp
+      - name: Pi native bridge
+        run: node --test wrappers/pifamily/extension/bridge.test.mjs wrappers/pi/native.test.mjs wrappers/pi/extension.test.mjs
       - name: Native family plugins
         run: |
           for product in opencode kilo; do

@@ -38,6 +38,7 @@ jobs:
           TARGET_ARCH: ${{ matrix.arch }}
         run: |
           go test ./...
+          node --test wrappers/pifamily/extension/bridge.test.mjs wrappers/pi/native.test.mjs wrappers/pi/extension.test.mjs
           GOOS="$TARGET_OS" GOARCH="$TARGET_ARCH" scripts/package-claude dist
           GOOS="$TARGET_OS" GOARCH="$TARGET_ARCH" scripts/package-codex dist
           for product in grok qwen opencode kilo pi; do
