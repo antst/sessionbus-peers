@@ -68,6 +68,9 @@ func (e *nativeRPCError) Error() string {
 	if e == nil {
 		return ""
 	}
+	if e.Message == "" {
+		return fmt.Sprintf("Pi native %s failed", e.Command)
+	}
 	return fmt.Sprintf("Pi native %s: %s", e.Command, e.Message)
 }
 
@@ -743,7 +746,7 @@ func nativeRPCText(object map[string]json.RawMessage, key string, limit int) (st
 		return "", fmt.Errorf("%w: frame omitted %s", errNativeRPCProtocol, key)
 	}
 	var value string
-	if json.Unmarshal(raw, &value) != nil || value == "" || len(value) > limit || !utf8.ValidString(value) {
+	if json.Unmarshal(raw, &value) != nil || len(value) > limit || !utf8.ValidString(value) {
 		return "", fmt.Errorf("%w: frame %s is invalid", errNativeRPCProtocol, key)
 	}
 	return value, nil

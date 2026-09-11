@@ -157,6 +157,16 @@ func TestNativeRPCOutOfOrderResponsesAndNativeError(t *testing.T) {
 	if !errors.As(err, &rejected) || rejected.Command != "get_entries" || rejected.Message != "Entry not found: gone" {
 		t.Fatalf("native error = %#v", err)
 	}
+
+	emptyNativeError := make(chan error, 1)
+	go func() { emptyNativeError <- rpc.Call(nativeRPCTestContext(t), "abort", nil, nil) }()
+	request = peer.read(t)
+	peer.write(t, `{"id":"`+nativeRPCField(t, request, "id")+`","type":"response","command":"abort","success":false,"error":""}`)
+	err = <-emptyNativeError
+	rejected = nil
+	if !errors.As(err, &rejected) || rejected.Command != "abort" || rejected.Message != "" || err.Error() != "Pi native abort failed" {
+		t.Fatalf("empty native error = %#v", err)
+	}
 	waitNativeRPCStats(t, rpc, nativeRPCStats{})
 }
 
