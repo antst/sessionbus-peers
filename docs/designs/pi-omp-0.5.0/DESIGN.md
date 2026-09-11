@@ -5,8 +5,9 @@ version/help checked. Pi's first permanent build passed zero-input Worker
 Open/Close and persisted interactive resume/quit. Its first installed normal
 Run/list/result/close also passed. The UI-admission correction is installed;
 the remaining native acceptance rows are still pending.
-OMP's native executable resolver, process owner and RPC transport are integrated;
-its public Wrapper and native extension remain to be wired. The source base is peers
+OMP's native executable resolver, argument routing, process/RPC components and
+owner registry are integrated; its public Wrapper, native extension and joined
+launch orchestration remain to be wired. The source base is peers
 `75866839b7f024edf2c7f9d2d3af647a343f4987`.
 
 ## Native versions and implementation cost
@@ -308,6 +309,11 @@ Each claimed batch has a per-factory token and an exact ordered message-ID
 list. Reports bind that batch and owner generation; claiming alone gives no
 injection credit. Lane preflight witnesses likewise capture synchronously and
 report through bounded owned work, reconciled with the separate RPC stream.
+Per-binding report sequence numbers preserve native ordering across concurrent
+bridge handlers. The Go registry accounts for at most 32 MiB of retained
+payloads across bindings, queued deliveries and reports; consumed evidence is
+evicted. This is separate from transport accounting and is not a peak heap or
+RSS bound.
 The wrapper starts no run to flush it. A batch submitted without confirmation
 is not replayed; replacement never transfers it to a different identity.
 OMP does not promise Pi's immediate idle `written` receipt. Installed tests must
