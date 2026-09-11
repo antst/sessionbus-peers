@@ -7,10 +7,11 @@ import (
 	"strings"
 
 	"github.com/antst/sessionbus-peers/wrappers/host"
+	"github.com/antst/sessionbus-peers/wrappers/opencodefamily"
 	sessionkit "github.com/antst/sessionbus/bus/sdk/go"
 )
 
-var interactiveValueOptions = []string{"--log-level", "--port", "--hostname", "--mdns-domain", "--cors", "-m", "--model", "-s", "--session", "--prompt", "--agent", "--replay-limit"}
+var interactiveValueOptions = opencodefamily.OpenCodeInteractiveValueOptions()
 var passthroughCommands = []string{"completion", "acp", "mcp", "attach", "run", "debug", "providers", "agent", "upgrade", "uninstall", "serve", "web", "models", "stats", "export", "import", "github", "pr", "session", "plugin", "db"}
 
 func InteractivePlan(arguments, environment []string) (host.ExecPlan, bool, error) {
