@@ -93,6 +93,15 @@ ID and owns separate Peer/queue state. A restricted child with no extensions
 does not acquire a Sessionbus tool. Shared module state must not merge these
 instances or substitute the parent's identity.
 
+OMP uses one owner registry and private bridge per launch. Every factory/session
+binding has a bounded opaque owner token, rotated synchronously on a switch,
+including a switch back to the same native ID. Requests carry both that token
+and the live native session ID so delayed reports cannot affect a replacement
+binding. The token is not a public identity. Each child has its own daemon
+Peer and Caller; it never borrows the main Worker's Caller. Task factories run
+in native print mode, while the main binding uses RPC or TUI mode. Adoption
+must not infer the main owner from whichever readiness report arrives first.
+
 The Go owner holds the bus Caller. Each native tool request carries its actual
 session context and native tool call ID; the private connection binds them to
 the current owner. Tool cancellation cancels only that call. Disconnect or
@@ -272,10 +281,23 @@ synchronously, with exact message IDs and session ownership. Subsequent owner
 reports are bounded, tracked and joined or canceled with their lifetime.
 Native persistence follows the message-end hook and has its own generation
 guard; a hook observation is not a disk-flush receipt.
+Each claimed batch has a per-factory token and an exact ordered message-ID
+list. Reports bind that batch and owner generation; claiming alone gives no
+injection credit. Lane preflight witnesses likewise capture synchronously and
+report through bounded owned work, reconciled with the separate RPC stream.
 The wrapper starts no run to flush it. A batch submitted without confirmation
 is not replayed; replacement never transfers it to a different identity.
 OMP does not promise Pi's immediate idle `written` receipt. Installed tests must
 prove this explicit difference, including replacement and cancellation.
+
+Shutdown is a narrow exception to nonawaited generic hook reporting. The
+extension closes its binding synchronously, then awaits its end-report
+acknowledgement under OMP's existing dedicated two-second shutdown-hook bound.
+No wrapper timer is added. Missing acknowledgement or native timeout is not a
+graceful-end receipt; Go still joins the actual process and private connection.
+The private native-shutdown method is main-owner-only: Task children bind that
+native method to a no-op. A main shutdown response means only that shutdown
+was requested, never that the process has exited.
 
 OMP loads its explicit CLI extension after ambient extensions, so Pi's first
 settled-handler guard does not transfer. OMP marks a prompt in flight before
