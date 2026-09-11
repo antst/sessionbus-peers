@@ -195,6 +195,7 @@ type ownerStageResult struct {
 	SessionID  string `json:"session_id"`
 	MessageID  string `json:"message_id"`
 	Queued     bool   `json:"queued"`
+	Reason     string `json:"reason,omitempty"`
 }
 
 type ownerShutdownResult struct {
@@ -889,7 +890,7 @@ func (registry *OwnerRegistry) deliver(ctx context.Context, state *ownerRegistry
 	}
 	var result ownerStageResult
 	if err = decodeOwnerJSON(raw, &result); err != nil || result.OwnerToken != state.OwnerToken || result.SessionID != state.SessionID ||
-		result.MessageID != request.MessageID || !result.Queued {
+		result.MessageID != request.MessageID || (result.Queued && result.Reason != "") || (!result.Queued && result.Reason != "queue_full") {
 		registry.fail(errors.New("OMP native stage acknowledgement is invalid"))
 		return kit.DeliveryReceipt{}, errors.New("OMP native stage acknowledgement is invalid")
 	}
@@ -897,6 +898,16 @@ func (registry *OwnerRegistry) deliver(ctx context.Context, state *ownerRegistry
 	defer registry.mu.Unlock()
 	if registry.ending || registry.bindings[state.OwnerToken] != state || !state.admitted {
 		return kit.DeliveryReceipt{}, errors.New("OMP native stage crossed an owner generation")
+	}
+	if !result.Queued {
+		index := slices.Index(state.staged, record)
+		if index < 0 || record.acknowledged {
+			failure := registry.protocolFailureLocked("OMP rejected native stage was already claimed")
+			return kit.DeliveryReceipt{}, failure
+		}
+		state.staged = slices.Delete(state.staged, index, index+1)
+		registry.releaseStateLocked(state, len(record.messageID))
+		return kit.DeliveryReceipt{Disposition: "rejected", Reason: result.Reason}, nil
 	}
 	record.acknowledged = true
 	return kit.DeliveryReceipt{Disposition: "queued_for_next_turn"}, nil

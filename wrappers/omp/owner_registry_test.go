@@ -29,6 +29,7 @@ type ownerNativeFixture struct {
 	stages       []ownerStageRequest
 	shutdowns    []ownerDescribeRequest
 	stageHook    func(ownerStageRequest)
+	stageResult  func(ownerStageRequest) ownerStageResult
 }
 
 func (fixture *ownerNativeFixture) handle(_ context.Context, method string, raw json.RawMessage) (json.RawMessage, error) {
@@ -53,6 +54,9 @@ func (fixture *ownerNativeFixture) handle(_ context.Context, method string, raw 
 		fixture.stages = append(fixture.stages, request)
 		if fixture.stageHook != nil {
 			fixture.stageHook(request)
+		}
+		if fixture.stageResult != nil {
+			return json.Marshal(fixture.stageResult(request))
 		}
 		return json.Marshal(ownerStageResult{
 			OwnerToken: request.OwnerToken, SessionID: request.SessionID,
@@ -511,6 +515,54 @@ func TestOwnerRegistryStagesInteractiveDeliveryAndConfirmsExactBatch(t *testing.
 	case <-registry.Done():
 	case <-ownerTestContext(t).Done():
 		t.Fatal("invalid delivery observation did not fail the registry")
+	}
+}
+
+func TestOwnerRegistryReturnsNativeQueueCapacityWithoutRetiringOwner(t *testing.T) {
+	listener := ownerBusListener(t)
+	directory := t.TempDir()
+	fixture := &ownerNativeFixture{descriptions: map[string]ownerDescribeResult{
+		"owner-token": {OwnerToken: "owner-token", SessionID: "native-session", CWD: "/work"},
+	}}
+	fixture.stageResult = func(request ownerStageRequest) ownerStageResult {
+		result := ownerStageResult{
+			OwnerToken: request.OwnerToken, SessionID: request.SessionID, MessageID: request.MessageID,
+		}
+		if request.MessageID == "full" {
+			result.Reason = "queue_full"
+			return result
+		}
+		result.Queued = true
+		return result
+	}
+	registry, native := ownerRegistryPair(t, OwnerRegistryOptions{
+		Topology: ownerTopologyInteractive, Socket: listener.Addr().String(), Directory: directory,
+	}, fixture)
+	_, _, _ = ownerReady(t, registry, native, listener, ownerReadyRequest{
+		Topology: ownerTopologyInteractive, Directory: directory, Scope: ownerScopePrimary,
+		Mode: ownerModeTUI, OwnerToken: "owner-token", SessionID: "native-session",
+	})
+	state, err := registry.current("owner-token", "native-session")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := kit.DeliverySource{SessionID: "sender", Product: "codex-peer", Groups: []string{}}
+	receipt, err := registry.deliver(ownerTestContext(t), state, kit.DeliveryRequest{MessageID: "full", From: source, Body: "one"})
+	if err != nil || receipt.Disposition != "rejected" || receipt.Reason != "queue_full" {
+		t.Fatalf("native queue rejection = %+v, %v", receipt, err)
+	}
+	registry.mu.Lock()
+	if len(state.staged) != 0 || state.retainedBytes != ownerBindingRetainedBytes(state.OwnerBinding) {
+		registry.mu.Unlock()
+		t.Fatalf("rejected stage was retained: staged=%d retained=%d", len(state.staged), state.retainedBytes)
+	}
+	registry.mu.Unlock()
+	receipt, err = registry.deliver(ownerTestContext(t), state, kit.DeliveryRequest{MessageID: "next", From: source, Body: "two"})
+	if err != nil || receipt.Disposition != "queued_for_next_turn" {
+		t.Fatalf("delivery after capacity rejection = %+v, %v", receipt, err)
+	}
+	if err := registry.Err(); err != nil {
+		t.Fatalf("native capacity rejection retired owner: %v", err)
 	}
 }
 
