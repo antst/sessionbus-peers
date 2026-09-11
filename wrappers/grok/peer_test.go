@@ -255,14 +255,39 @@ func TestInteractiveLauncherOwnsLeaderHoldAndTUI(t *testing.T) {
 	t.Setenv("GROK_TEST_LEADER_PID", leaderPID)
 	t.Setenv("GROK_TEST_OBSERVER_PID", holdPID)
 	t.Setenv("GROK_TEST_INTERACTIVE_PID", tuiPID)
-	plan, err := InteractivePlan([]string{"--session-id", testSessionID, "--group", "team", "--cwd", root}, os.Environ())
+	plan, err := InteractivePlan([]string{"--session-id", testSessionID, "--group", "team", "--cwd", root, "--model", "--yolo"}, os.Environ())
 	must(t, err)
 	ctx, cancel := context.WithCancelCause(context.Background())
-	done := make(chan error, 1)
-	go func() { done <- RunInteractive(ctx, plan) }()
+	done := make(chan struct{})
+	var runErr error
+	go func() {
+		runErr = RunInteractive(ctx, plan)
+		close(done)
+	}()
+	t.Cleanup(func() {
+		cancel(context.Canceled)
+		<-done
+	})
 	<-fileReady(started)
 	waitFrame(t, recordPath, "authenticate", 1)
 	frames := records(t, recordPath)
+	foundArgs := false
+	for _, raw := range frames {
+		var start struct {
+			Kind  string `json:"kind"`
+			Value struct {
+				Arguments []string `json:"arguments"`
+			} `json:"value"`
+		}
+		must(t, json.Unmarshal(raw, &start))
+		if start.Kind == "START" && slices.Contains(start.Value.Arguments, "--leader") && !slices.Contains(start.Value.Arguments, "stdio") {
+			index := slices.Index(start.Value.Arguments, "--model")
+			check(t, index >= 0 && index+1 < len(start.Value.Arguments) && start.Value.Arguments[index+1] == "--yolo", "native model value rewritten: %q", start.Value.Arguments)
+			check(t, !slices.Contains(start.Value.Arguments, "--always-approve"), "model value selected native bypass: %q", start.Value.Arguments)
+			foundArgs = true
+		}
+	}
+	check(t, foundArgs, "native interactive argv missing")
 	clients := peerClientPIDs(t, frames)
 	check(t, len(clients) == 1 && slices.Equal(peerClientMethods(frames, clients[0]), []string{"initialize", "authenticate"}), "startup hold was not the only quiet ACP client: %#v", frames)
 	check(t, countFrames(frames, "_x.ai/sessions/list") == 0, "launcher queried the roster")
@@ -274,7 +299,8 @@ func TestInteractiveLauncherOwnsLeaderHoldAndTUI(t *testing.T) {
 	defer closeProcessHandle(tuiPidfd)
 	cancel(testSignal{syscall.SIGINT})
 	var exited *exec.ExitError
-	err = <-done
+	<-done
+	err = runErr
 	check(t, errors.As(err, &exited) && exited.ProcessState.Sys().(syscall.WaitStatus).Signal() == syscall.SIGINT, "signalled Grok child = %v", err)
 	check(t, !processRunning(t, leaderPidfd) && !processRunning(t, holdPidfd) && !processRunning(t, tuiPidfd), "interactive dependency survived shutdown")
 	check(t, !exists(filepath.Join(root, "lanes", host.LaunchTokenDigest(testSessionID)+".sock")), "peer endpoint remains")

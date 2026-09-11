@@ -62,6 +62,26 @@ Maintainers build Claude/Codex using `scripts/package-claude` and
 workflow builds all five for four platforms, publishes development after its tests and builds pass, and publishes a stable release when a new `vX.Y.Z` tag is pushed. Release
 archives record their exact source in the accompanying `SOURCE.txt`.
 
+## Interactive CLI aliases
+
+Use `--yolo` to select the native permission-bypass flag and `--resume` to
+select native history. These aliases apply to interactive launches; they do
+not change the typed lane `permission_mode` API.
+
+| Peer | `--yolo` passes as | `--resume VALUE` passes as | Bare `--resume` |
+| --- | --- | --- | --- |
+| `claude-peer` | `--dangerously-skip-permissions` | `--resume VALUE` | Native picker |
+| `codex-peer` | `--dangerously-bypass-approvals-and-sandbox` | `resume VALUE` | Native picker |
+| `qwen-peer` | `--yolo` | `--resume VALUE` | Native picker |
+| `grok-peer` | `--always-approve` | `--resume VALUE` (ID or title) | Most recent native session |
+| `opencode-peer` | `--yolo` | `-s ID` | Requires an ID |
+| `kilo-peer` (in development) | `--yolo` | `-s ID` | Requires an ID |
+
+Native `--continue` remains separate. Tokens after literal `--`, attached
+native values such as `--model=--yolo`, and the first required value of recognized native
+options are preserved. Codex retains its documented special `-c` handling;
+optional native selectors keep their native behavior.
+
 ## Install 0.5.0 from source
 
 Upgrading from Agent Sessions v0.3/v0.4 or development installations? Use the
