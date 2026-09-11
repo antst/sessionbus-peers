@@ -154,7 +154,9 @@ func newNativeRPC(input io.WriteCloser, output io.ReadCloser, observe func(json.
 	rpc := &nativeRPC{
 		input: input, output: output, observe: observe, limits: limits,
 		ctx: ctx, cancel: cancel, pending: make(map[string]*nativeRPCPending),
-		writes:         make(chan *nativeRPCWrite, limits.maxPendingWrites),
+		// One extra slot owns the zero-byte EOF marker. It can be queued behind
+		// every admitted write without weakening the normal write bound.
+		writes:         make(chan *nativeRPCWrite, limits.maxPendingWrites+1),
 		inputCloseDone: make(chan struct{}), readerDone: make(chan struct{}),
 		writerDone: make(chan struct{}), done: make(chan struct{}),
 	}
@@ -411,7 +413,7 @@ func (rpc *nativeRPC) EndInput(ctx context.Context) error {
 		rpc.outboundMu.Unlock()
 		return err
 	}
-	if len(rpc.pending) != 0 || rpc.pendingWrites != 0 || rpc.retainedBytes != 0 {
+	if len(rpc.pending) != 0 || rpc.retainedBytes != 0 {
 		rpc.mu.Unlock()
 		rpc.outboundMu.Unlock()
 		return errNativeRPCBusy
@@ -419,7 +421,6 @@ func (rpc *nativeRPC) EndInput(ctx context.Context) error {
 	write := newNativeRPCWrite(nil)
 	write.end = true
 	rpc.inputEnding = true
-	rpc.pendingWrites++
 	rpc.writes <- write
 	rpc.mu.Unlock()
 	rpc.outboundMu.Unlock()
@@ -490,9 +491,6 @@ func (rpc *nativeRPC) writeLoop() {
 			return
 		case write := <-rpc.writes:
 			if write.end {
-				rpc.mu.Lock()
-				rpc.pendingWrites--
-				rpc.mu.Unlock()
 				err := rpc.input.Close()
 				rpc.mu.Lock()
 				rpc.inputCloseErr = err
@@ -528,7 +526,9 @@ func (rpc *nativeRPC) drainWrites(err error) {
 	for {
 		select {
 		case write := <-rpc.writes:
-			rpc.releaseWrite(len(write.body))
+			if !write.end {
+				rpc.releaseWrite(len(write.body))
+			}
 			write.complete(err)
 		default:
 			return

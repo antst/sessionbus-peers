@@ -80,6 +80,10 @@ func runPiNativeHelper(mode string) error {
 			id, name = arguments[index+1], "retained native title"
 		}
 	}
+	sessionFile := filepath.Join(cwd, id+".jsonl")
+	if err = os.WriteFile(sessionFile, []byte("owned native history\n"), 0o600); err != nil {
+		return err
+	}
 	var bridge *pifamily.Bridge
 	bridge, err = pifamily.NewBridge(connection, pifamily.BridgeNative,
 		func(_ context.Context, method string, raw json.RawMessage) (json.RawMessage, error) {
@@ -112,6 +116,13 @@ func runPiNativeHelper(mode string) error {
 	writer := bufio.NewWriter(os.Stdout)
 	history := make([]map[string]any, 0)
 	var leaf any
+	if mode == "run-offbranch" {
+		history = []map[string]any{
+			{"id": "selected", "parentId": nil, "type": "custom", "data": map[string]any{"owned": true}},
+			{"id": "file-tail", "parentId": nil, "type": "custom", "data": map[string]any{"other": true}},
+		}
+		leaf = "selected"
+	}
 	for reader.Scan() {
 		var command map[string]json.RawMessage
 		if json.Unmarshal(reader.Bytes(), &command) != nil {
@@ -124,16 +135,31 @@ func runPiNativeHelper(mode string) error {
 		response := map[string]any{"id": requestID, "type": "response", "command": kind, "success": true}
 		switch kind {
 		case "get_state":
-			response["data"] = piNativeState{SessionID: id, SessionName: name, SessionFile: filepath.Join(launch.Directory, id+".jsonl")}
+			response["data"] = piNativeState{SessionID: id, SessionName: name, SessionFile: sessionFile}
 		case "set_session_name":
 			if json.Unmarshal(command["name"], &name) != nil || name == "" {
 				return errors.New("helper received invalid native name")
 			}
 		case "get_entries":
-			response["data"] = map[string]any{"entries": history, "leafId": leaf}
+			if mode == "run-offbranch" {
+				var since string
+				if raw, present := command["since"]; present {
+					if json.Unmarshal(raw, &since) != nil || since != "file-tail" {
+						return fmt.Errorf("helper received wrong append cursor %q", since)
+					}
+					response["data"] = map[string]any{"entries": []map[string]any{
+						{"id": "entry-user", "parentId": "selected", "type": "message", "message": map[string]any{"role": "user", "content": "owned prompt expanded"}},
+						{"id": "entry-answer", "parentId": "entry-user", "type": "message", "message": map[string]any{"role": "assistant", "content": "native answer", "stopReason": "stop"}},
+					}, "leafId": "entry-answer"}
+				} else {
+					response["data"] = map[string]any{"entries": history, "leafId": leaf}
+				}
+			} else {
+				response["data"] = map[string]any{"entries": history, "leafId": leaf}
+			}
 		case "prompt":
 			var prompt string
-			if mode != "run" && mode != "run-abort" && mode != "handled" || json.Unmarshal(command["message"], &prompt) != nil || prompt == "" {
+			if mode != "run" && mode != "run-abort" && mode != "run-offbranch" && mode != "run-hold" && mode != "handled" || json.Unmarshal(command["message"], &prompt) != nil || prompt == "" {
 				return errors.New("helper received invalid native prompt")
 			}
 			var echo struct {
@@ -149,11 +175,16 @@ func runPiNativeHelper(mode string) error {
 			}
 			if mode == "handled" {
 				witnesses = nil
+			} else if mode == "run-hold" {
+				witnesses = witnesses[:1]
 			}
 			for _, witness := range witnesses {
 				if err = bridge.Call(context.Background(), witness.method, witness.params, &echo); err != nil || echo.SessionID != id {
 					return errors.Join(err, errors.New("helper Run witness was not acknowledged"))
 				}
+			}
+			if mode == "run-hold" {
+				continue
 			}
 			body, _ := json.Marshal(response)
 			if _, err = writer.Write(append(body, '\n')); err != nil {
@@ -180,11 +211,13 @@ func runPiNativeHelper(mode string) error {
 			if mode == "run-abort" {
 				continue
 			}
-			history = []map[string]any{
-				{"id": "entry-user", "parentId": nil, "type": "message", "message": map[string]any{"role": "user", "content": prompt + " expanded"}},
-				{"id": "entry-answer", "parentId": "entry-user", "type": "message", "message": map[string]any{"role": "assistant", "content": "native answer", "stopReason": "stop"}},
+			if mode != "run-offbranch" {
+				history = []map[string]any{
+					{"id": "entry-user", "parentId": nil, "type": "message", "message": map[string]any{"role": "user", "content": prompt + " expanded"}},
+					{"id": "entry-answer", "parentId": "entry-user", "type": "message", "message": map[string]any{"role": "assistant", "content": "native answer", "stopReason": "stop"}},
+				}
+				leaf = "entry-answer"
 			}
-			leaf = "entry-answer"
 			if err = bridge.Call(context.Background(), "run.settling", map[string]string{"session_id": id}, &echo); err != nil || echo.SessionID != id {
 				return errors.Join(err, errors.New("helper settling witness was not acknowledged"))
 			}

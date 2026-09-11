@@ -14,10 +14,15 @@ import (
 	sessionkit "github.com/antst/sessionbus/bus/sdk/go"
 )
 
+const maxPiTurnUIRequests = 256
+
+var errPiRunInterrupted = errors.New("Pi Run interrupted before native admission")
+
 type piNativeTurn struct {
 	owner  *Wrapper
 	run    *sessionkit.Run
 	parent string
+	cursor string
 	prompt string
 
 	mu               sync.Mutex
@@ -33,6 +38,8 @@ type piNativeTurn struct {
 	settling         bool
 	nativeSettled    bool
 	terminalOwned    bool
+	finalized        bool
+	uiClosed         bool
 	pendingUI        int
 	uiIDs            map[string]bool
 	interruptOnce    sync.Once
@@ -42,9 +49,9 @@ type piNativeTurn struct {
 	report           func(sessionkit.DeliveryReceipt, error) error
 }
 
-func newPiNativeTurn(owner *Wrapper, run *sessionkit.Run, parent, prompt string) *piNativeTurn {
+func newPiNativeTurn(owner *Wrapper, run *sessionkit.Run, parent, cursor, prompt string) *piNativeTurn {
 	return &piNativeTurn{
-		owner: owner, run: run, parent: parent, prompt: prompt,
+		owner: owner, run: run, parent: parent, cursor: cursor, prompt: prompt,
 		changed: make(chan struct{}), interruptDone: make(chan struct{}), uiIDs: make(map[string]bool),
 	}
 }
@@ -148,6 +155,11 @@ func (turn *piNativeTurn) recordEvent(kind string, raw json.RawMessage) error {
 		// stream and provides the boundary where both start counts must agree.
 		turn.nativeStarts++
 	case "message_start":
+		if turn.nativeSettled {
+			err := errors.New("Pi native message started after the owned terminal")
+			turn.failLocked(err)
+			return err
+		}
 		var event struct {
 			Message struct {
 				Role    string          `json:"role"`
@@ -213,7 +225,16 @@ func (turn *piNativeTurn) admission() (bool, <-chan struct{}, error) {
 func (turn *piNativeTurn) terminal() (bool, <-chan struct{}, error) {
 	turn.mu.Lock()
 	defer turn.mu.Unlock()
-	return turn.settling && turn.nativeSettled && turn.pendingUI == 0, turn.changed, turn.failure
+	ready := turn.settling && turn.nativeSettled && turn.pendingUI == 0
+	if ready && !turn.terminalOwned {
+		// Close UI admission at the same locked boundary which observes all
+		// previously admitted cancellations joined. A late stdout request cannot
+		// enter between the terminal predicate and result collection.
+		turn.terminalOwned = true
+		turn.uiClosed = true
+		turn.signalLocked()
+	}
+	return ready, turn.changed, turn.failure
 }
 
 func (turn *piNativeTurn) cancelUI(requestID string) error {
@@ -223,8 +244,20 @@ func (turn *piNativeTurn) cancelUI(requestID string) error {
 		turn.mu.Unlock()
 		return err
 	}
+	if turn.uiClosed {
+		err := errors.New("Pi native requested extension UI after the owned terminal")
+		turn.failLocked(err)
+		turn.mu.Unlock()
+		return err
+	}
 	if turn.uiIDs[requestID] {
 		err := errors.New("Pi native repeated an extension UI request")
+		turn.failLocked(err)
+		turn.mu.Unlock()
+		return err
+	}
+	if len(turn.uiIDs) == maxPiTurnUIRequests {
+		err := errors.New("Pi native exceeded the owned extension UI request bound")
 		turn.failLocked(err)
 		turn.mu.Unlock()
 		return err
@@ -248,6 +281,10 @@ func (turn *piNativeTurn) cancelUI(requestID string) error {
 }
 
 func (turn *piNativeTurn) joinOwnedWork() {
+	turn.mu.Lock()
+	turn.uiClosed = true
+	turn.signalLocked()
+	turn.mu.Unlock()
 	for {
 		turn.mu.Lock()
 		pending, changed := turn.pendingUI, turn.changed
@@ -298,9 +335,6 @@ func (turn *piNativeTurn) Wait(ctx context.Context) (result sessionkit.TurnResul
 		turn.owner.lose(err)
 		return result, err
 	}
-	turn.mu.Lock()
-	turn.terminalOwned = true
-	turn.mu.Unlock()
 	if turn.run != nil && turn.run.Interrupted() {
 		_ = turn.Interrupt(ctx)
 	}
@@ -314,10 +348,19 @@ func (turn *piNativeTurn) Wait(ctx context.Context) (result sessionkit.TurnResul
 			return result, turn.interruptError
 		}
 	}
-	delta, err := turn.owner.readHistory(ctx, turn.parent)
+	delta, err := turn.owner.readHistory(ctx, turn.cursor)
 	if err == nil {
 		result, err = historyResult(turn.parent, delta, turn.prompt)
 	}
+	turn.mu.Lock()
+	if turn.failure != nil {
+		result, err = sessionkit.TurnResult{}, turn.failure
+	} else if err == nil {
+		turn.finalized = true
+	}
+	turn.uiClosed = true
+	turn.signalLocked()
+	turn.mu.Unlock()
 	if err != nil {
 		turn.owner.lose(err)
 	}
@@ -476,12 +519,20 @@ func (p *Wrapper) startNativeTurn(ctx context.Context, run *sessionkit.Run, prom
 		p.mu.Unlock()
 		return nil, errors.New("Pi lane is unavailable or busy")
 	}
-	turn := newPiNativeTurn(p, run, pre.Leaf, prompt)
+	cursor := ""
+	if len(pre.Entries) != 0 {
+		cursor = pre.Entries[len(pre.Entries)-1].ID
+	}
+	turn := newPiNativeTurn(p, run, pre.Leaf, cursor, prompt)
 	p.active = turn
 	p.mu.Unlock()
 	if err = p.rpc.Call(ctx, "prompt", map[string]any{"message": prompt}, nil); err != nil {
 		p.finishNativeTurn(turn)
 		return nil, err
+	}
+	if err = context.Cause(ctx); err != nil {
+		turn.fail(err)
+		return turn, nil
 	}
 	turn.mu.Lock()
 	preflight := turn.input && turn.preflight
@@ -491,10 +542,19 @@ func (p *Wrapper) startNativeTurn(ctx context.Context, run *sessionkit.Run, prom
 		return turn, nil
 	}
 	if err = turn.await(ctx, turn.admission); err != nil {
-		turn.fail(err)
+		turn.mu.Lock()
+		if turn.failure == nil {
+			turn.failLocked(err)
+		}
+		turn.mu.Unlock()
 		return turn, nil
 	}
 	turn.mu.Lock()
+	if err = context.Cause(ctx); err != nil {
+		turn.failLocked(err)
+		turn.mu.Unlock()
+		return turn, nil
+	}
 	turn.admitted = true
 	turn.mu.Unlock()
 	if run != nil {
@@ -550,15 +610,42 @@ func (p *Wrapper) Run(ctx context.Context, run *sessionkit.Run, seed sessionkit.
 		p.mu.Unlock()
 		return reject(errors.New("Pi lane is unavailable or busy"))
 	}
+	runCtx, cancelRun := context.WithCancelCause(ctx)
 	p.run = run
+	p.runCancel = cancelRun
 	p.mu.Unlock()
-	result, err = p.handoff.Run(ctx, run, input, func(ctx context.Context, prompt string) (host.Turn, error) {
+	defer func() {
+		cancelRun(nil)
+		p.mu.Lock()
+		if p.run == run {
+			p.runCancel = nil
+		}
+		p.mu.Unlock()
+	}()
+	nativeAdmitted := false
+	result, err = p.handoff.Run(runCtx, run, input, func(ctx context.Context, prompt string) (host.Turn, error) {
 		turn, startErr := p.startNativeTurn(ctx, run, prompt)
-		if turn != nil && seed.Delivery != nil {
-			turn.report = run.ReportDelivery
+		if turn != nil {
+			turn.mu.Lock()
+			nativeAdmitted = turn.admitted
+			if seed.Delivery != nil {
+				turn.report = run.ReportDelivery
+			}
+			turn.mu.Unlock()
 		}
 		return turn, startErr
 	})
+	if !nativeAdmitted && errors.Is(context.Cause(runCtx), errPiRunInterrupted) {
+		if seed.Delivery != nil {
+			if reportErr := run.ReportDelivery(sessionkit.DeliveryReceipt{Disposition: "rejected", Reason: "not_submitted"}, nil); reportErr != nil {
+				err = errors.Join(err, reportErr)
+			}
+		}
+		p.lose(errPiRunInterrupted)
+		if err == nil || errors.Is(err, errPiRunInterrupted) || errors.Is(err, context.Canceled) {
+			return sessionkit.TurnResult{Outcome: "interrupted"}, nil
+		}
+	}
 	if err != nil {
 		p.lose(err)
 		if seed.Delivery != nil {

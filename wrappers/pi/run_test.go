@@ -3,14 +3,20 @@
 package pi
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"net"
+	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/antst/sessionbus-peers/wrappers/host"
 	sessionkit "github.com/antst/sessionbus/bus/sdk/go"
+	"github.com/antst/sessionbus/bus/sdk/go/protocol"
 )
 
 func TestPiOwnedRunJoinsNativeWitnessesAndCurrentHistory(t *testing.T) {
@@ -32,6 +38,22 @@ func TestPiOwnedRunJoinsNativeWitnessesAndCurrentHistory(t *testing.T) {
 	}
 	if err = wrapper.Close(context.Background(), sessionkit.SessionCloseRequest{}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestPiRunUsesAppendCursorSeparatelyFromSelectedLeaf(t *testing.T) {
+	wrapper, cwd := newPiTestWrapper(t, "run-offbranch")
+	if _, err := wrapper.Open(context.Background(), sessionkit.OpenRequest{Name: "managed@local", Open: sessionkit.OpenOptions{Cwd: cwd}}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = wrapper.Close(context.Background(), sessionkit.SessionCloseRequest{}) })
+	turn, err := wrapper.startNativeTurn(context.Background(), nil, "owned prompt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := turn.Wait(context.Background())
+	if err != nil || result.Outcome != "completed" || result.Result != "native answer" {
+		t.Fatalf("off-branch result = %+v, %v", result, err)
 	}
 }
 
@@ -88,9 +110,174 @@ func TestPiOwnedInterruptJoinsAbortAndNativeTerminal(t *testing.T) {
 	}
 }
 
+func TestPiSDKInterruptCancelsHeldNativeAdmission(t *testing.T) {
+	wrapper, cwd := newPiTestWrapper(t, "run-hold")
+	listener, err := net.Listen("unix", wrapper.socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = listener.Close() })
+	t.Setenv(host.SocketEnv, wrapper.socket)
+	t.Setenv(host.TokenEnv, "pi-worker-token")
+	t.Setenv(host.LocalKeyEnv, "")
+	worker := sessionkit.NewWorker(wrapper)
+	wrapper.SetCaller(worker.Caller())
+	wrapper.SetShutdown(worker.Shutdown)
+	served := make(chan error, 1)
+	go func() { served <- worker.Serve(context.Background()) }()
+	connection, err := listener.Accept()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = connection.Close()
+		worker.Shutdown()
+		<-worker.Closed()
+		if wrapper.process != nil {
+			wrapper.process.Force()
+			_ = wrapper.process.Wait()
+			_ = wrapper.process.Cleanup()
+		}
+	})
+	reader := bufio.NewReader(connection)
+	write := func(body []byte) {
+		t.Helper()
+		if _, writeErr := connection.Write(body); writeErr != nil {
+			t.Fatal(writeErr)
+		}
+	}
+	read := func() protocol.Frame {
+		t.Helper()
+		line, readErr := reader.ReadBytes('\n')
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		frame, decodeErr := protocol.DecodeFrame(line[:len(line)-1])
+		if decodeErr != nil {
+			t.Fatal(decodeErr)
+		}
+		return frame
+	}
+	request := func(id int64, method string, params any) {
+		t.Helper()
+		body, encodeErr := protocol.RequestBytes(id, method, params)
+		if encodeErr != nil {
+			t.Fatal(encodeErr)
+		}
+		write(body)
+	}
+	hello := read()
+	if hello.Method != "session.hello" {
+		t.Fatalf("first Worker frame = %+v", hello)
+	}
+	body, err := protocol.ResultBytes(hello.ID, hello.Method, struct{}{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	write(body)
+	request(1, "session.open", sessionkit.OpenRequest{Name: "managed@local", Groups: []string{}, Open: sessionkit.OpenOptions{Cwd: cwd}})
+	opened := read()
+	if opened.ID != 1 || opened.Error != nil {
+		t.Fatalf("Open response = %+v", opened)
+	}
+	request(2, "turn.execute", protocol.ExecuteRequest{SessionID: "pi-fresh@local", RunID: "g/1", Input: "held prompt"})
+	executing := read()
+	if executing.ID != 2 || executing.Error != nil {
+		t.Fatalf("execute response = %+v", executing)
+	}
+
+	deadline, cancelDeadline := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancelDeadline()
+	var turn *piNativeTurn
+	for turn == nil {
+		wrapper.mu.Lock()
+		turn = wrapper.active
+		wrapper.mu.Unlock()
+		if turn == nil {
+			select {
+			case <-deadline.Done():
+				t.Fatal("held native prompt was not installed")
+			default:
+			}
+		}
+	}
+	for {
+		turn.mu.Lock()
+		input, preflight, started, changed := turn.input, turn.preflight, turn.started, turn.changed
+		turn.mu.Unlock()
+		if input {
+			if preflight || started != 0 {
+				t.Fatalf("held admission advanced: preflight %v starts %d", preflight, started)
+			}
+			break
+		}
+		select {
+		case <-changed:
+		case <-deadline.Done():
+			t.Fatal("native input witness was not recorded")
+		}
+	}
+	request(3, "turn.interrupt", map[string]string{"session_id": "pi-fresh@local"})
+	interrupted, ready := false, false
+	for !interrupted || !ready {
+		if err = connection.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
+			t.Fatal(err)
+		}
+		frame := read()
+		switch {
+		case frame.Method == "turn.ready":
+			var terminal struct {
+				State   string `json:"state"`
+				Outcome string `json:"outcome"`
+			}
+			if json.Unmarshal(frame.Params, &terminal) != nil || terminal.State != "done" || terminal.Outcome != "interrupted" {
+				t.Fatalf("interrupted terminal = %s", frame.Params)
+			}
+			ack, encodeErr := protocol.ResultBytes(frame.ID, frame.Method, struct{}{})
+			if encodeErr == nil {
+				_, _ = connection.Write(ack)
+			}
+			ready = true
+		case frame.ID == 3:
+			if frame.Error != nil {
+				t.Fatalf("interrupt response = %+v", frame.Error)
+			}
+			interrupted = true
+		default:
+			t.Fatalf("unexpected Worker frame = %+v", frame)
+		}
+	}
+	_ = connection.SetReadDeadline(time.Time{})
+	select {
+	case <-worker.Closed():
+	case <-deadline.Done():
+		t.Fatal("interrupted Worker did not retire")
+	}
+	_ = connection.Close()
+	_ = listener.Close()
+	<-served
+	turn.mu.Lock()
+	preflight, started, nativeStarts := turn.preflight, turn.started, turn.nativeStarts
+	turn.mu.Unlock()
+	if preflight || started != 0 || nativeStarts != 0 {
+		t.Fatalf("late native admission = preflight %v private %d wire %d", preflight, started, nativeStarts)
+	}
+	select {
+	case <-wrapper.process.done:
+	default:
+		t.Fatal("interrupted native child was not joined")
+	}
+	if _, err = net.Dial("unix", wrapper.process.socket); err == nil {
+		t.Fatal("interrupted private extension socket remained reachable")
+	}
+	if _, err = os.Stat(wrapper.process.directory); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("interrupted private launch directory survived: %v", err)
+	}
+}
+
 func TestPiRunAllowsLaterNativeUsersAndFiltersExtensionErrors(t *testing.T) {
 	wrapper := &Wrapper{extension: "/managed/extension.mjs"}
-	turn := newPiNativeTurn(wrapper, nil, "", "original")
+	turn := newPiNativeTurn(wrapper, nil, "", "", "original")
 	if err := turn.recordInput("rpc", "original", false); err != nil {
 		t.Fatal(err)
 	}
@@ -122,7 +309,7 @@ func TestPiRunAllowsLaterNativeUsersAndFiltersExtensionErrors(t *testing.T) {
 
 func TestPiReconcilesCrossTransportStartAtSettledBoundary(t *testing.T) {
 	wrapper := &Wrapper{extension: "/managed/extension.mjs"}
-	turn := newPiNativeTurn(wrapper, nil, "", "original")
+	turn := newPiNativeTurn(wrapper, nil, "", "", "original")
 	if err := turn.recordInput("rpc", "original", false); err != nil {
 		t.Fatal(err)
 	}
@@ -147,7 +334,7 @@ func TestPiReconcilesCrossTransportStartAtSettledBoundary(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	missing := newPiNativeTurn(wrapper, nil, "", "original")
+	missing := newPiNativeTurn(wrapper, nil, "", "", "original")
 	if err := missing.recordInput("rpc", "original", false); err != nil {
 		t.Fatal(err)
 	}
@@ -181,7 +368,7 @@ func TestPiRuntimeDialogCancellationUsesOneWayNativeInput(t *testing.T) {
 	ctx, cancel := context.WithCancelCause(context.Background())
 	t.Cleanup(func() { cancel(errors.New("test complete")) })
 	wrapper := &Wrapper{ctx: ctx, cancel: cancel, rpc: rpc, opened: true, id: "native", extension: "/managed.mjs"}
-	turn := newPiNativeTurn(wrapper, nil, "", "prompt")
+	turn := newPiNativeTurn(wrapper, nil, "", "", "prompt")
 	wrapper.active = turn
 	if err := wrapper.observeNativeUI(json.RawMessage(`{"type":"extension_ui_request","id":"dialog opaque","method":"confirm","title":"Proceed?","message":"Continue"}`)); err != nil {
 		t.Fatal(err)
@@ -210,5 +397,93 @@ func TestPiRuntimeDialogCancellationUsesOneWayNativeInput(t *testing.T) {
 	}
 	if stats := rpc.Stats(); stats.pendingCalls != 0 || stats.pendingWrites != 0 || stats.retainedBytes != 0 {
 		t.Fatalf("one-way UI cancellation retained work: %+v", stats)
+	}
+}
+
+func TestPiRuntimeDialogAdmissionIsBoundedAndJoined(t *testing.T) {
+	rpc, peer, held, release := newHeldNativeRPCTest(t, nativeRPCLimits{})
+	held.enabled.Store(true)
+	ctx, cancel := context.WithCancelCause(context.Background())
+	wrapper := &Wrapper{ctx: ctx, cancel: cancel, rpc: rpc, opened: true, id: "native", extension: "/managed.mjs"}
+	turn := newPiNativeTurn(wrapper, nil, "", "", "prompt")
+	wrapper.active = turn
+	for index := 0; index < maxPiTurnUIRequests; index++ {
+		if err := turn.cancelUI(fmt.Sprintf("dialog-%d", index)); err != nil {
+			t.Fatalf("dialog %d: %v", index, err)
+		}
+	}
+	request := peer.read(t)
+	if nativeRPCField(t, request, "type") != "extension_ui_response" {
+		t.Fatalf("first UI cancellation = %#v", request)
+	}
+	<-held.wrote
+	if err := turn.cancelUI("one-too-many"); err == nil || !strings.Contains(err.Error(), "request bound") {
+		t.Fatalf("unbounded UI request = %v", err)
+	}
+	turn.mu.Lock()
+	if len(turn.uiIDs) != maxPiTurnUIRequests || turn.pendingUI != maxPiTurnUIRequests {
+		t.Fatalf("bounded UI ownership = ids %d pending %d", len(turn.uiIDs), turn.pendingUI)
+	}
+	turn.mu.Unlock()
+	cancel(errors.New("test complete"))
+	release()
+	turn.joinOwnedWork()
+	_ = rpc.Close()
+	waitNativeRPCDone(t, rpc)
+	turn.mu.Lock()
+	pending := turn.pendingUI
+	turn.mu.Unlock()
+	if pending != 0 {
+		t.Fatalf("joined UI work = %d", pending)
+	}
+	waitNativeRPCStats(t, rpc, nativeRPCStats{})
+}
+
+func TestPiResultFinalizationRejectsLateOwnedWork(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		late func(*piNativeTurn) error
+		want string
+	}{
+		{
+			name: "managed extension failure",
+			late: func(turn *piNativeTurn) error {
+				return turn.recordEvent("extension_error", json.RawMessage(`{"type":"extension_error","extensionPath":"/managed.mjs","event":"agent_end","error":"late failure"}`))
+			},
+			want: "managed extension failed",
+		},
+		{
+			name: "late UI",
+			late: func(turn *piNativeTurn) error { return turn.cancelUI("late-dialog") },
+			want: "after the owned terminal",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			rpc, peer := newNativeRPCTest(t, nil, nativeRPCLimits{})
+			ctx, cancel := context.WithCancelCause(context.Background())
+			wrapper := &Wrapper{ctx: ctx, cancel: cancel, rpc: rpc, opened: true, id: "native", extension: "/managed.mjs"}
+			turn := newPiNativeTurn(wrapper, nil, "base", "file-tail", "expanded")
+			turn.admitted, turn.settling, turn.nativeSettled = true, true, true
+			wrapper.active = turn
+			result := make(chan error, 1)
+			go func() {
+				_, err := turn.Wait(context.Background())
+				result <- err
+			}()
+			request := peer.read(t)
+			if nativeRPCField(t, request, "since") != "file-tail" {
+				t.Fatalf("history cursor = %#v", request)
+			}
+			if err := test.late(turn); err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("late owned work = %v", err)
+			}
+			peer.write(t, `{"id":"`+nativeRPCField(t, request, "id")+`","type":"response","command":"get_entries","success":true,"data":{"entries":[{"id":"user","parentId":"base","type":"message","message":{"role":"user","content":"expanded"}},{"id":"answer","parentId":"user","type":"message","message":{"role":"assistant","content":"borrowed","stopReason":"stop"}}],"leafId":"answer"}}`)
+			if err := <-result; err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("borrowed history result = %v", err)
+			}
+			if !turn.uiClosed || turn.finalized {
+				t.Fatalf("finalization state = closed %v finalized %v", turn.uiClosed, turn.finalized)
+			}
+		})
 	}
 }

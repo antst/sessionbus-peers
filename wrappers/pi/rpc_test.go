@@ -463,6 +463,45 @@ func TestNativeRPCAcceptedResponseCompletesBeforeWriteCallback(t *testing.T) {
 	waitNativeRPCStats(t, rpc, nativeRPCStats{})
 }
 
+func TestNativeRPCEndInputQueuesBehindAcceptedResponseWrite(t *testing.T) {
+	rpc, peer, held, release := newHeldNativeRPCTest(t, nativeRPCLimits{})
+	held.enabled.Store(true)
+	call := make(chan error, 1)
+	go func() { call <- rpc.Call(nativeRPCTestContext(t), "get_state", nil, nil) }()
+	request := peer.read(t)
+	<-held.wrote
+	peer.write(t, `{"id":"`+nativeRPCField(t, request, "id")+`","type":"response","command":"get_state","success":true,"data":{}}`)
+	if err := <-call; err != nil {
+		t.Fatal(err)
+	}
+	if stats := rpc.Stats(); stats.pendingWrites != 1 || stats.retainedBytes == 0 {
+		t.Fatalf("accepted call write ownership = %#v", stats)
+	}
+
+	ended := make(chan error, 1)
+	go func() { ended <- rpc.EndInput(nativeRPCTestContext(t)) }()
+	select {
+	case err := <-ended:
+		t.Fatalf("EndInput returned before the earlier write callback: %v", err)
+	default:
+	}
+	release()
+	if err := <-ended; err != nil {
+		t.Fatal(err)
+	}
+	if _, err := peer.commands.ReadByte(); !errors.Is(err, io.EOF) {
+		t.Fatalf("native stdin after queued end = %v", err)
+	}
+	if err := peer.events.Close(); err != nil {
+		t.Fatal(err)
+	}
+	waitNativeRPCDone(t, rpc)
+	if err := rpc.Err(); err != nil {
+		t.Fatalf("queued orderly end = %v", err)
+	}
+	waitNativeRPCStats(t, rpc, nativeRPCStats{})
+}
+
 func TestNativeRPCUICancellationDuringUnsettledWriteRetires(t *testing.T) {
 	rpc, peer, held, release := newHeldNativeRPCTest(t, nativeRPCLimits{})
 	held.enabled.Store(true)

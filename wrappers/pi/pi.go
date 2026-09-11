@@ -39,6 +39,7 @@ type Wrapper struct {
 	failure      error
 	ended        bool
 	run          *sessionkit.Run
+	runCancel    context.CancelCauseFunc
 	active       *piNativeTurn
 	handoff      host.Handoff
 	losing       bool
@@ -568,6 +569,23 @@ func (p *Wrapper) loseInternal(err error, closeBridge bool) {
 }
 
 func (p *Wrapper) Interrupt(ctx context.Context, run *sessionkit.Run) error {
+	p.mu.Lock()
+	matching, turn, cancel := p.run == run, p.active, p.runCancel
+	p.mu.Unlock()
+	if matching {
+		if turn != nil {
+			turn.mu.Lock()
+			admitted := turn.admitted
+			turn.mu.Unlock()
+			if admitted {
+				return turn.Interrupt(ctx)
+			}
+		}
+		if cancel != nil {
+			cancel(errPiRunInterrupted)
+			return nil
+		}
+	}
 	return p.handoff.Interrupt(ctx, run)
 }
 
