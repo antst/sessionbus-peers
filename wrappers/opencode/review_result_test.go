@@ -4,8 +4,10 @@ package opencode
 import (
 	"context"
 	"encoding/json"
+	kit "github.com/antst/sessionbus/bus/sdk/go"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -52,5 +54,75 @@ func TestLegacyCancelUsesNativeCompletedUserStopPredicate(t *testing.T) {
 				t.Fatalf("native final classification: %+v", r.Result)
 			}
 		})
+	}
+}
+
+func TestReviewStageCannotAcceptAnUnsubmittablePrefix(t *testing.T) {
+	f := newWorkerFixture(t)
+	d := fixtureDelivery()
+	d.Body = strings.Repeat("<", 100000)
+	d.MessageID = "first"
+	var first kit.DeliveryReceipt
+	f.call(t, "message.deliver", d, &first)
+	if first.Disposition != "queued_for_next_turn" {
+		t.Fatal(first)
+	}
+	d.MessageID = "second"
+	var second kit.DeliveryReceipt
+	f.call(t, "message.deliver", d, &second)
+	if second.Disposition == "rejected" {
+		return
+	}
+	if second.Disposition != "queued_for_next_turn" {
+		t.Fatal(second)
+	}
+	f.start(t, 1, "x")
+	r := f.wait(t, 1)
+	if r.Result == nil {
+		t.Fatalf("accepted staged prefix cannot fit even minimal explicit input: %+v", r)
+	}
+}
+
+func TestLegacyStageOverflowRejectsNewPrefixAndKeepsUnsentFIFO(t *testing.T) {
+	f := newWorkerFixture(t)
+	d := fixtureDelivery()
+	d.Body = strings.Repeat("<", 100000)
+	d.MessageID = "first"
+	var receipt kit.DeliveryReceipt
+	f.call(t, "message.deliver", d, &receipt)
+	if receipt.Disposition != "queued_for_next_turn" {
+		t.Fatal(receipt)
+	}
+	d.MessageID = "second"
+	f.call(t, "message.deliver", d, &receipt)
+	if receipt.Disposition != "rejected" {
+		t.Fatal(receipt)
+	}
+	// The accepted prefix still fits with a minimal explicit input.
+	f.start(t, 1, "x")
+	r := f.wait(t, 1)
+	if r.Result == nil || r.Result.Outcome != "completed" || strings.Count(r.Result.Result, strings.Repeat("<", 100000)) != 1 {
+		t.Fatalf("retained FIFO not consumed once: state=%s", r.State)
+	}
+}
+func TestLegacyOversizedCombinedInputKeepsStageForSmallerRun(t *testing.T) {
+	f := newWorkerFixture(t)
+	d := fixtureDelivery()
+	d.Body = strings.Repeat("<", 100000)
+	var receipt kit.DeliveryReceipt
+	f.call(t, "message.deliver", d, &receipt)
+	if receipt.Disposition != "queued_for_next_turn" {
+		t.Fatal(receipt)
+	}
+	// This bus request fits, but native JSON escaping exceeds the native cap.
+	f.start(t, 1, strings.Repeat("<", 100000))
+	r := f.wait(t, 1)
+	if r.Result != nil {
+		t.Fatal("oversized native request unexpectedly submitted")
+	}
+	f.start(t, 2, "x")
+	r = f.wait(t, 2)
+	if r.Result == nil || r.Result.Outcome != "completed" || strings.Count(r.Result.Result, d.Body) != 1 {
+		t.Fatalf("stage lost after preflight failure: %+v", r)
 	}
 }

@@ -340,6 +340,15 @@ func (p *Wrapper) Deliver(ctx context.Context, request kit.DeliveryRequest, run 
 			p.mu.Unlock()
 			return kit.DeliveryReceipt{Disposition: "rejected", Reason: "stage_full"}, nil
 		}
+		// A queued prefix must leave room for at least one minimal explicit
+		// input. Account for JSON escaping, separators and configured fields.
+		// This placeholder has the exact size of randomMessageID; it is never
+		// submitted as native identity.
+		prospective := append(append([]string{}, p.staged...), text, "x")
+		if _, err := encodeNative(p.promptBody("msg_00000000000000000000000000000000", strings.Join(prospective, "\n"), false)); err != nil {
+			p.mu.Unlock()
+			return kit.DeliveryReceipt{Disposition: "rejected", Reason: "stage_full"}, nil
+		}
 		p.staged = append(p.staged, text)
 		p.stagedBytes += len(text)
 		p.mu.Unlock()
