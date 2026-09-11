@@ -14,14 +14,21 @@ Pi is `@earendil-works/pi-coding-agent` 0.85.1, upstream
 `3b3a6dc9bbd85102ce19d0b1c11bf6870915f6ec`. These are fixed campaign
 inputs, not a moving claim about the newest release.
 
-The launcher, daemon Peer/Worker, caller, process ownership, queues and native
-RPC controller will be Go. Each product requires an in-process JavaScript
+The launcher, daemon Peer/Worker, caller, process ownership, lane queues and
+native RPC controller will be Go. Each product requires an in-process JavaScript
 extension to register its native Sessionbus tool and access its session context;
 those APIs cannot be called from Go. That extension runs in the product's
 existing Node (Pi) or Bun (OMP) process. No Node sidecar, new JavaScript SDK or
 additional interpreter installation is selected. The extension uses platform
 APIs and a private connection to the Go owner. The existing Go Sessionbus SDK
 remains the daemon protocol implementation.
+
+OMP's interactive FIFO is the necessary exception to Go queue ownership: its
+timed hooks expose no cancellation signal, so injection must take a batch from
+bounded local factory state without awaiting the Go owner. The native JavaScript
+extension owns that queue and its confirmation state; Go still owns the bus
+connection, delivery validation and process lifetime. No separate JavaScript
+runtime or dependency is introduced by this state.
 
 The native prerequisites are separate costs. Before the update, umka's complete
 installed package trees occupied 111,289,752 logical regular-file bytes for Pi
@@ -93,8 +100,9 @@ Private bridge framing, pending calls, retained bytes and queue sizes are
 bounded. Readers must continue while handlers await other responses.
 The private hello's role field checks protocol consistency; it does not
 authenticate a native process. Authentication remains the validated launch
-binding and owned private socket. Native hook cancellation signals must be
-passed into bridge calls, including OMP's timeout-triggered aborts.
+binding and owned private socket. Cancellation signals exposed by the native
+API must be passed into bridge calls. OMP does not expose its generic hook
+timeout signal; that limitation requires a separate delivery boundary below.
 
 ## Delivery
 
@@ -231,11 +239,24 @@ normalization before choosing an idle or busy path. Pi's synchronous append and
 leaf confirmation cannot be copied. Its idle custom append emits no receipt
 event, and replacement can occur during the normalization await.
 
-Both idle and busy OMP interactive deliveries therefore stay in the owned FIFO
-and report `queued_for_next_turn`. The next naturally started native run takes
-a bounded batch in `before_agent_start` and returns a custom message through
-that hook. Native message events and the subsequent `context` hook confirm the
-batch's actual injection, with its exact message IDs and session ownership.
+Both idle and busy OMP interactive deliveries therefore stay in a bounded
+per-factory FIFO and report `queued_for_next_turn`. The Go owner calls the
+extension's stage operation; the extension checks the live session identity
+and enqueues synchronously before acknowledging staging. The next naturally
+started native run synchronously claims a batch in `before_agent_start` and
+returns one custom message through that hook, without a bridge await. This
+message lands after the native user prompt, queued next-turn messages and any
+earlier hook messages.
+
+Returning the batch alone does not prove injection. Exact native
+`message_start`/`message_end` events confirm that it entered the run's prompt
+messages; the subsequent `context` hook proves presence at that hook. Later
+extension handlers and provider transformations can still change context, so
+neither observation proves model consumption. Confirmation state is updated
+synchronously, with exact message IDs and session ownership. Subsequent owner
+reports are bounded, tracked and joined or canceled with their lifetime.
+Native persistence follows the message-end hook and has its own generation
+guard; a hook observation is not a disk-flush receipt.
 The wrapper starts no run to flush it. A batch submitted without confirmation
 is not replayed; replacement never transfers it to a different identity.
 OMP does not promise Pi's immediate idle `written` receipt. Installed tests must
@@ -252,10 +273,14 @@ the terminal; later foreign work retires the native owner before reuse but
 does not revoke an already materialized result. OMP has no Pi-style
 `get_entries` API, so it does not use Pi's history parser.
 
-Its native hook timeout is 30 seconds in general
-and 2 seconds for shutdown; timeout aborts the handler and native processing
-continues. Bridge operations must honor those native cancellation signals,
-and a missing confirmation cannot become success.
+Its native hook timeout is 30 seconds in general and 2 seconds for shutdown;
+after timeout native processing continues. The generic ExtensionContext has
+no signal for this timeout: before-agent-start, message and context handlers
+cannot propagate an unavailable AbortSignal into bridge calls. The injection
+path therefore needs a boundary that does not await the bridge inside those
+timed hooks. The per-factory staging contract above supplies that boundary.
+A missing confirmation cannot become success. No additional
+wrapper timer is selected to compensate for this native limitation.
 
 Only transport, process ownership and other demonstrably identical mechanics
 may be shared. Admission, completion and delivery remain product-specific.
