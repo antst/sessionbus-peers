@@ -3,7 +3,7 @@
 Status: implementation in progress. Native prerequisites are installed and
 version/help checked. Pi's first permanent build passed zero-input Worker
 Open/Close and persisted interactive resume/quit. Its first installed normal
-Run/list/result/close also passed. The UI-admission correction is integrated;
+Run/list/result/close also passed. The UI-admission correction is installed;
 the remaining native acceptance rows are still pending.
 OMP's native executable resolver, process owner and RPC transport are integrated;
 its public Wrapper and native extension remain to be wired. The source base is peers
@@ -66,6 +66,13 @@ remove its retained lane row after the Worker stops; it does not delete the
 native transcript. Pi has no session-deletion RPC. Its interactive picker is
 the native deletion surface, and the wrapper does not imitate that operation
 with filesystem removal.
+
+OMP likewise exposes no session-deletion RPC or extension operation. Its ordinary
+fresh RPC startup persists lazily: without an assistant entry, zero-input Close
+leaves no resumable file. Explicit native `new_session` instead ensures an empty
+session header is on disk. After a reply, native Close retains the conversation.
+The wrapper does not delete or rewrite transcripts; native resume can still
+migrate their contents or relocate a session whose original directory is missing.
 
 One managed launch has a Go owner, its direct native child and a private
 0700 launch directory. The native extension is supplied per launch. Ordinary
