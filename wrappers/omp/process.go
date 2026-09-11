@@ -71,9 +71,12 @@ func (log *ompLog) String() string {
 	return string(append([]byte(nil), log.data...))
 }
 
-func startOMPProcess(socket, provisional string, native NativeExecutable, cwd string, arguments []string) (*ompProcess, error) {
+func startOMPProcess(socket, provisional, topology string, native NativeExecutable, cwd string, arguments []string) (*ompProcess, error) {
 	if !filepath.IsAbs(native.RuntimePath) || !filepath.IsAbs(native.EntryPath) {
 		return nil, errors.New("OMP native runtime and entry must be absolute")
+	}
+	if topology != ownerTopologyLane && topology != ownerTopologyInteractive {
+		return nil, errors.New("OMP native topology is invalid")
 	}
 	lock, err := host.AcquireSessionLock(socket, "omp", provisional)
 	if err != nil {
@@ -115,7 +118,7 @@ func startOMPProcess(socket, provisional string, native NativeExecutable, cwd st
 		Directory: directory,
 		OwnerPID:  os.Getpid(),
 		Socket:    bridgePath,
-		Topology:  "lane",
+		Topology:  topology,
 	})
 	if err != nil {
 		return nil, err
