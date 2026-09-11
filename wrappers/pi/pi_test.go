@@ -110,6 +110,8 @@ func runPiNativeHelper(mode string) error {
 
 	reader := bufio.NewScanner(os.Stdin)
 	writer := bufio.NewWriter(os.Stdout)
+	history := make([]map[string]any, 0)
+	var leaf any
 	for reader.Scan() {
 		var command map[string]json.RawMessage
 		if json.Unmarshal(reader.Bytes(), &command) != nil {
@@ -126,6 +128,92 @@ func runPiNativeHelper(mode string) error {
 		case "set_session_name":
 			if json.Unmarshal(command["name"], &name) != nil || name == "" {
 				return errors.New("helper received invalid native name")
+			}
+		case "get_entries":
+			response["data"] = map[string]any{"entries": history, "leafId": leaf}
+		case "prompt":
+			var prompt string
+			if mode != "run" && mode != "run-abort" && mode != "handled" || json.Unmarshal(command["message"], &prompt) != nil || prompt == "" {
+				return errors.New("helper received invalid native prompt")
+			}
+			var echo struct {
+				SessionID string `json:"session_id"`
+			}
+			witnesses := []struct {
+				method string
+				params any
+			}{
+				{"run.input", map[string]any{"session_id": id, "source": "rpc", "text": prompt, "settling": false}},
+				{"run.preflight", map[string]any{"session_id": id, "prompt": prompt + " expanded", "settling": false}},
+				{"run.start", map[string]any{"session_id": id, "settling": false}},
+			}
+			if mode == "handled" {
+				witnesses = nil
+			}
+			for _, witness := range witnesses {
+				if err = bridge.Call(context.Background(), witness.method, witness.params, &echo); err != nil || echo.SessionID != id {
+					return errors.Join(err, errors.New("helper Run witness was not acknowledged"))
+				}
+			}
+			body, _ := json.Marshal(response)
+			if _, err = writer.Write(append(body, '\n')); err != nil {
+				return err
+			}
+			if mode == "handled" {
+				if err = writer.Flush(); err != nil {
+					return err
+				}
+				continue
+			}
+			for _, event := range []any{
+				map[string]any{"type": "agent_start"},
+				map[string]any{"type": "message_start", "message": map[string]any{"role": "user", "content": []any{map[string]string{"type": "text", "text": prompt + " expanded"}}}},
+			} {
+				body, _ = json.Marshal(event)
+				if _, err = writer.Write(append(body, '\n')); err != nil {
+					return err
+				}
+			}
+			if err = writer.Flush(); err != nil {
+				return err
+			}
+			if mode == "run-abort" {
+				continue
+			}
+			history = []map[string]any{
+				{"id": "entry-user", "parentId": nil, "type": "message", "message": map[string]any{"role": "user", "content": prompt + " expanded"}},
+				{"id": "entry-answer", "parentId": "entry-user", "type": "message", "message": map[string]any{"role": "assistant", "content": "native answer", "stopReason": "stop"}},
+			}
+			leaf = "entry-answer"
+			if err = bridge.Call(context.Background(), "run.settling", map[string]string{"session_id": id}, &echo); err != nil || echo.SessionID != id {
+				return errors.Join(err, errors.New("helper settling witness was not acknowledged"))
+			}
+			if _, err = fmt.Fprintln(writer, `{"type":"agent_settled"}`); err != nil {
+				return err
+			}
+			if err = writer.Flush(); err != nil {
+				return err
+			}
+			continue
+		case "abort":
+			if mode == "run-abort" {
+				history = []map[string]any{
+					{"id": "entry-user", "parentId": nil, "type": "message", "message": map[string]any{"role": "user", "content": "owned prompt expanded"}},
+					{"id": "entry-answer", "parentId": "entry-user", "type": "message", "message": map[string]any{"role": "assistant", "content": "", "stopReason": "aborted"}},
+				}
+				leaf = "entry-answer"
+				var echo struct {
+					SessionID string `json:"session_id"`
+				}
+				if err = bridge.Call(context.Background(), "run.settling", map[string]string{"session_id": id}, &echo); err != nil || echo.SessionID != id {
+					return errors.Join(err, errors.New("helper abort settling witness was not acknowledged"))
+				}
+				if _, err = fmt.Fprintln(writer, `{"type":"agent_settled"}`); err != nil {
+					return err
+				}
+				if err = writer.Flush(); err != nil {
+					return err
+				}
 			}
 		default:
 			return fmt.Errorf("helper received unexpected command %s", kind)

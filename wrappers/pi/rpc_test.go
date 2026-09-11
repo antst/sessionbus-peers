@@ -192,6 +192,32 @@ func TestNativeRPCRejectedCommandDoesNotConsumeID(t *testing.T) {
 	}
 }
 
+func TestNativeRPCUICancellationIsOneWayAndDoesNotConsumeCallID(t *testing.T) {
+	rpc, peer := newNativeRPCTest(t, nil, nativeRPCLimits{})
+	result := make(chan error, 1)
+	go func() { result <- rpc.CancelUI(nativeRPCTestContext(t), "dialog opaque") }()
+	request := peer.read(t)
+	if len(request) != 3 || nativeRPCField(t, request, "type") != "extension_ui_response" ||
+		nativeRPCField(t, request, "id") != "dialog opaque" || string(request["cancelled"]) != "true" {
+		t.Fatalf("UI cancellation = %#v", request)
+	}
+	if err := <-result; err != nil {
+		t.Fatal(err)
+	}
+
+	result = make(chan error, 1)
+	go func() { result <- rpc.Call(nativeRPCTestContext(t), "get_state", nil, nil) }()
+	request = peer.read(t)
+	if id := nativeRPCField(t, request, "id"); id != "pi:1" {
+		t.Fatalf("first correlated ID after UI cancellation = %q", id)
+	}
+	peer.write(t, `{"id":"pi:1","type":"response","command":"get_state","success":true,"data":{}}`)
+	if err := <-result; err != nil {
+		t.Fatal(err)
+	}
+	waitNativeRPCStats(t, rpc, nativeRPCStats{})
+}
+
 type observedCancellationContext struct {
 	context.Context
 	once    sync.Once
@@ -204,7 +230,7 @@ func (ctx *observedCancellationContext) Err() error {
 }
 
 func TestNativeRPCCancellationBeforeAtomicAdmissionWritesNothing(t *testing.T) {
-	for _, operation := range []string{"call", "end input"} {
+	for _, operation := range []string{"call", "cancel UI", "end input"} {
 		t.Run(operation, func(t *testing.T) {
 			rpc, peer := newNativeRPCTest(t, nil, nativeRPCLimits{})
 			base, cancel := context.WithCancel(context.Background())
@@ -214,6 +240,8 @@ func TestNativeRPCCancellationBeforeAtomicAdmissionWritesNothing(t *testing.T) {
 			go func() {
 				if operation == "call" {
 					result <- rpc.Call(cancelled, "prompt", map[string]any{"message": "must not write"}, nil)
+				} else if operation == "cancel UI" {
+					result <- rpc.CancelUI(cancelled, "must-not-write")
 				} else {
 					result <- rpc.EndInput(cancelled)
 				}
@@ -432,6 +460,26 @@ func TestNativeRPCAcceptedResponseCompletesBeforeWriteCallback(t *testing.T) {
 		t.Fatalf("held write ownership after accepted response = %#v", stats)
 	}
 	release()
+	waitNativeRPCStats(t, rpc, nativeRPCStats{})
+}
+
+func TestNativeRPCUICancellationDuringUnsettledWriteRetires(t *testing.T) {
+	rpc, peer, held, release := newHeldNativeRPCTest(t, nativeRPCLimits{})
+	held.enabled.Store(true)
+	ctx, cancel := context.WithCancel(nativeRPCTestContext(t))
+	result := make(chan error, 1)
+	go func() { result <- rpc.CancelUI(ctx, "dialog") }()
+	request := peer.read(t)
+	if nativeRPCField(t, request, "type") != "extension_ui_response" {
+		t.Fatalf("UI cancellation = %#v", request)
+	}
+	<-held.wrote
+	cancel()
+	if err := <-result; !errors.Is(err, context.Canceled) {
+		t.Fatalf("unsettled UI write cancellation = %v", err)
+	}
+	release()
+	waitNativeRPCDone(t, rpc)
 	waitNativeRPCStats(t, rpc, nativeRPCStats{})
 }
 

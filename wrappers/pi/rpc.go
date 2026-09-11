@@ -333,6 +333,62 @@ func (rpc *nativeRPC) encodeCommand(id, command string, fields map[string]any) (
 	return append(body, '\n'), nil
 }
 
+// CancelUI writes the only uncorrelated native input used by a managed Pi
+// lane. Dialog cancellation has the native request ID but produces no response
+// frame, so representing it as Call would retain a result wait forever.
+func (rpc *nativeRPC) CancelUI(ctx context.Context, requestID string) error {
+	if ctx == nil {
+		return errors.New("Pi native UI cancellation requires context")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if !utf8.ValidString(requestID) || requestID == "" || len(requestID) > 256 || strings.IndexFunc(requestID, unicode.IsControl) >= 0 {
+		return errors.New("Pi native UI request identity is invalid")
+	}
+	body, err := json.Marshal(map[string]any{
+		"type": "extension_ui_response", "id": requestID, "cancelled": true,
+	})
+	if err != nil || len(body) == 0 || len(body) > rpc.limits.maxInputFrame {
+		return fmt.Errorf("%w: invalid UI cancellation frame", errNativeRPCProtocol)
+	}
+	body = append(body, '\n')
+	write := newNativeRPCWrite(body)
+
+	rpc.outboundMu.Lock()
+	defer rpc.outboundMu.Unlock()
+	if err = ctx.Err(); err != nil {
+		return err
+	}
+	rpc.mu.Lock()
+	if rpc.stopped || rpc.inputEnding {
+		err = rpc.connectionErrorLocked()
+		rpc.mu.Unlock()
+		return err
+	}
+	if rpc.pendingWrites >= rpc.limits.maxPendingWrites ||
+		rpc.retainedBytes+rpc.pendingBytes > rpc.limits.maxRetainedBytes-len(body) {
+		rpc.mu.Unlock()
+		return errNativeRPCBusy
+	}
+	rpc.pendingWrites++
+	rpc.pendingBytes += len(body)
+	rpc.writes <- write
+	rpc.mu.Unlock()
+
+	if err = waitNativeRPCWrite(ctx, write); err != nil {
+		// Cancellation while an admitted write is unresolved leaves its byte
+		// boundary uncertain. Retire the transport rather than pretending that
+		// the native dialog was or was not canceled.
+		if ctx.Err() != nil {
+			rpc.stop(ctx.Err(), false)
+			return ctx.Err()
+		}
+		return err
+	}
+	return nil
+}
+
 // EndInput closes native stdin only after all correlated calls and retained
 // responses have settled. Pi then owns its graceful shutdown and stdout EOF.
 func (rpc *nativeRPC) EndInput(ctx context.Context) error {
