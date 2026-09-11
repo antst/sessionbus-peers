@@ -19,7 +19,10 @@ import (
 	"github.com/antst/sessionbus-peers/wrappers/host"
 )
 
-const ompProcessHelperEnv = "OMP_SESSIONBUS_PROCESS_HELPER"
+const (
+	ompProcessHelperEnv   = "OMP_SESSIONBUS_PROCESS_HELPER"
+	ompProcessTopologyEnv = "OMP_SESSIONBUS_PROCESS_TOPOLOGY"
+)
 
 type ompProcessCapture struct {
 	Launch ompLaunch `json:"launch"`
@@ -38,8 +41,12 @@ func TestOMPProcessHelper(t *testing.T) {
 		return
 	}
 	var launch ompLaunch
+	wantTopology := os.Getenv(ompProcessTopologyEnv)
+	if wantTopology == "" {
+		wantTopology = ownerTopologyLane
+	}
 	if json.Unmarshal([]byte(os.Getenv(launchEnvironmentName)), &launch) != nil ||
-		launch.OwnerPID != os.Getppid() || launch.Topology != "lane" {
+		launch.OwnerPID != os.Getppid() || launch.Topology != wantTopology {
 		_, _ = fmt.Fprintln(os.Stderr, "invalid OMP launch descriptor")
 		os.Exit(9)
 	}
@@ -63,8 +70,54 @@ func TestOMPProcessHelper(t *testing.T) {
 		os.Exit(9)
 	}
 	_ = connection.Close()
+	if launch.Topology == ownerTopologyInteractive {
+		return
+	}
 	_, _ = io.Copy(io.Discard, os.Stdin)
 	os.Exit(0)
+}
+
+func TestOMPInteractiveProcessPreservesTopology(t *testing.T) {
+	t.Setenv(ompProcessHelperEnv, "1")
+	t.Setenv(ompProcessTopologyEnv, ownerTopologyInteractive)
+	previous := ompCommand
+	ompCommand = ompProcessHelperCommand
+	t.Cleanup(func() { ompCommand = previous })
+	directory := t.TempDir()
+	process, err := startOMPProcess(filepath.Join(directory, "daemon.sock"), "provisional", ownerTopologyInteractive, NativeExecutable{
+		RuntimePath: filepath.Join(directory, "runtime"), EntryPath: filepath.Join(directory, "entry.js"),
+	}, directory, []string{"--extension", "/owned/extension.mjs", "--", "prompt"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	connection, err := process.accept(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var capture ompProcessCapture
+	if err = json.NewDecoder(connection).Decode(&capture); err != nil {
+		t.Fatal(err)
+	}
+	_ = connection.Close()
+	if capture.Launch.Topology != ownerTopologyInteractive {
+		t.Fatalf("interactive topology = %q", capture.Launch.Topology)
+	}
+	if !slices.Equal(capture.Args, []string{
+		filepath.Join(directory, "runtime"), filepath.Join(directory, "entry.js"),
+		"--extension", "/owned/extension.mjs", "--", "prompt",
+	}) {
+		t.Fatalf("interactive argv = %#v", capture.Args)
+	}
+	if process.input != nil || process.output != nil || process.command.Stdin != os.Stdin ||
+		process.command.Stdout != os.Stdout || process.command.Stderr != os.Stderr {
+		t.Fatal("interactive process did not inherit the parent terminal streams")
+	}
+	if err = process.Wait(); err != nil {
+		t.Fatal(err)
+	}
+	if err = process.Cleanup(); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func ompProcessHelperCommand(name string, arguments ...string) *exec.Cmd {
@@ -90,7 +143,7 @@ func TestOMPOwnedProcessUsesDirectRuntimeAndPrivateDescriptor(t *testing.T) {
 		EntryPath:   filepath.Join(directory, "package", "dist", "cli.js"),
 	}
 	process, err := startOMPProcess(
-		filepath.Join(directory, "daemon.sock"), "provisional", native, directory,
+		filepath.Join(directory, "daemon.sock"), "provisional", ownerTopologyLane, native, directory,
 		[]string{"--mode", "rpc-ui", "--allow-home"},
 	)
 	if err != nil {
@@ -146,7 +199,7 @@ func TestOMPProcessForceJoinsAndCleans(t *testing.T) {
 		RuntimePath: filepath.Join(directory, "runtime"),
 		EntryPath:   filepath.Join(directory, "entry.js"),
 	}
-	process, err := startOMPProcess(filepath.Join(directory, "daemon.sock"), "provisional", native, directory, nil)
+	process, err := startOMPProcess(filepath.Join(directory, "daemon.sock"), "provisional", ownerTopologyLane, native, directory, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -179,7 +232,7 @@ func TestOMPProcessForceJoinsAndCleans(t *testing.T) {
 }
 
 func TestOMPProcessRejectsRelativeNativePaths(t *testing.T) {
-	_, err := startOMPProcess(filepath.Join(t.TempDir(), "daemon.sock"), "provisional", NativeExecutable{
+	_, err := startOMPProcess(filepath.Join(t.TempDir(), "daemon.sock"), "provisional", ownerTopologyLane, NativeExecutable{
 		RuntimePath: "bun", EntryPath: "/entry.js",
 	}, t.TempDir(), nil)
 	if err == nil {
@@ -193,7 +246,7 @@ func TestOMPProcessAcceptCancellationJoinsAndOwnsResources(t *testing.T) {
 	ompCommand = ompProcessHelperCommand
 	t.Cleanup(func() { ompCommand = previous })
 	directory := t.TempDir()
-	process, err := startOMPProcess(filepath.Join(directory, "daemon.sock"), "provisional", NativeExecutable{
+	process, err := startOMPProcess(filepath.Join(directory, "daemon.sock"), "provisional", ownerTopologyLane, NativeExecutable{
 		RuntimePath: filepath.Join(directory, "runtime"), EntryPath: filepath.Join(directory, "entry.js"),
 	}, directory, nil)
 	if err != nil {
