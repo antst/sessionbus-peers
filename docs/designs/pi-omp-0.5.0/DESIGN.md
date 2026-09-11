@@ -2,8 +2,9 @@
 
 Status: implementation in progress. Native prerequisites are installed and
 version/help checked. Pi's first permanent build passed zero-input Worker
-Open/Close and persisted interactive resume/quit. Run implementation and the
-UI-admission correction are integrated; model acceptance remains in progress.
+Open/Close and persisted interactive resume/quit. Its first installed normal
+Run/list/result/close also passed. The UI-admission correction is integrated;
+the remaining native acceptance rows are still pending.
 OMP's native executable resolver, process owner and RPC transport are integrated;
 its public Wrapper and native extension remain to be wired. The source base is peers
 `75866839b7f024edf2c7f9d2d3af647a343f4987`.
@@ -376,6 +377,18 @@ with Ctrl-D; the fixture verified unchanged session history. These rows made
 no Run or model request and do not establish delivery or terminal-result
 behavior. The original process-detector timeout and retained-name collision
 remain separate failed fixture attempts in the evidence record.
+
+The installed `e946fb1` checkpoint passed one normal Run using the model Pi
+reported at native startup, `deepseek/deepseek-v4-pro`. Copied native history
+and public controller records bind one actual Sessionbus list call, its tool
+result and self identity, the final assistant JSON, and equal wait/status
+results followed by acknowledgement and close. The subsequent separate
+persisted interactive resume/Ctrl-D row passed with unchanged history.
+Root review is in `review-pi-normal-run-installed-root` under the evidence
+directory. Private config equality and private startup-probe output remain
+host-side observations; native startup fallback is not independently exposed
+by the model snapshot. This row does not establish delivery, interrupt,
+Forget, replacement or the later UI-admission correction on the native host.
 
 The first installed Pi checkpoint must distinguish these authorities:
 
