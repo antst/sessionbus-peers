@@ -67,6 +67,38 @@ func TestOMPInteractivePlanNativeValuesProtectWrapperTokens(t *testing.T) {
 	}
 }
 
+func TestOMPInteractivePlanProtectsOwnedWrapperValuesDuringRouting(t *testing.T) {
+	tests := []struct {
+		args   []string
+		groups string
+		name   string
+	}{
+		{[]string{"-g", "--print"}, `["--print"]`, ""},
+		{[]string{"--peer-name", "--help"}, `[]`, "--help"},
+		{[]string{"-n", "acp"}, `[]`, "acp"},
+		{[]string{"-g", "update"}, `["update"]`, ""},
+		{[]string{"-g", "--profile"}, `["--profile"]`, ""},
+		{[]string{"--peer-name", "--alias"}, `[]`, "--alias"},
+	}
+	for _, test := range tests {
+		t.Run(strings.Join(test.args, "_"), func(t *testing.T) {
+			plan, native, err := InteractivePlan(argumentTestNative, test.args, nil)
+			if err != nil || native {
+				t.Fatalf("plan = %#v, native = %t, error = %v", plan, native, err)
+			}
+			if !reflect.DeepEqual(plan.Args, []string{argumentTestNative.EntryPath}) ||
+				ompEnvironmentValue(plan.Env, host.GroupsEnv) != test.groups ||
+				ompEnvironmentValue(plan.Env, host.NameEnv) != test.name {
+				t.Fatalf("projection = %#v", plan)
+			}
+		})
+	}
+	plan, native, err := InteractivePlan(argumentTestNative, []string{"--model", "-g", "update"}, nil)
+	if err != nil || !native || !reflect.DeepEqual(plan.Args, []string{argumentTestNative.EntryPath, "--model", "-g", "update"}) {
+		t.Fatalf("native-owned wrapper token = %#v, %t, %v", plan, native, err)
+	}
+}
+
 func TestOMPInteractivePlanNativePassthroughIsExact(t *testing.T) {
 	environment := []string{"KEEP=value", host.GroupsEnv + `=["native"]`}
 	tests := [][]string{

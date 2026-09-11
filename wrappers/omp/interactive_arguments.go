@@ -38,6 +38,7 @@ var ompValuelessFlags = map[string]bool{
 	"--plan-yolo": true, "--print": true, "--print-thoughts": true,
 	"--no-extensions": true, "--no-skills": true, "--no-rules": true,
 	"--no-title": true, "--auto-approve": true, "--yolo": true,
+	"--sessionbus-wrapper-value": true,
 }
 
 var ompCommands = map[string]bool{
@@ -72,7 +73,7 @@ func InteractivePlan(native NativeExecutable, arguments, environment []string) (
 			return host.ExecPlan{}, false, errors.New("OMP argument contains NUL")
 		}
 	}
-	if ompNativePassthrough(arguments) {
+	if ompNativePassthrough(ompProtectWrapperValues(arguments)) {
 		return ompNativeExecPlan(native, arguments, environment), true, nil
 	}
 
@@ -129,6 +130,37 @@ func InteractivePlan(native NativeExecutable, arguments, environment []string) (
 	environment = ompSetEnvironment(environment, host.SessionIDEnv, "")
 	environment = ompSetEnvironment(environment, host.NameEnv, name)
 	return host.ExecPlan{Path: native.RuntimePath, Args: forwarded, Env: environment}, false, nil
+}
+
+// ompProtectWrapperValues gives wrapper-owned flags their value arity before
+// native profile and command classification. A wrapper-shaped token already
+// consumed by a native option is skipped with that option and remains native
+// data. The marker is classification-only and never reaches the child.
+func ompProtectWrapperValues(arguments []string) []string {
+	protected := make([]string, 0, len(arguments))
+	for index := 0; index < len(arguments); index++ {
+		argument := arguments[index]
+		if argument == "--" {
+			return append(protected, arguments[index:]...)
+		}
+		if wrapper, _, attached := ompAttachedWrapperValue(argument); wrapper != "" && attached {
+			protected = append(protected, "--sessionbus-wrapper-value")
+			continue
+		}
+		if argument == "-g" || argument == "--group" || argument == "-n" || argument == "--peer-name" {
+			protected = append(protected, "--sessionbus-wrapper-value")
+			if index+1 < len(arguments) {
+				index++
+			}
+			continue
+		}
+		protected = append(protected, argument)
+		if ompProfileConsumesValue(arguments, index) {
+			protected = append(protected, arguments[index+1])
+			index++
+		}
+	}
+	return protected
 }
 
 func ompNativeExecPlan(native NativeExecutable, arguments, environment []string) host.ExecPlan {
