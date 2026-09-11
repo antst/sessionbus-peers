@@ -3,6 +3,7 @@
 package opencode
 
 import (
+	"errors"
 	"slices"
 	"strings"
 
