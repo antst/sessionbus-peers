@@ -159,6 +159,7 @@ func TestInteractiveOwnerNativeGateRenameAndLiveBlankTitle(t *testing.T) {
 	appendFixtureJSON(t, history, titleRecord("two words"))
 	select {
 	case identity := <-hellos:
+		check(t, identity.Product == "qwen-peer", "interactive product=%q", identity.Product)
 		check(t, identity.SessionID == fixtureID && identity.Name == "two words" && reflect.DeepEqual(identity.Groups, []string{"a", "b"}), "hello=%+v", identity)
 	case <-time.After(5 * time.Second):
 		t.Fatal("confirmed title was not published")
@@ -166,6 +167,7 @@ func TestInteractiveOwnerNativeGateRenameAndLiveBlankTitle(t *testing.T) {
 	appendFixtureJSON(t, history, titleRecord(""))
 	select {
 	case identity := <-hellos:
+		check(t, identity.Product == "qwen-peer", "rehello product=%q", identity.Product)
 		check(t, identity.SessionID == fixtureID && identity.Name == "", "blank native title lost: %+v", identity)
 	case <-time.After(5 * time.Second):
 		t.Fatal("blank title did not rehello")

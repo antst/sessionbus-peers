@@ -292,7 +292,7 @@ func (b *interactiveOwner) connect(session initialNativeSession, title string) e
 	return b.hello(session, title)
 }
 func (b *interactiveOwner) hello(session initialNativeSession, title string) error {
-	identity := kit.PeerIdentity{Protocol: 1, Product: "qwen", SessionID: b.id, Name: title, Groups: b.launch.Groups, Info: map[string]any{"cwd": session.CWD}}
+	identity := kit.PeerIdentity{Protocol: 1, Product: Product, SessionID: b.id, Name: title, Groups: b.launch.Groups, Info: map[string]any{"cwd": session.CWD}}
 	var result json.RawMessage
 	return b.conn.Call(b.ctx, "session.hello", identity, &result)
 }

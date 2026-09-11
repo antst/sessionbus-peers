@@ -58,6 +58,7 @@ func TestPeerPrepareUsesMetadataAndRefreshesTitle(t *testing.T) {
 		t.Fatal(err)
 	}
 	b.app = newAppClient(client, client, nil, func(error) {})
+	t.Cleanup(b.Shutdown)
 	t.Cleanup(func() { _ = app.Close() })
 	titles := make(chan string, 2)
 	titles <- "first title"
@@ -82,6 +83,9 @@ func TestPeerPrepareUsesMetadataAndRefreshesTitle(t *testing.T) {
 		t.Fatalf("hello = %#v", hello)
 	}
 	params := hello["params"].(map[string]any)
+	if params["product"] != "codex-peer" {
+		t.Fatalf("peer product = %#v", params["product"])
+	}
 	if params["session_id"] != "thread-1" || params["name"] != "first title" || !slices.Equal(params["groups"].([]any), []any{"codex-cells"}) {
 		t.Fatalf("identity = %#v", params)
 	}
