@@ -347,6 +347,26 @@ func TestPiOwnedOpenCloseFreshAndResume(t *testing.T) {
 	}
 }
 
+func TestPiCloseForgetLeavesNativeHistoryToDaemonRowOwnership(t *testing.T) {
+	wrapper, cwd := newPiTestWrapper(t, "normal")
+	if _, err := wrapper.Open(context.Background(), sessionkit.OpenRequest{
+		Name: "managed@local", Open: sessionkit.OpenOptions{Cwd: cwd},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	history := filepath.Join(cwd, "pi-fresh.jsonl")
+	launchDirectory := wrapper.process.directory
+	if err := wrapper.Close(context.Background(), sessionkit.SessionCloseRequest{Forget: true}); err != nil {
+		t.Fatal(err)
+	}
+	if body, err := os.ReadFile(history); err != nil || string(body) != "owned native history\n" {
+		t.Fatalf("native history after row forget = %q, %v", body, err)
+	}
+	if _, err := os.Stat(launchDirectory); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("private launch directory survived Forget Close: %v", err)
+	}
+}
+
 func TestPiOpenFailureJoinsOwnedProcessAndResources(t *testing.T) {
 	for _, mode := range []string{"exit", "startup-ui"} {
 		t.Run(mode, func(t *testing.T) {

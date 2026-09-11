@@ -593,7 +593,7 @@ func (p *Wrapper) Deliver(ctx context.Context, request sessionkit.DeliveryReques
 	return p.handoff.Deliver(ctx, request, nil)
 }
 
-func (p *Wrapper) Close(ctx context.Context, request sessionkit.SessionCloseRequest) error {
+func (p *Wrapper) Close(ctx context.Context, _ sessionkit.SessionCloseRequest) error {
 	p.closeOnce.Do(func() {
 		p.mu.Lock()
 		p.closing = true
@@ -656,9 +656,6 @@ func (p *Wrapper) Close(ctx context.Context, request sessionkit.SessionCloseRequ
 			p.closeErr = errors.New("Pi native session did not confirm shutdown")
 		}
 		p.closeErr = errors.Join(p.closeErr, childErr, ctx.Err())
-		if request.Forget {
-			p.closeErr = errors.Join(p.closeErr, errors.New("Pi native session forget is unavailable in this checkpoint"))
-		}
 		p.closeErr = errors.Join(p.closeErr, process.Cleanup())
 		if cancel != nil {
 			cancel(errors.New("Pi owner closed"))
