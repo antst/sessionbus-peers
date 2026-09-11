@@ -68,7 +68,7 @@ pending. Initial native blocker snapshots and live events are checked for the
 exact session. The wrapper never answers or rejects an interactive blocker. An
 idle handoff uses native `prompt_async` without inventing a message ID. A new
 blocker can cross the final check and native submission; the API supplies no
-atomic check-and-submit. `written` records attempted native handoff, not proof
+atomic check-and-submit. `written` records successful native handoff/API acceptance, not proof
 of model consumption. There is no replay or restart recovery.
 
 ## Lanes and lifetime
