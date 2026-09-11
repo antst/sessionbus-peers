@@ -258,8 +258,16 @@ func TestInteractiveLauncherOwnsLeaderHoldAndTUI(t *testing.T) {
 	plan, err := InteractivePlan([]string{"--session-id", testSessionID, "--group", "team", "--cwd", root, "--model", "--yolo"}, os.Environ())
 	must(t, err)
 	ctx, cancel := context.WithCancelCause(context.Background())
-	done := make(chan error, 1)
-	go func() { done <- RunInteractive(ctx, plan) }()
+	done := make(chan struct{})
+	var runErr error
+	go func() {
+		runErr = RunInteractive(ctx, plan)
+		close(done)
+	}()
+	t.Cleanup(func() {
+		cancel(context.Canceled)
+		<-done
+	})
 	<-fileReady(started)
 	waitFrame(t, recordPath, "authenticate", 1)
 	frames := records(t, recordPath)
@@ -291,7 +299,8 @@ func TestInteractiveLauncherOwnsLeaderHoldAndTUI(t *testing.T) {
 	defer closeProcessHandle(tuiPidfd)
 	cancel(testSignal{syscall.SIGINT})
 	var exited *exec.ExitError
-	err = <-done
+	<-done
+	err = runErr
 	check(t, errors.As(err, &exited) && exited.ProcessState.Sys().(syscall.WaitStatus).Signal() == syscall.SIGINT, "signalled Grok child = %v", err)
 	check(t, !processRunning(t, leaderPidfd) && !processRunning(t, holdPidfd) && !processRunning(t, tuiPidfd), "interactive dependency survived shutdown")
 	check(t, !exists(filepath.Join(root, "lanes", host.LaunchTokenDigest(testSessionID)+".sock")), "peer endpoint remains")
