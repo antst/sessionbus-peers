@@ -32,7 +32,7 @@ func TestCompiledInteractiveLaunchOwnsChildAndResources(t *testing.T) {
 		t.Fatal(err)
 	}
 	previous := ""
-	for _, mode := range []string{"exit", "exit", "error", "term", "interrupt"} {
+	for _, mode := range []string{"exit", "exit", "error", "term", "interrupt", "hup"} {
 		t.Run(mode, func(t *testing.T) {
 			directory := testsocket.Directory(t)
 			listener, err := net.Listen("unix", filepath.Join(directory, "report.sock"))
@@ -120,6 +120,11 @@ func TestCompiledInteractiveLaunchOwnsChildAndResources(t *testing.T) {
 			}
 			if mode == "term" || mode == "interrupt" {
 				if err := command.Process.Signal(syscall.SIGTERM); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if mode == "hup" {
+				if err := command.Process.Signal(syscall.SIGHUP); err != nil {
 					t.Fatal(err)
 				}
 			}

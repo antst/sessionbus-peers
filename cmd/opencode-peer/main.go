@@ -18,14 +18,14 @@ import (
 )
 
 func main() {
-	signals := []os.Signal{os.Interrupt, syscall.SIGTERM}
+	signals := []os.Signal{os.Interrupt, syscall.SIGTERM, syscall.SIGHUP}
 	if !host.LaneMode() {
 		// Native TUI receives foreground terminal SIGINT itself. Observing it
 		// here avoids termination or translating it into a duplicate TERM.
 		interrupts := make(chan os.Signal, 1)
 		signal.Notify(interrupts, os.Interrupt)
 		defer signal.Stop(interrupts)
-		signals = []os.Signal{syscall.SIGTERM}
+		signals = []os.Signal{syscall.SIGTERM, syscall.SIGHUP}
 	}
 	ctx, cancel := signal.NotifyContext(context.Background(), signals...)
 	defer cancel()

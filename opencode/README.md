@@ -33,3 +33,18 @@ The `list` result includes `self_info` with the bound caller's canonical
 caller when querying another host or filtering out its row. Use that ID to
 recognize self. Older daemons can omit it; names and row order are not an
 identity fallback.
+
+The managed Go launcher uses the native authenticated loopback HTTP transport.
+Caller topology flags are reserved; the native 1.18.29/1.18.30 network options
+(`hostname`, `port`, `mdns`, `mdns-domain`, `cors`) declare no short aliases.
+Existing nonempty `OPENCODE_SERVER_*` authentication values are preserved;
+otherwise the launcher generates a private per-launch password. These are
+native environment variables and can be inherited by native shell-tool children.
+The Sessionbus launch binding is snapshotted and scrubbed separately in each
+native plugin context. Local-key Sessionbus transport is unsupported by this
+build and fails before managed launch.
+
+SIGTERM and SIGHUP cancel managed lifetime, join the direct native child, and
+remove the private launch directory. SIGINT remains a native TUI action.
+Abrupt launcher SIGKILL can leave the native TUI, its peers, and the unique
+runtime directory alive; no extra supervisor or recovery process is installed.
