@@ -68,6 +68,12 @@ and child/subagent calls. An interactive child becomes an addressable peer;
 inbound input can run it outside the parent task. A lane child instead uses the
 verified ancestor lane's single Worker capability.
 
+Lane model selection follows native configuration. A caller can set an explicit
+`open.model` such as `"google/gemini-3.1-pro-preview"` in a spawn request. A lane
+does not implicitly inherit the displayed TUI model, and the wrapper never
+silently substitutes a different provider/model. Native availability, credentials
+and policy still govern the request.
+
 The shared actions provide list/send/spawn/describe/run/start/wait/status/
 interrupt/close/forget/ack. Status/wait do not consume results; acknowledge the
 returned run explicitly. `list.self_info`, when supplied by the daemon, identifies
@@ -105,6 +111,6 @@ The resident bridge allows eight connections, 2 MiB ingress, 8 MiB responses,
 are outside these wrapper bounds. Kit ready reassignment is observed at its
 pinned reconnect scheduler boundary; a failed attempt is never hello admission.
 
-The current rewrite's evidence and remaining acceptance gates are recorded in
+The rewrite's verified acceptance scopes and retained limitations are recorded in
 [the acceptance index](https://github.com/antst/sessionbus-peers/blob/develop/docs/designs/opencode-0.5.0/ACCEPTANCE.md). Historical
 product probes remain separately identified in the product facts.

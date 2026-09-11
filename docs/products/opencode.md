@@ -12,15 +12,21 @@ The Go launcher/lane worker, native Bun hooks, ordinary activation and installer
 are documented in [the current OpenCode README](../../opencode/README.md).
 [Implementation and costs](../designs/opencode-0.5.0/IMPLEMENTATION.md) and
 [the acceptance index](../designs/opencode-0.5.0/ACCEPTANCE.md) distinguish source
-review, actual installed observations, failures and outstanding gates.
+review, actual installed observations, failures and accepted limits.
 
 The September 11 installed composition established native-only quiet resume,
 confirmed title/groups and an actual generic list call on native 1.18.30. It
 also established a cross-kind restriction: a retained Sessionbus lane ID cannot
 register as an interactive Peer, even after close. Opening the same native
 history does not reclassify it. This is separate from successful native-only
-interactive resume. The first parent-child collection failed and is retained;
-it is not a full rewrite acceptance pass.
+interactive resume. The first default-model parent-child collection failed and
+is retained without an invented cause. Subsequent explicit-model parent/lane
+composition passed with actual tools, completion pointers and complete answers.
+The final selected rows also establish native old-session/child attribution
+across TUI navigation, queued and idle delivery, exact lane resume/seed,
+interruption after a native operation longer than five minutes, and scoped
+normal/TERM/HUP/KILL cleanup. The acceptance index preserves raw evidence and
+its limits, including the separate KILL stale-directory operator cleanup.
 
 ## Retained earlier product evidence
 
