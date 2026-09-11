@@ -120,6 +120,17 @@ func TestPiRunAllowsLaterNativeUsersAndFiltersExtensionErrors(t *testing.T) {
 	}
 }
 
+func TestPiIdleExtensionErrorsOnlyRetireForManagedPath(t *testing.T) {
+	wrapper := &Wrapper{extension: "/managed/extension.mjs"}
+	if err := wrapper.observeRunEvent("extension_error", json.RawMessage(`{"type":"extension_error","extensionPath":"/ambient.mjs","event":"session_start","error":"ambient failed"}`)); err != nil {
+		t.Fatalf("idle ambient extension failure became owned failure: %v", err)
+	}
+	err := wrapper.observeRunEvent("extension_error", json.RawMessage(`{"type":"extension_error","extensionPath":"/managed/extension.mjs","event":"session_start","error":"managed failed"}`))
+	if err == nil || !strings.Contains(err.Error(), "managed extension failed") {
+		t.Fatalf("idle managed extension failure = %v", err)
+	}
+}
+
 func TestPiRuntimeDialogCancellationUsesOneWayNativeInput(t *testing.T) {
 	rpc, peer := newNativeRPCTest(t, nil, nativeRPCLimits{})
 	ctx, cancel := context.WithCancelCause(context.Background())

@@ -176,19 +176,14 @@ func (turn *piNativeTurn) recordEvent(kind string, raw json.RawMessage) error {
 		}
 		turn.nativeSettled = true
 	case "extension_error":
-		var event struct {
-			ExtensionPath string `json:"extensionPath"`
-			Event         string `json:"event"`
-			Error         string `json:"error"`
-		}
-		if json.Unmarshal(raw, &event) != nil || !validPiText(event.ExtensionPath, 4096, false) ||
-			!validPiText(event.Event, 128, false) || !validPiText(event.Error, 4096, true) {
-			return errors.New("Pi native extension error event is invalid")
+		event, err := decodePiExtensionError(raw)
+		if err != nil {
+			return err
 		}
 		if event.ExtensionPath == turn.owner.extension {
-			err := fmt.Errorf("Pi managed extension failed during %s: %s", event.Event, event.Error)
-			turn.failLocked(err)
-			return err
+			failure := fmt.Errorf("Pi managed extension failed during %s: %s", event.Event, event.Error)
+			turn.failLocked(failure)
+			return failure
 		}
 	}
 	turn.signalLocked()
@@ -346,6 +341,17 @@ func (p *Wrapper) observeRunEvent(kind string, raw json.RawMessage) error {
 	default:
 		return nil
 	}
+	var extensionFailure error
+	if kind == "extension_error" {
+		event, err := decodePiExtensionError(raw)
+		if err != nil {
+			return err
+		}
+		if event.ExtensionPath != p.extension {
+			return nil
+		}
+		extensionFailure = fmt.Errorf("Pi managed extension failed during %s: %s", event.Event, event.Error)
+	}
 	p.mu.Lock()
 	turn, closing := p.active, p.closing
 	p.mu.Unlock()
@@ -353,9 +359,27 @@ func (p *Wrapper) observeRunEvent(kind string, raw json.RawMessage) error {
 		return nil
 	}
 	if turn == nil {
+		if extensionFailure != nil {
+			return extensionFailure
+		}
 		return fmt.Errorf("Pi native emitted %s outside an owned Run", kind)
 	}
 	return turn.recordEvent(kind, raw)
+}
+
+type piExtensionError struct {
+	ExtensionPath string `json:"extensionPath"`
+	Event         string `json:"event"`
+	Error         string `json:"error"`
+}
+
+func decodePiExtensionError(raw json.RawMessage) (piExtensionError, error) {
+	var event piExtensionError
+	if json.Unmarshal(raw, &event) != nil || !validPiText(event.ExtensionPath, 4096, false) ||
+		!validPiText(event.Event, 128, false) || !validPiText(event.Error, 4096, true) {
+		return event, errors.New("Pi native extension error event is invalid")
+	}
+	return event, nil
 }
 
 func (p *Wrapper) observeNativeUI(raw json.RawMessage) error {
