@@ -96,6 +96,7 @@ type interactiveOwner struct {
 	sessionID, name, cwd string
 	generation           uint64
 	everReady, ending    bool
+	lastEndReason        string
 	queue                []interactiveQueuedDelivery
 	queueBytes           int
 	err                  error
@@ -255,6 +256,7 @@ func (o *interactiveOwner) sessionEnd(ctx context.Context, raw json.RawMessage) 
 	conn := o.conn
 	o.conn = nil
 	o.sessionID, o.name, o.cwd = "", "", ""
+	o.lastEndReason = request.Reason
 	o.queue, o.queueBytes = nil, 0
 	o.mu.Unlock()
 	_ = conn.Close()
@@ -367,7 +369,7 @@ func (o *interactiveOwner) publish(ctx context.Context, sessionID, nativeName, c
 		if o.ending || o.conn != conn || o.sessionID != sessionID {
 			return errors.New("Pi public identity changed before rehello")
 		}
-		o.name, o.cwd, o.everReady = name, cwd, true
+		o.name, o.cwd, o.everReady, o.lastEndReason = name, cwd, true, ""
 		return nil
 	})
 }
@@ -409,6 +411,7 @@ func (o *interactiveOwner) connectPublic(ctx context.Context, identity kit.PeerI
 		}
 		o.conn, o.connecting, o.sessionID, o.name, o.cwd = conn, nil, identity.SessionID, identity.Name, identity.Info["cwd"].(string)
 		o.everReady = true
+		o.lastEndReason = ""
 		o.readyOnce.Do(func() { close(o.readySignal) })
 		return nil
 	})
@@ -632,6 +635,12 @@ func (o *interactiveOwner) currentBridge() *pifamily.Bridge {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	return o.bridge
+}
+
+func (o *interactiveOwner) gracefulNativeEnd() bool {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return o.everReady && o.sessionID == "" && o.conn == nil && o.lastEndReason == "quit"
 }
 
 func (o *interactiveOwner) protocolFailure(message string, cause error) error {
