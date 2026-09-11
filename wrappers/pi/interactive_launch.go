@@ -20,7 +20,10 @@ import (
 
 const interactiveBridgeSocket = "owner.sock"
 
-var piInteractiveCommand = exec.Command
+var (
+	piInteractiveCommand = exec.Command
+	piInteractiveListen  = net.Listen
+)
 
 type interactiveLaunchDescriptor struct {
 	Directory string `json:"directory"`
@@ -113,7 +116,7 @@ func runInteractiveResolved(ctx context.Context, plan host.ExecPlan, native, ext
 	if len(endpoint) >= 104 {
 		return errors.New("managed Pi bridge path exceeds Unix socket limit")
 	}
-	listener, err := net.Listen("unix", endpoint)
+	listener, err := piInteractiveListen("unix", endpoint)
 	if err != nil {
 		return err
 	}
@@ -165,25 +168,26 @@ func runInteractiveResolved(ctx context.Context, plan host.ExecPlan, native, ext
 		conn, acceptErr := listener.Accept()
 		accepted <- interactiveAcceptResult{conn, acceptErr}
 	}()
-	discardAccept := func() {
+	acceptTransferred := false
+	defer func() {
+		if acceptTransferred {
+			return
+		}
+		_ = closeListener()
 		accept := <-accepted
 		if accept.conn != nil {
-			_ = accept.conn.Close()
+			result = errors.Join(result, accept.conn.Close())
 		}
-	}
+	}()
 
 	args := append([]string{"--extension", extension}, plan.Args...)
 	child := piInteractiveCommand(native, args...)
 	child.Env = environment
 	child.Stdin, child.Stdout, child.Stderr = os.Stdin, os.Stdout, os.Stderr
 	if err = ctx.Err(); err != nil {
-		_ = closeListener()
-		discardAccept()
 		return err
 	}
 	if err = child.Start(); err != nil {
-		_ = closeListener()
-		discardAccept()
 		return err
 	}
 	childDone := make(chan error, 1)
@@ -214,6 +218,7 @@ func runInteractiveResolved(ctx context.Context, plan host.ExecPlan, native, ext
 	var acceptedConn net.Conn
 	select {
 	case accept := <-accepted:
+		acceptTransferred = true
 		if accept.err != nil {
 			return errors.Join(accept.err, joinChild(true))
 		}
@@ -222,8 +227,6 @@ func runInteractiveResolved(ctx context.Context, plan host.ExecPlan, native, ext
 		childJoined = true
 		return childErr
 	case <-ctx.Done():
-		_ = closeListener()
-		discardAccept()
 		return joinChild(true)
 	}
 	if err = validateInteractiveEndpoint(directory, endpoint); err != nil {

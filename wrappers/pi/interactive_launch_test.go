@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -29,6 +30,7 @@ const piInteractiveChildEnv = "PI_INTERACTIVE_TEST_CHILD"
 type piInteractiveChildCapture struct {
 	Args       []string                    `json:"args"`
 	Descriptor interactiveLaunchDescriptor `json:"descriptor"`
+	PID        int                         `json:"pid"`
 	Parent     int                         `json:"parent"`
 	Leaked     []string                    `json:"leaked"`
 	Signal     string                      `json:"signal,omitempty"`
@@ -47,16 +49,27 @@ func TestPiInteractiveNativeChild(t *testing.T) {
 	if index == len(os.Args) || json.Unmarshal([]byte(os.Getenv(InteractiveLaunchEnv)), &descriptor) != nil {
 		os.Exit(91)
 	}
-	capture := piInteractiveChildCapture{Args: slicesClone(os.Args[index+1:]), Descriptor: descriptor, Parent: os.Getppid()}
+	capture := piInteractiveChildCapture{Args: slicesClone(os.Args[index+1:]), Descriptor: descriptor, PID: os.Getpid(), Parent: os.Getppid()}
 	for _, entry := range os.Environ() {
 		key, _, _ := strings.Cut(entry, "=")
 		if strings.HasPrefix(key, "SESSIONBUS_") && key != InteractiveLaunchEnv {
 			capture.Leaked = append(capture.Leaked, key)
 		}
 	}
+	writeCapture := func() {
+		body, marshalErr := json.Marshal(capture)
+		if marshalErr != nil || os.WriteFile(os.Getenv("PI_INTERACTIVE_TEST_CAPTURE"), body, 0o600) != nil {
+			os.Exit(95)
+		}
+	}
 	conn, err := net.Dial("unix", descriptor.Socket)
 	if err != nil {
 		os.Exit(92)
+	}
+	if mode == "connect-exit" {
+		writeCapture()
+		_ = conn.Close()
+		os.Exit(38)
 	}
 	native, err := pifamily.NewBridge(conn, pifamily.BridgeNative, func(_ context.Context, method string, raw json.RawMessage) (json.RawMessage, error) {
 		var result any
@@ -86,12 +99,6 @@ func TestPiInteractiveNativeChild(t *testing.T) {
 		Topology: interactiveTopology, Directory: descriptor.Directory, SessionID: "native-session", Name: "ready title",
 	}, &ready) != nil || ready["session_id"] != "native-session" {
 		os.Exit(94)
-	}
-	writeCapture := func() {
-		body, marshalErr := json.Marshal(capture)
-		if marshalErr != nil || os.WriteFile(os.Getenv("PI_INTERACTIVE_TEST_CAPTURE"), body, 0o600) != nil {
-			os.Exit(95)
-		}
 	}
 	writeCapture()
 	if mode == "bridge-loss" {
@@ -129,6 +136,34 @@ func installPiInteractiveCommandFixture(t *testing.T) {
 		return exec.Command(os.Args[0], append(args, arguments...)...)
 	}
 	t.Cleanup(func() { piInteractiveCommand = original })
+}
+
+type heldPiAcceptListener struct {
+	net.Listener
+	accepted chan struct{}
+	release  chan struct{}
+	closed   chan struct{}
+}
+
+type observedPiConn struct {
+	net.Conn
+	closed chan struct{}
+	once   sync.Once
+}
+
+func (c *observedPiConn) Close() error {
+	c.once.Do(func() { close(c.closed) })
+	return c.Conn.Close()
+}
+
+func (l *heldPiAcceptListener) Accept() (net.Conn, error) {
+	conn, err := l.Listener.Accept()
+	if err != nil {
+		return nil, err
+	}
+	close(l.accepted)
+	<-l.release
+	return &observedPiConn{Conn: conn, closed: l.closed}, nil
 }
 
 func readPiChildCapture(t *testing.T, path string) piInteractiveChildCapture {
@@ -268,5 +303,48 @@ func TestRunPiInteractivePropagatesNativeExitAndContainsBridgeLoss(t *testing.T)
 				t.Fatalf("private directory remains: %v", statErr)
 			}
 		})
+	}
+}
+
+func TestRunPiInteractiveClosesAcceptedConnectionWhenChildAlreadyExited(t *testing.T) {
+	installPiInteractiveCommandFixture(t)
+	originalListen := piInteractiveListen
+	accepted, release, closed := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	piInteractiveListen = func(network, address string) (net.Listener, error) {
+		listener, err := originalListen(network, address)
+		if err != nil {
+			return nil, err
+		}
+		return &heldPiAcceptListener{Listener: listener, accepted: accepted, release: release, closed: closed}, nil
+	}
+	t.Cleanup(func() { piInteractiveListen = originalListen })
+	listener := interactiveBusListener(t)
+	capturePath := filepath.Join(t.TempDir(), "native.json")
+	plan := piInteractiveLaunchPlan(t, listener, capturePath, "connect-exit")
+	result := make(chan error, 1)
+	go func() {
+		result <- runInteractiveResolved(context.Background(), plan, "/native/pi", "/plugin/pi/extension.mjs")
+	}()
+	<-accepted
+	capture := readPiChildCapture(t, capturePath)
+	deadline := time.Now().Add(5 * time.Second)
+	for syscall.Kill(capture.PID, 0) == nil && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if syscall.Kill(capture.PID, 0) == nil {
+		t.Fatal("native child did not exit before accept handoff")
+	}
+	close(release)
+	var exit *exec.ExitError
+	if err := <-result; !errors.As(err, &exit) || exit.ExitCode() != 38 {
+		t.Fatalf("native exit = %v", err)
+	}
+	select {
+	case <-closed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("accepted connection was not closed")
+	}
+	if _, err := os.Stat(capture.Descriptor.Directory); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("private directory remains: %v", err)
 	}
 }
