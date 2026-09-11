@@ -40,7 +40,7 @@ type Wrapper struct {
 	ended        bool
 	run          *sessionkit.Run
 	handoff      host.Handoff
-	lossOnce     sync.Once
+	losing       bool
 	closeOnce    sync.Once
 	closeErr     error
 	workers      sync.WaitGroup
@@ -471,35 +471,38 @@ func (p *Wrapper) loseFromHandler(err error) {
 }
 
 func (p *Wrapper) loseInternal(err error, closeBridge bool) {
-	p.lossOnce.Do(func() {
-		p.mu.Lock()
-		p.failure = err
-		opened, run, shutdown := p.opened, p.run, p.shutdown
-		process, rpc, bridge, cancel := p.process, p.rpc, p.bridge, p.cancel
+	p.mu.Lock()
+	p.failure = errors.Join(p.failure, err)
+	if p.losing {
 		p.mu.Unlock()
-		if cancel != nil {
-			cancel(err)
-		}
-		if process != nil {
-			process.Force()
-		}
-		if rpc != nil {
-			_ = rpc.Close()
-		}
-		if closeBridge && bridge != nil {
-			_ = bridge.Close()
-		}
-		if opened && shutdown != nil {
-			p.workers.Add(1)
-			go func() {
-				defer p.workers.Done()
-				if run != nil {
-					<-run.Done()
-				}
-				shutdown()
-			}()
-		}
-	})
+		return
+	}
+	p.losing = true
+	opened, run, shutdown := p.opened, p.run, p.shutdown
+	process, rpc, bridge, cancel := p.process, p.rpc, p.bridge, p.cancel
+	p.mu.Unlock()
+	if cancel != nil {
+		cancel(err)
+	}
+	if process != nil {
+		process.Force()
+	}
+	if rpc != nil {
+		_ = rpc.Close()
+	}
+	if closeBridge && bridge != nil {
+		_ = bridge.Close()
+	}
+	if opened && shutdown != nil {
+		p.workers.Add(1)
+		go func() {
+			defer p.workers.Done()
+			if run != nil {
+				<-run.Done()
+			}
+			shutdown()
+		}()
+	}
 }
 
 // Run wiring follows in the native-terminal checkpoint. The method is present
