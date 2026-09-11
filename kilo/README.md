@@ -1,6 +1,104 @@
 # Sessionbus for Kilo
 
-Native in-process plugin component for `kilo-peer`, using the existing bundled Bun.
-Server and TUI entries share one fixed Kilo profile and the pinned Sessionbus kit.
-Ordinary plugin loading is inert. The Go launcher, installer and lane composition
-are being implemented; this source checkpoint is not a runnable installation claim.
+`kilo-peer` supplies managed interactive and lane entry points from one permanent
+installation. Native server/TUI hooks run inside Kilo's existing Bun runtime.
+The wrapper adds no Node runtime or separate interactive broker. Source behavior
+is bound to Kilo 7.6.2; actual installed acceptance is pending for this checkpoint.
+
+## Build and install
+
+Build tools are Go and npm. Install native Kilo first, then build this checkout:
+
+```sh
+scripts/package-product kilo ./dist
+mkdir -p ./dist/kilo-install
+tar -xzf ./dist/kilo-peer-linux-amd64.tar.gz -C ./dist/kilo-install
+sh ./dist/kilo-install/install
+```
+
+Select the archive for your OS and architecture. The archive installs
+`~/.local/bin/kilo-peer` and `~/.local/libexec/sessionbus/kilo`; its Go maintenance
+entry reconciles native global server/TUI plugin registrations. Target installation
+uses neither Node nor a native CLI subprocess. Installing only the Go command or
+npm plugin does not provide the complete installation.
+
+The installer parses all seven merged native config documents before writing,
+preserves unrelated JSONC entries, and rejects aliased files. It removes the
+historical `plugins/agent-sessions.js` only when its exact retained bytes match;
+a different file fails clearly. Related helpers and dependencies remain untouched.
+The shared transaction rolls back owned config/legacy removal on failure.
+
+Managed execution accepts a direct native binary, an explicit `KILO_BIN_PATH`,
+or the official npm installation's already selected regular `bin/.kilo` cache.
+It preserves native tree-sitter resource selection and explicit resource settings.
+An unsupported layout fails rather than spawning a Node shim or selecting a
+platform package itself. This is a layout check, not runtime/version attestation.
+
+## Interactive use
+
+```sh
+kilo-peer -g engineering,review -n 'working session'
+kilo-peer --resume ses_exact_native_id
+kilo-peer --yolo --resume ses_exact_native_id
+```
+
+`--resume ID` and `--resume=ID` map to native `-s ID`. Native `--yolo` passes
+through unchanged and therefore changes permissions only when explicitly supplied.
+Native value arguments and the literal `--` boundary retain their meaning.
+Native subcommands/help pass through with their original arguments.
+
+Managed TUI uses a direct native child with authenticated loopback HTTP on a
+native-selected port, `KILO_NO_DAEMON=1`, and the actual launcher parent PID.
+Caller topology overrides, enabled pure/mini modes, and Sessionbus local-key
+transport are unsupported. Existing native auth is preserved; otherwise the
+launcher generates a per-launch password. Native shell hooks clear the two
+managed topology values for ordinary descendants; native auth stripping remains
+Kilo's own policy. No caller config layer is replaced.
+
+Ordinary Kilo plugin loading supplies no Sessionbus tool, endpoint or Peer. The
+generic skill remains discoverable. Managed TUI selection establishes native
+session Peers; an actual tool call can establish its own native session first,
+including a native subagent child. Tool attribution always uses the actual native
+session/message context. Navigation does not evict prior owners. Native deletion
+or TUI disposal withdraws them. The initial name belongs only to the first route
+selection, with native title confirmation; later titles remain native-owned.
+
+Interactive inbound messages wait while native work, questions or permissions are
+pending. Initial native blocker snapshots and live events are checked for the
+exact session. The wrapper never answers or rejects an interactive blocker. An
+idle handoff uses native `prompt_async` without inventing a message ID. A new
+blocker can cross the final check and native submission; the API supplies no
+atomic check-and-submit. `written` records attempted native handoff, not proof
+of model consumption. There is no replay or restart recovery.
+
+## Lanes and lifetime
+
+Public spawn selects product `kilo-peer`. One Worker Caller owns lane capability;
+native child tools must prove the adopted session or native parent ancestry.
+A Run uses the legacy synchronous native message request, reconciles native
+assistant history, and has no wrapper silence deadline. Ordinary deliveries
+received while active or idle remain unsent as `queued_for_next_turn` until the
+next explicit Run. Seed input is handled by that Run. Interactive and lane
+permission behavior differs: unattended lane questions/permissions are rejected
+under the selected lane contract, without a global permission override.
+
+Model selection follows native configuration or explicit `open.model` with a
+native provider/model value. The wrapper does not inherit a displayed TUI model
+or silently substitute one. Retained lane IDs cannot be reclassified as interactive
+Peers merely by closing and resuming native history.
+
+Normal launcher exit, TERM and HUP join the direct native child and remove launch
+resources. Foreground INT retains native behavior. Abrupt launcher death can leave
+a stale directory; any observed native orphan cleanup belongs to Kilo's watchdog,
+not the wrapper. Lane close aborts owned work and follows native TERM disposal;
+forced close and exact exit diagnostics require separate evidence from the close
+RPC result. This checkpoint has no installed lifetime claim.
+
+Interactive bounds are 128 owned sessions (including retiring owners), 16 pending
+identity establishments, 256 owned HTTP operations, 64 messages/1 MiB per-owner
+FIFO and 16 MiB globally. A Peer shares a 256-task bound between delivery and tool
+actions, so bursts can reject further work. The resident bridge has eight
+connections and finite frame/write/work bounds. Native SDK response parsing and
+native histories remain native-owned allocations. Common source is staged into
+each self-contained product package; the only JS dependency is the immutable
+Sessionbus kit at `0b35c99`, with no plugin SDK, Effect or Solid package added.

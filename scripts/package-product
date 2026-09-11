@@ -3,7 +3,7 @@
 set -eu
 product=${1:?usage: scripts/package-product PRODUCT OUTPUT_DIRECTORY}
 out=${2:?usage: scripts/package-product PRODUCT OUTPUT_DIRECTORY}
-case "$product" in grok|qwen|opencode) ;; *) echo 'Use package-claude or package-codex for those products.' >&2; exit 1;; esac
+case "$product" in grok|qwen|opencode|kilo) ;; *) echo 'Use package-claude or package-codex for those products.' >&2; exit 1;; esac
 mkdir -p "$out"
 out=$(CDPATH='' cd "$out" && pwd -P)
 repo=$(CDPATH='' cd "$(dirname "$0")/.." && pwd -P)
@@ -17,14 +17,14 @@ platform=${GOOS:-$(go env GOOS)}
 arch=${GOARCH:-$(go env GOARCH)}
 CGO_ENABLED=0 GOOS="$platform" GOARCH="$arch" go build -trimpath -ldflags='-s -w' -o "$stage/$product-peer" "./cmd/$product-peer"
 mkdir "$stage/plugin"
-if [ "$product" = opencode ]; then
+if [ "$product" = opencode ] || [ "$product" = kilo ]; then
  # The build uses npm to select the published native plugin payload and resolve
  # its pinned kit. Target installation uses Go; native hooks run existing Bun.
  # The stager executes here even when the product archive targets another OS.
  GOOS=$(go env GOHOSTOS) GOARCH=$(go env GOHOSTARCH) go run ./internal/cmd/stage-native-plugin -repo "$repo" -product "$product" -output "$stage/npm-source"
  packed=$(cd "$stage/npm-source" && npm pack --ignore-scripts --silent --pack-destination "$stage")
  tar -xzf "$stage/$packed" -C "$stage/plugin" --strip-components=1
- cp opencode/package-lock.json "$stage/plugin/"
+ cp "$product/package-lock.json" "$stage/plugin/"
  npm ci --prefix "$stage/plugin" --omit=dev --ignore-scripts
 else
  cp -R "$product/." "$stage/plugin/"

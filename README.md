@@ -128,6 +128,7 @@ Complete each product hookup using only the retained integration:
 - Claude: use the bundled candidate recipe and scoped status in [`claude/README.md`](claude/README.md).
 - Codex: build with `scripts/package-codex ./dist` and use the archive's installer as documented in [`codex/README.md`](codex/README.md).
 - OpenCode: build with `scripts/package-product opencode ./dist` and run the archive installer in [`opencode/README.md`](opencode/README.md). The npm preview contains native hooks, not an installer executable.
+- Kilo: the `kilo-peer` source candidate builds with `scripts/package-product kilo ./dist`; use the same permanent Go installer and native-hook package in [`kilo/README.md`](kilo/README.md). Native 7.6.2 installed acceptance is pending.
 - Grok: build with `scripts/package-product grok ./dist` and run the archive installer in [`grok/README.md`](grok/README.md).
 - Qwen: build the archive with `scripts/package-product qwen ./dist` and follow [`qwen/README.md`](qwen/README.md); registering only the plugin does not install the required private sibling alias.
 

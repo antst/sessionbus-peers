@@ -10,6 +10,12 @@ permissions: {}
 
 jobs:
   publish:
+    strategy:
+      fail-fast: false
+      matrix:
+        product: [opencode, kilo]
+    env:
+      PRODUCT: ${{ matrix.product }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -20,15 +26,15 @@ jobs:
         with:
           go-version: '1.24.x'
       - name: Verify package boundary
-        working-directory: opencode
+        working-directory: ${{ matrix.product }}
         run: |
-          npm install --ignore-scripts --no-package-lock
+          npm ci --ignore-scripts
           npm test
-          go run ../internal/cmd/stage-native-plugin -repo .. -product opencode -output "$RUNNER_TEMP/native-plugin/opencode"
-          cd "$RUNNER_TEMP/native-plugin/opencode"
-          npm pack --dry-run --json > /tmp/sessionbus-opencode-pack.json
+          go run ../internal/cmd/stage-native-plugin -repo .. -product "$PRODUCT" -output "$RUNNER_TEMP/native-plugin/$PRODUCT"
+          cd "$RUNNER_TEMP/native-plugin/$PRODUCT"
+          npm pack --dry-run --json > /tmp/sessionbus-native-pack.json
           node - <<'NODE'
-          const report = require('/tmp/sessionbus-opencode-pack.json')[0]
+          const report = require('/tmp/sessionbus-native-pack.json')[0]
           const got = report.files.map((file) => file.path).sort()
           const want = [
             'README.md',
@@ -48,15 +54,15 @@ jobs:
             'tui.mjs',
           ].sort()
           if (JSON.stringify(got) !== JSON.stringify(want)) {
-            throw new Error(`unexpected OpenCode pack files: ${JSON.stringify(got)}`)
+            throw new Error(`unexpected native plugin pack files: ${JSON.stringify(got)}`)
           }
           const manifest = require('./package.json')
           if (manifest.repository?.url !== 'git+https://github.com/antst/sessionbus-peers.git' ||
-              manifest.repository?.directory !== 'opencode') {
-            throw new Error('OpenCode repository metadata is invalid')
+              manifest.repository?.directory !== process.env.PRODUCT) {
+            throw new Error('Native plugin repository metadata is invalid')
           }
           NODE
-      - run: npx --yes pkg-pr-new publish "$RUNNER_TEMP/native-plugin/opencode"
+      - run: npx --yes pkg-pr-new publish "$RUNNER_TEMP/native-plugin/$PRODUCT"
 
   claude-package:
     runs-on: ubuntu-latest

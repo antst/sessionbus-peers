@@ -40,7 +40,7 @@ jobs:
           go test ./...
           GOOS="$TARGET_OS" GOARCH="$TARGET_ARCH" scripts/package-claude dist
           GOOS="$TARGET_OS" GOARCH="$TARGET_ARCH" scripts/package-codex dist
-          for product in grok qwen opencode; do
+          for product in grok qwen opencode kilo; do
             GOOS="$TARGET_OS" GOARCH="$TARGET_ARCH" scripts/package-product "$product" dist
           done
           git rev-parse HEAD > dist/SOURCE.txt

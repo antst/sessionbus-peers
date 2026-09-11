@@ -18,6 +18,15 @@ import (
 )
 
 func TestLiteralArchiveInstallsTwiceWithoutNodeAndImportsNativeEntries(t *testing.T) {
+	testLiteralNativeArchive(t, "opencode")
+}
+
+func TestLiteralKiloArchiveInstallsTwiceWithoutNodeAndImportsNativeEntries(t *testing.T) {
+	testLiteralNativeArchive(t, "kilo")
+}
+
+func testLiteralNativeArchive(t *testing.T, product string) {
+	t.Helper()
 	out := t.TempDir()
 	// Stage under a symlinked TMPDIR: macOS runners resolve /var to /private/var,
 	// and npm ci through a symlinked project path fails lockfile validation.
@@ -29,12 +38,12 @@ func TestLiteralArchiveInstallsTwiceWithoutNodeAndImportsNativeEntries(t *testin
 	if err := os.Symlink(physical, linked); err != nil {
 		t.Fatal(err)
 	}
-	build := exec.Command("sh", "../../scripts/package-product", "opencode", out)
+	build := exec.Command("sh", "../../scripts/package-product", product, out)
 	build.Env = append(os.Environ(), "TMPDIR="+linked)
 	if output, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("archive build: %v\n%s", err, output)
 	}
-	archive := filepath.Join(out, fmt.Sprintf("opencode-peer-%s-%s.tar.gz", runtime.GOOS, runtime.GOARCH))
+	archive := filepath.Join(out, fmt.Sprintf(product+"-peer-%s-%s.tar.gz", runtime.GOOS, runtime.GOARCH))
 	file, err := os.Open(archive)
 	if err != nil {
 		t.Fatal(err)
@@ -126,23 +135,23 @@ func TestLiteralArchiveInstallsTwiceWithoutNodeAndImportsNativeEntries(t *testin
 			t.Fatal(err)
 		}
 	}
-	if err := os.WriteFile(filepath.Join(tools, "opencode"), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+	if err := os.WriteFile(filepath.Join(tools, product), []byte("#!/bin/sh\necho native runtime must not run during install >&2\nexit 97\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	config := filepath.Join(home, ".config", "opencode")
+	config := filepath.Join(home, ".config", product)
 	if err := os.MkdirAll(config, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(config, "opencode.jsonc"), []byte("{// retained comment\n\"plugin\":[[\"other\",{\"number\":1e30}],\"@sessionbus/opencode@old\"]}\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(config, product+".jsonc"), []byte("{// retained comment\n\"plugin\":[[\"other\",{\"number\":1e30}],\"@sessionbus/"+product+"@old\"]}\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	root := filepath.Join(home, ".local", "libexec", "sessionbus", "opencode")
+	root := filepath.Join(home, ".local", "libexec", "sessionbus", product)
 	shell, err := exec.LookPath("sh")
 	if err != nil {
 		t.Fatal(err)
 	}
 	for round := 0; round < 2; round++ {
-		stale := filepath.Join(root, "plugin", "skills", "opencode-lane")
+		stale := filepath.Join(root, "plugin", "skills", product+"-lane")
 		if err := os.MkdirAll(stale, 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -159,7 +168,7 @@ func TestLiteralArchiveInstallsTwiceWithoutNodeAndImportsNativeEntries(t *testin
 		}
 	}
 	want := (&url.URL{Scheme: "file", Path: filepath.Join(root, "plugin")}).String()
-	for _, name := range []string{"opencode.jsonc", "tui.jsonc"} {
+	for _, name := range []string{product + ".jsonc", "tui.jsonc"} {
 		entries := installedPluginEntries(t, filepath.Join(config, name), false)
 		count := 0
 		for _, entry := range entries {
@@ -171,7 +180,7 @@ func TestLiteralArchiveInstallsTwiceWithoutNodeAndImportsNativeEntries(t *testin
 			t.Fatal("wrong native config registration", name, entries)
 		}
 	}
-	nativeConfig, err := os.ReadFile(filepath.Join(config, "opencode.jsonc"))
+	nativeConfig, err := os.ReadFile(filepath.Join(config, product+".jsonc"))
 	if err != nil {
 		t.Fatal(err)
 	}
