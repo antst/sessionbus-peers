@@ -82,6 +82,12 @@ func (p *Wrapper) Open(ctx context.Context, request kit.OpenRequest) (result kit
 	if err != nil {
 		return result, err
 	}
+	// Native session directories use the physical path. Keep the child and
+	// directory-scoped HTTP requests on that same path (including /var aliases).
+	cwd, err = filepath.EvalSymlinks(cwd)
+	if err != nil {
+		return result, err
+	}
 	p.mu.Lock()
 	if p.ctx != nil || p.closing {
 		p.mu.Unlock()
