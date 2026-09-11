@@ -354,9 +354,9 @@ func (o *interactiveOwner) publish(ctx context.Context, sessionID, nativeName, c
 		return errors.New("Pi owner.ready replaced a session without session_end")
 	}
 	name := nativeName
-	// Every native replacement may begin without a session title. The public
-	// protocol requires a nonempty name, so retain the explicit wrapper name
-	// as the fallback until Pi publishes a native title for that session.
+	// Every native replacement may begin without a session title. Retain the
+	// explicit wrapper name as a stable public fallback until Pi publishes a
+	// native title for that session.
 	if name == "" {
 		name = o.initialName
 	}
