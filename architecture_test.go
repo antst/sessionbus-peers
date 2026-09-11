@@ -52,7 +52,7 @@ func TestRepositoryBoundary(t *testing.T) {
 			t.Errorf("legacy or cross-repository path remains: %s", path)
 		}
 	}
-	wantCommands := []string{"claude-peer", "codex-peer", "grok-peer", "opencode-peer", "qwen-peer"}
+	wantCommands := []string{"claude-peer", "codex-peer", "grok-peer", "kilo-peer", "opencode-peer", "qwen-peer"}
 	gotCommands := directoryNames(t, "cmd")
 	if !equalStrings(gotCommands, wantCommands) {
 		t.Errorf("peer command roots = %v, want %v", gotCommands, wantCommands)

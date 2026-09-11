@@ -11,9 +11,18 @@ import (
 )
 
 func TestCompiledMaintenanceEntryNeedsNoNodeOrNativeRuntime(t *testing.T) {
+	testCompiledMaintenanceEntry(t, "opencode")
+}
+
+func TestCompiledKiloMaintenanceEntryNeedsNoNodeOrNativeRuntime(t *testing.T) {
+	testCompiledMaintenanceEntry(t, "kilo")
+}
+
+func testCompiledMaintenanceEntry(t *testing.T, product string) {
+	t.Helper()
 	dir := t.TempDir()
-	bin := filepath.Join(dir, "opencode-peer")
-	build := exec.Command("go", "build", "-o", bin, "./cmd/opencode-peer")
+	bin := filepath.Join(dir, product+"-peer")
+	build := exec.Command("go", "build", "-o", bin, "./cmd/"+product+"-peer")
 	build.Dir = "../.."
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build: %v %s", err, out)
@@ -24,7 +33,7 @@ func TestCompiledMaintenanceEntryNeedsNoNodeOrNativeRuntime(t *testing.T) {
 	if err := os.MkdirAll(plugin, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(plugin, "package.json"), []byte(`{"name":"@sessionbus/opencode"}`), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(plugin, "package.json"), []byte(`{"name":"@sessionbus/`+product+`"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	for i := 0; i < 2; i++ {
@@ -35,8 +44,8 @@ func TestCompiledMaintenanceEntryNeedsNoNodeOrNativeRuntime(t *testing.T) {
 		}
 	}
 	want := (&url.URL{Scheme: "file", Path: plugin}).String()
-	for _, file := range []string{"opencode.jsonc", "tui.jsonc"} {
-		got := installedPluginEntries(t, filepath.Join(config, "opencode", file), false)
+	for _, file := range []string{product + ".jsonc", "tui.jsonc"} {
+		got := installedPluginEntries(t, filepath.Join(config, product, file), false)
 		if len(got) != 1 || got[0] != want {
 			t.Fatal("wrong native registration", file, got)
 		}
@@ -46,8 +55,8 @@ func TestCompiledMaintenanceEntryNeedsNoNodeOrNativeRuntime(t *testing.T) {
 	if out, err := command.CombinedOutput(); err != nil {
 		t.Fatalf("remove: %v %s", err, out)
 	}
-	for _, file := range []string{"opencode.jsonc", "tui.jsonc"} {
-		if got := installedPluginEntries(t, filepath.Join(config, "opencode", file), false); len(got) != 0 {
+	for _, file := range []string{product + ".jsonc", "tui.jsonc"} {
+		if got := installedPluginEntries(t, filepath.Join(config, product, file), false); len(got) != 0 {
 			t.Fatal("retained own entry", got)
 		}
 	}

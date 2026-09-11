@@ -22,7 +22,7 @@ import (
 
 func TestCompiledKiloLauncherDirectLifetimeAndNativeResources(t *testing.T) {
 	bin := t.TempDir()
-	for _, build := range []struct{ name, source string }{{"kilo", "./wrappers/kilo/testdata/interactive_native.go"}, {"launcher", "./wrappers/kilo/testdata/interactive_entry.go"}} {
+	for _, build := range []struct{ name, source string }{{"kilo", "./wrappers/kilo/testdata/interactive_native.go"}, {"launcher", "./cmd/kilo-peer"}} {
 		command := exec.Command("go", "build", "-o", filepath.Join(bin, build.name), build.source)
 		command.Dir = "../.."
 		if out, err := command.CombinedOutput(); err != nil {
