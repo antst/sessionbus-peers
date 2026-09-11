@@ -30,6 +30,12 @@ ancestor lane's capability; they do not create another bus lane. Native IDs and
 confirmed titles remain authoritative, including empty titles. The initial
 requested name applies only to the first selected native session.
 
+In a managed interactive TUI, an authentic native child/subagent tool call can
+establish its own addressable Sessionbus peer. That child remains available
+until native deletion or TUI disposal; inbound messages may run it outside its
+parent's task. This differs from a lane child using the verified ancestor
+Worker's capability. Navigation does not retire established interactive peers.
+
 Native policy may refuse a call. Report the refusal without changing permissions
 or retrying through a different transport. A `written` receipt establishes the
 reported write/handoff boundary, not native model consumption. Busy interactive
