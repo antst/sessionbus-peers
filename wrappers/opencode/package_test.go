@@ -193,3 +193,50 @@ func TestLiteralArchiveInstallsTwiceWithoutNodeAndImportsNativeEntries(t *testin
 		t.Fatal("wrong installed dependency or installer", manifest)
 	}
 }
+
+// A release builds foreign archives on the current host; only the peer binary
+// uses the requested target. The Go staging helper must remain executable here.
+func TestCrossArchiveRunsStagerOnBuildHost(t *testing.T) {
+	targetOS := "darwin"
+	if runtime.GOOS == "darwin" {
+		targetOS = "linux"
+	}
+	out := t.TempDir()
+	build := exec.Command("sh", "../../scripts/package-product", "opencode", out)
+	build.Env = append(os.Environ(), "GOOS="+targetOS, "GOARCH=amd64")
+	if output, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("cross archive: %v\n%s", err, output)
+	}
+	file, err := os.Open(filepath.Join(out, "opencode-peer-"+targetOS+"-amd64.tar.gz"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+	zipped, err := gzip.NewReader(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer zipped.Close()
+	reader := tar.NewReader(zipped)
+	for {
+		header, err := reader.Next()
+		if err != nil {
+			t.Fatal("missing cross-built peer", err)
+		}
+		if header.Name != "opencode-peer" {
+			continue
+		}
+		var magic [4]byte
+		if _, err := io.ReadFull(reader, magic[:]); err != nil {
+			t.Fatal(err)
+		}
+		want := [4]byte{0xcf, 0xfa, 0xed, 0xfe}
+		if targetOS == "linux" {
+			want = [4]byte{0x7f, 'E', 'L', 'F'}
+		}
+		if magic != want {
+			t.Fatalf("product target %s magic %x, want %x", targetOS, magic, want)
+		}
+		break
+	}
+}
