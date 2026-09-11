@@ -3,6 +3,7 @@ import { nativeProduct } from "./profile.mjs";
 import assert from "node:assert/strict";
 import { mkdtemp, rm, writeFile, stat } from "node:fs/promises";
 import test from "node:test";
+import { execFileSync } from "node:child_process";
 import { createServer } from "./server.mjs";
 import { interactiveActivation, claimInteractive } from "./activation.mjs";
 import { InteractiveEndpoint } from "./endpoint.mjs";
@@ -59,4 +60,24 @@ test("empty TUI claim admits exactly one overlapping owner and never transfers a
   assert.equal(claims.filter((value) => value.status === "fulfilled").length, 1);
   assert.equal((await stat(f.directory+"/owner.claim")).size, 0);
   await assert.rejects(claimInteractive(launch), {code:"EEXIST"});
+});
+
+
+test("managed Kilo shell projection overrides inherited topology without changing native auth", async (t) => {
+  const f = await fixture(t);
+  const hooks = await createServer(f.environment)();
+  t.after(() => hooks.dispose());
+  if (nativeProduct.product !== "kilo") {
+    assert.equal(hooks["shell.env"], undefined);
+    return;
+  }
+  const inherited = { ...process.env, KILO_NO_DAEMON:"1", KILO_PARENT_PID:"12345", KILO_SERVER_USERNAME:"native", KILO_SERVER_PASSWORD:"preserved" };
+  const output = { env:{ UNRELATED:"kept" } };
+  await hooks["shell.env"]({cwd:process.cwd()}, output);
+  const actual = JSON.parse(execFileSync(process.execPath, ["-e", `console.log(JSON.stringify({daemon:!process.env.KILO_NO_DAEMON, parent:Number(process.env.KILO_PARENT_PID), username:process.env.KILO_SERVER_USERNAME, password:process.env.KILO_SERVER_PASSWORD, unrelated:process.env.UNRELATED}))`], { env:{...inherited, ...output.env}, encoding:"utf8" }));
+  assert.deepEqual(actual, {daemon:true, parent:0, username:"native", password:"preserved", unrelated:"kept"});
+  // Native itself removes auth from model shells; the plugin must not alter
+  // the owning native server's auth or optional parent-watchdog environment.
+  assert.equal(inherited.KILO_PARENT_PID, "12345");
+  assert.equal(inherited.KILO_NO_DAEMON, "1");
 });

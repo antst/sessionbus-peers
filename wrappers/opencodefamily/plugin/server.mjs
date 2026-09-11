@@ -31,6 +31,16 @@ export function createServer(environment = launchEnvironment) {
     // Constructor never waits for TUI listen/initialize or calls native HTTP:
     // quiet resume validation may need this server before TUI plugins start.
     return {
+      // Native shell paths merge process.env before this projection (or use
+      // extendEnv). Empty strings override inherited values: daemon discovery
+      // becomes enabled and the optional configured-parent watchdog is inactive.
+      // Deleting keys from the initially empty output.env would not do that.
+      ...(nativeProduct.product === "kilo" ? {
+        "shell.env": async (_input, output) => {
+          output.env.KILO_NO_DAEMON = "";
+          output.env.KILO_PARENT_PID = "";
+        },
+      } : {}),
       tool: {
         sessionbus: {
           description: declaration.description,
