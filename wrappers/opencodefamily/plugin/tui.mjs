@@ -2,7 +2,7 @@
 import { nativeProduct } from "./profile.mjs";
 
 import path from "node:path";
-import { open } from "node:fs/promises";
+import { publishEndpoint } from "./readiness.mjs";
 import { launchEnvironment, interactiveActivation, claimInteractive } from "./activation.mjs";
 import { InteractiveEndpoint } from "./endpoint.mjs";
 import { NativeOwners, ownerLimits } from "./owners.mjs";
@@ -47,8 +47,7 @@ export function createTui(environment = launchEnvironment, dependencies = {}) {
       endpoint = new InteractiveEndpoint(path.join(launch.directory, "actions.sock"), (action, args, context) => owners.action(action, args, context));
       await endpoint.ready();
       check();
-      const marker = await open(path.join(launch.directory, "actions.ready"), "wx", 0o600);
-      await marker.close();
+      await publishEndpoint(launch.directory);
       check();
       solid.createRoot((rootDispose) => {
         disposeRoot = rootDispose;

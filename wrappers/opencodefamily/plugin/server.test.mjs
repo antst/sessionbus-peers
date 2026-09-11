@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: MIT
 import { nativeProduct } from "./profile.mjs";
 import assert from "node:assert/strict";
-import { mkdtemp, rm, writeFile, stat } from "node:fs/promises";
+import { mkdtemp, rm, stat } from "node:fs/promises";
 import test from "node:test";
 import { execFileSync } from "node:child_process";
 import { createServer } from "./server.mjs";
 import { interactiveActivation, claimInteractive } from "./activation.mjs";
 import { InteractiveEndpoint } from "./endpoint.mjs";
+import { publishEndpoint } from "./readiness.mjs";
 
 async function fixture(t) {
   const directory = await mkdtemp("/tmp/sb-server-");
@@ -32,12 +33,12 @@ test("constructor returns before TUI readiness and native call metadata crosses 
   const endpoint = new InteractiveEndpoint(f.directory+"/actions.sock", async (_action, _args, context) => ({id:context.sessionID, message:context.messageID}));
   t.after(() => endpoint.dispose());
   await endpoint.ready();
-  await writeFile(f.directory+"/actions.ready", "", {flag:"wx", mode:0o600});
+  await publishEndpoint(f.directory);
   const result = await hooks.tool.sessionbus.execute({action:"list",arguments:{}}, native);
   assert.deepEqual(JSON.parse(result), {id:"ses_actual",message:"msg_actual"});
 });
 
-test("cancelled startup calls release capacity; disposal joins missing-ready watcher", {timeout:5000}, async (t) => {
+test("cancelled startup calls release capacity; disposal joins missing-ready subscription", {timeout:5000}, async (t) => {
   const f = await fixture(t);
   const hooks = await createServer(f.environment)();
   for (let i=0;i<300;i++) {

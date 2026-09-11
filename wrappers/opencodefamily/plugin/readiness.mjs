@@ -1,16 +1,26 @@
 // SPDX-License-Identifier: MIT
-import { watch } from "node:fs";
-import { lstat } from "node:fs/promises";
+import { lstat, open } from "node:fs/promises";
 import path from "node:path";
 
-// The launch directory already exists. Watch before checking to cover native
-// constructor-before-TUI startup, without a timer or connection retry. Only the
-// TUI listener creates the empty marker; the launcher removes owned resources.
+const channelName = (directory) => "sessionbus:endpoint:" + directory;
+
+// Called only by the owning TUI after its endpoint listens. The file remains
+// the readiness authority; the process-local broadcast is only a wake-up.
+export async function publishEndpoint(directory) {
+  const marker = await open(path.join(directory, "actions.ready"), "wx", 0o600);
+  await marker.close();
+  const channel = new BroadcastChannel(channelName(directory));
+  try { channel.postMessage(null); }
+  finally { channel.close(); }
+}
+
+// TUI and server Workers share the native process. BroadcastChannel subscribes
+// synchronously, unlike Darwin's asynchronous filesystem watcher. Subscribe
+// before checking: a prior publication leaves the marker; a later one wakes us.
 export async function waitForEndpoint(directory, signal) {
   if (!signal || signal.aborted) throw signal?.reason || new Error("plugin lifetime ended");
   const marker = path.join(directory, "actions.ready");
-  const watcher = watch(directory);
-  const closed = new Promise((resolve) => watcher.once("close", resolve));
+  const channel = new BroadcastChannel(channelName(directory));
   let checking = Promise.resolve();
   let active = false;
   let again = false;
@@ -43,16 +53,15 @@ export async function waitForEndpoint(directory, signal) {
       };
       abort = () => finish(signal.reason || new Error("plugin lifetime ended"));
       signal.addEventListener("abort", abort, { once: true });
-      watcher.on("error", finish);
-      watcher.on("change", check);
+      channel.onmessageerror = () => finish(new Error("Sessionbus readiness wake could not be decoded"));
+      channel.onmessage = check;
       if (signal.aborted) abort(); else check();
     });
     return path.join(directory, "actions.sock");
   } finally {
     settled = true;
     signal.removeEventListener("abort", abort);
-    watcher.close();
-    await closed;
+    channel.close();
     await checking;
   }
 }
