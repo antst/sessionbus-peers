@@ -547,12 +547,24 @@ test("actual Unix bridge reports a failed Task child end while the primary remai
   const socketPath = path.join(directory, "bridge.sock");
   const server = net.createServer();
   const accepted = deferred();
-  server.on("connection", (socket) => accepted.resolve(socket));
+  let acceptedSocket;
+  let host;
+  let releaseDelivery;
+  server.on("connection", (socket) => {
+    acceptedSocket = socket;
+    accepted.resolve(socket);
+  });
   await new Promise((resolve, reject) => {
     server.once("error", reject);
     server.listen(socketPath, resolve);
   });
   t.after(async () => {
+    releaseDelivery?.resolve();
+    if (host) {
+      try { await host.close(); } catch {}
+    } else {
+      acceptedSocket?.destroy();
+    }
     await new Promise((resolve) => server.close(resolve));
     fs.rmSync(directory, { recursive: true, force: true });
   });
@@ -568,10 +580,10 @@ test("actual Unix bridge reports a failed Task child end while the primary remai
   const primaryStart = primary.emit("session_start");
   const socket = await accepted.promise;
   const deliveryEntered = deferred();
-  const releaseDelivery = deferred();
+  releaseDelivery = deferred();
   const childEnd = deferred();
   const childReady = deferred();
-  const host = new PrivateBridge(socket, {
+  host = new PrivateBridge(socket, {
     role: "host",
     handler: async ({ method, params }) => {
       if (method === "owner.ready") {
