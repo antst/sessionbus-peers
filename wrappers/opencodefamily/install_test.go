@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 
-package opencode
+package opencodefamily
 
 import (
 	"errors"
@@ -83,7 +83,7 @@ func TestConfigurePluginPreservesCommentsTuplesAndNativeLayers(t *testing.T) {
 	file := putInstallConfig(t, o, "opencode.jsonc", "{// keep root\n\"plugin\":["+tuple+", // keep tuple\n\"@sessionbus/opencode@old\",],\"unknown\":1e+30,}\n")
 	alt := putInstallConfig(t, o, "config.json", `{"model":"native/model","plugin":[["@sessionbus/opencode@older",{"x":1}],"last-plugin"]}`)
 	tui := putInstallConfig(t, o, "tui.json", `{"theme":"native","tui":{"plugin":["tui-other","@sessionbus/opencode@old"]}}`)
-	if changed, err := ConfigurePlugin(o); err != nil || !changed {
+	if changed, err := ConfigureOpenCodePlugin(o); err != nil || !changed {
 		t.Fatal(changed, err)
 	}
 	body := readInstalledConfig(t, file)
@@ -104,7 +104,7 @@ func TestConfigurePluginPreservesCommentsTuplesAndNativeLayers(t *testing.T) {
 		t.Fatal("existing mode changed", info, err)
 	}
 	before := map[string]string{file: body, alt: readInstalledConfig(t, alt), tui: readInstalledConfig(t, tui)}
-	if changed, err := ConfigurePlugin(o); err != nil || changed {
+	if changed, err := ConfigureOpenCodePlugin(o); err != nil || changed {
 		t.Fatal("second installation must be byte-identical no-op", changed, err)
 	}
 	for file, body := range before {
@@ -113,10 +113,10 @@ func TestConfigurePluginPreservesCommentsTuplesAndNativeLayers(t *testing.T) {
 		}
 	}
 	o.Remove = true
-	if changed, err := ConfigurePlugin(o); err != nil || !changed {
+	if changed, err := ConfigureOpenCodePlugin(o); err != nil || !changed {
 		t.Fatal(changed, err)
 	}
-	if changed, err := ConfigurePlugin(o); err != nil || changed {
+	if changed, err := ConfigureOpenCodePlugin(o); err != nil || changed {
 		t.Fatal(changed, err)
 	}
 	if got := installedPluginEntries(t, file, false); !reflect.DeepEqual(got, []string{"other-plugin"}) {
@@ -132,18 +132,18 @@ func TestConfigurePluginSpecifierFormsAndExactOwnership(t *testing.T) {
 				o.Specifier = spec
 			}
 			file := putInstallConfig(t, o, "opencode.jsonc", `{"plugin":["not@sessionbus/opencode",["https://example.invalid/unrelated.tgz?note=@sessionbus/opencode",{}],"@sessionbus/opencode@old","file:/tmp/sessionbus-opencode-old.tgz","https://packages.example/sessionbus-opencode-old.tgz"]}`)
-			if _, err := ConfigurePlugin(o); err != nil {
+			if _, err := ConfigureOpenCodePlugin(o); err != nil {
 				t.Fatal(err)
 			}
 			want := []string{"not@sessionbus/opencode", "https://example.invalid/unrelated.tgz?note=@sessionbus/opencode", o.Specifier}
 			if got := installedPluginEntries(t, file, false); !reflect.DeepEqual(got, want) {
 				t.Fatal(got, want)
 			}
-			if changed, err := ConfigurePlugin(o); err != nil || changed {
+			if changed, err := ConfigureOpenCodePlugin(o); err != nil || changed {
 				t.Fatal(changed, err)
 			}
 			o.Remove = true
-			if _, err := ConfigurePlugin(o); err != nil {
+			if _, err := ConfigureOpenCodePlugin(o); err != nil {
 				t.Fatal(err)
 			}
 		})
@@ -155,7 +155,7 @@ func TestConfigurePluginRejectsBeforeAnyMutation(t *testing.T) {
 	first := putInstallConfig(t, o, "opencode.jsonc", "{// retained\n\"plugin\":[\"other\"]}\n")
 	bad := putInstallConfig(t, o, "tui.json", `{broken`)
 	before := readInstalledConfig(t, first)
-	if _, err := ConfigurePlugin(o); err == nil {
+	if _, err := ConfigureOpenCodePlugin(o); err == nil {
 		t.Fatal("accepted invalid later native config")
 	}
 	if readInstalledConfig(t, first) != before || readInstalledConfig(t, bad) != `{broken` {
@@ -163,7 +163,7 @@ func TestConfigurePluginRejectsBeforeAnyMutation(t *testing.T) {
 	}
 	for _, spec := range []string{"https://example.invalid/unrelated.tgz?note=@sessionbus/opencode", "ftp://example/sessionbus-opencode-old.tgz", "sessionbus-opencode-old.tgz", "@sessionbus/opencode@", "@sessionbus/opencode@bad version"} {
 		o.Specifier = spec
-		if _, err := ConfigurePlugin(o); err == nil {
+		if _, err := ConfigureOpenCodePlugin(o); err == nil {
 			t.Fatal("accepted unrelated or unsupported specifier", spec)
 		}
 	}
@@ -204,7 +204,7 @@ func TestConfigurePluginBoundsAndRegularOpenedDescriptor(t *testing.T) {
 		t.Run("invalid", func(t *testing.T) {
 			o := installerFixture(t)
 			file := putInstallConfig(t, o, "opencode.jsonc", content)
-			if _, err := ConfigurePlugin(o); err == nil {
+			if _, err := ConfigureOpenCodePlugin(o); err == nil {
 				t.Fatal("accepted malformed/unbounded input")
 			}
 			if readInstalledConfig(t, file) != content {
@@ -216,7 +216,7 @@ func TestConfigurePluginBoundsAndRegularOpenedDescriptor(t *testing.T) {
 	if err := unix.Mkfifo(filepath.Join(o.Directory, "opencode.jsonc"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ConfigurePlugin(o); err == nil || !strings.Contains(err.Error(), "regular file") {
+	if _, err := ConfigureOpenCodePlugin(o); err == nil || !strings.Contains(err.Error(), "regular file") {
 		t.Fatal("FIFO was not refused without opening a blocking reader", err)
 	}
 }
@@ -228,7 +228,7 @@ func TestConfigurePluginPreservesConfigSymlinkAndRejectsConcurrentChange(t *test
 	if err := os.Symlink(target, file); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ConfigurePlugin(o); err != nil {
+	if _, err := ConfigureOpenCodePlugin(o); err != nil {
 		t.Fatal(err)
 	}
 	if info, err := os.Lstat(file); err != nil || info.Mode()&os.ModeSymlink == 0 {
@@ -256,7 +256,7 @@ func TestConfigurePluginRejectsCrossGroupHardLinks(t *testing.T) {
 				t.Fatal(err)
 			}
 			before := readInstalledConfig(t, first)
-			changed, err := ConfigurePlugin(options)
+			changed, err := ConfigureOpenCodePlugin(options)
 			if err == nil || changed {
 				t.Fatalf("hard-link accepted: changed=%v error=%v", changed, err)
 			}

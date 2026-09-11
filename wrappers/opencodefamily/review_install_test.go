@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-package opencode
+package opencodefamily
 
 import (
 	"os"
@@ -15,7 +15,7 @@ func TestReviewInstallerRejectsHardLinkedNativeConfigs(t *testing.T) {
 		t.Fatal(err)
 	}
 	before := readInstalledConfig(t, first)
-	changed, err := ConfigurePlugin(o)
+	changed, err := ConfigureOpenCodePlugin(o)
 	if err == nil {
 		t.Fatalf("hard-linked native configurations accepted: changed=%v, first=%s, second=%s", changed, readInstalledConfig(t, first), readInstalledConfig(t, second))
 	}

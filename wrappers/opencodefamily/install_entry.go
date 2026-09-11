@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 
-package opencode
+package opencodefamily
 
 import (
 	"errors"
@@ -8,9 +8,9 @@ import (
 	"path/filepath"
 )
 
-// InstallPlugin is the same-binary maintenance entry used by the archive's
+// InstallOpenCodePlugin is the same-binary maintenance entry used by the archive's
 // installer. It never launches native OpenCode or creates a Sessionbus owner.
-func InstallPlugin(arguments []string) error {
+func InstallOpenCodePlugin(arguments []string) error {
 	options := InstallOptions{}
 	switch {
 	case len(arguments) == 1 && arguments[0] == "--remove":
@@ -25,6 +25,6 @@ func InstallPlugin(arguments []string) error {
 	default:
 		return errors.New("usage: opencode-peer --sessionbus-install (--plugin-dir ABSOLUTE_PATH | --specifier SPECIFIER | --remove)")
 	}
-	_, err := ConfigurePlugin(options)
+	_, err := ConfigureOpenCodePlugin(options)
 	return err
 }

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 
-package opencode
+package opencodefamily
 
 import (
 	"net/url"
