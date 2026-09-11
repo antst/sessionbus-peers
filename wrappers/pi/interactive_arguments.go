@@ -28,11 +28,12 @@ var passthroughCommands = []string{"install", "remove", "uninstall", "update", "
 // InteractivePlan classifies native maintenance/help before adding managed
 // identity. Passthrough retains the original argv and environment byte values.
 func InteractivePlan(arguments, environment []string) (host.ExecPlan, bool, error) {
-	if nativeNonTUI(arguments) {
-		return host.ExecPlan{Path: "pi", Args: arguments, Env: environment}, true, nil
-	}
-	if err := wrapperBoundaryError(arguments); err != nil {
+	native, err := nativeNonTUI(arguments)
+	if err != nil {
 		return host.ExecPlan{}, false, err
+	}
+	if native {
+		return host.ExecPlan{Path: "pi", Args: arguments, Env: environment}, true, nil
 	}
 	plan, _, err := host.ClassifiedInteractivePlan("pi", arguments, environment, host.PeerIdentity{}, func(value string) bool {
 		if strings.Contains(value, "=") {
@@ -62,36 +63,36 @@ func InteractivePlan(arguments, environment []string) (host.ExecPlan, bool, erro
 	return plan, false, nil
 }
 
-func nativeNonTUI(arguments []string) bool {
+func nativeNonTUI(arguments []string) (bool, error) {
 	if len(arguments) > 0 && slices.Contains(passthroughCommands, arguments[0]) {
-		return true
+		return true, nil
 	}
 	for index := 0; index < len(arguments); index++ {
 		argument := arguments[index]
 		if argument == "--" {
-			return false
+			return false, nil
 		}
 		name, value, attached := strings.Cut(argument, "=")
 		if name == "-g" || name == "--group" || name == "-n" || name == "--peer-name" {
 			if attached {
 				if strings.TrimSpace(value) == "" {
-					return false
+					return false, wrapperValueError(name)
 				}
 				continue
 			}
 			if index+1 == len(arguments) || arguments[index+1] == "--" || strings.TrimSpace(arguments[index+1]) == "" {
-				return false
+				return false, wrapperValueError(name)
 			}
 			index++
 			continue
 		}
 		switch argument {
 		case "-h", "--help", "-v", "--version", "-p", "--print", "--list-models":
-			return true
+			return true, nil
 		case "--export":
 			// A value is required before Pi selects its one-shot export path.
 			if index+1 < len(arguments) {
-				return true
+				return true, nil
 			}
 		}
 		if slices.Contains(interactiveValueOptions, argument) {
@@ -107,29 +108,14 @@ func nativeNonTUI(arguments []string) bool {
 			index++
 		}
 	}
-	return false
+	return false, nil
 }
 
-func wrapperBoundaryError(arguments []string) error {
-	for index := 0; index < len(arguments); index++ {
-		argument := arguments[index]
-		if argument == "--" {
-			return nil
-		}
-		if argument != "-g" && argument != "--group" && argument != "-n" && argument != "--peer-name" {
-			continue
-		}
-		if index+1 < len(arguments) && arguments[index+1] == "--" {
-			if argument == "-g" || argument == "--group" {
-				return errors.New("-g/--group requires a non-empty value")
-			}
-			return errors.New("-n/--peer-name requires a non-empty value")
-		}
-		if index+1 < len(arguments) {
-			index++
-		}
+func wrapperValueError(name string) error {
+	if name == "-g" || name == "--group" {
+		return errors.New("-g/--group requires a non-empty value")
 	}
-	return nil
+	return errors.New("-n/--peer-name requires a non-empty value")
 }
 
 func interactiveEnvironmentValue(environment []string, name string) string {

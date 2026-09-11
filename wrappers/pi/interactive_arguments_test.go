@@ -40,6 +40,9 @@ func TestInteractivePlanNativeValueAndBoundaryProtectWrapperFlags(t *testing.T) 
 		{"-xt", "--peer-name", "prompt"},
 		{"--tui-mode", "-g", "prompt"},
 		{"--model=-g", "prompt"},
+		{"--tools=--peer-name", "prompt"},
+		{"--model", "-g", "--"},
+		{"-t", "--peer-name", "--"},
 		{"--", "-g", "--mode"},
 	} {
 		plan, passthrough, err := InteractivePlan(args, nil)
