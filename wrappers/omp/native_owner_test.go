@@ -683,6 +683,30 @@ func TestNativeOwnerAcceptsEndBeforeShutdownResponse(t *testing.T) {
 	}
 }
 
+func TestNativeOwnerContextWatcherJoinsRunningCallback(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	join := watchNativeOwnerContext(ctx, func() {
+		close(entered)
+		<-release
+	})
+	cancel()
+	<-entered
+	joined := make(chan struct{})
+	go func() {
+		join()
+		close(joined)
+	}()
+	select {
+	case <-joined:
+		t.Fatal("context watcher returned before its callback")
+	default:
+	}
+	close(release)
+	<-joined
+}
+
 func TestNativeOwnerPreservesClosingProtocolFailure(t *testing.T) {
 	options, _ := nativeOwnerFixture(t, "malformed_shutdown")
 	owner, err := StartNativeOwner(nativeOwnerTestContext(t), options)

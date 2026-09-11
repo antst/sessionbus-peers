@@ -386,6 +386,40 @@ func (owner *NativeOwner) bootstrap(options NativeOwnerOptions) error {
 	if err = owner.process.lock.Rename(binding.SessionID); err != nil {
 		return fmt.Errorf("bind OMP native session lock: %w", err)
 	}
+	if err = owner.startupFailure(startup, bridge); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (owner *NativeOwner) startupFailure(startup context.Context, bridge *pifamily.Bridge) error {
+	if err := context.Cause(startup); err != nil {
+		return err
+	}
+	select {
+	case <-owner.process.done:
+		err := owner.process.Wait()
+		if err == nil {
+			err = errors.New("OMP native process exited during startup")
+		}
+		return err
+	default:
+	}
+	select {
+	case <-owner.registry.Done():
+		return errors.Join(errors.New("OMP owner registry ended during startup"), owner.registry.Err())
+	default:
+	}
+	select {
+	case <-bridge.Done():
+		return errors.Join(errors.New("OMP managed extension ended during startup"), bridge.Err())
+	default:
+	}
+	select {
+	case <-owner.rpcDone():
+		return errors.Join(errors.New("OMP native RPC ended during startup"), owner.rpcError())
+	default:
+	}
 	return nil
 }
 
@@ -429,18 +463,13 @@ func (owner *NativeOwner) finish(force bool, closeCtx context.Context) {
 	owner.observer = nil
 	owner.mu.Unlock()
 	operationCtx, cancelOperations := context.WithCancelCause(closeCtx)
-	callbackDone := make(chan struct{})
-	stopOperations := context.AfterFunc(owner.ctx, func() {
+	joinOperations := watchNativeOwnerContext(owner.ctx, func() {
 		cancelOperations(context.Cause(owner.ctx))
-		close(callbackDone)
 	})
-	defer func() {
+	finishOperations := func() {
 		cancelOperations(errNativeOwnerClosed)
-		if stopOperations() {
-			close(callbackDone)
-		}
-		<-callbackDone
-	}()
+		joinOperations()
+	}
 
 	var inputErr error
 	if !force && ready {
@@ -494,9 +523,24 @@ func (owner *NativeOwner) finish(force bool, closeCtx context.Context) {
 	if closeCtx.Err() != nil {
 		owner.recordError(closeCtx.Err())
 	}
+	finishOperations()
 	owner.recordError(owner.process.Cleanup())
 	owner.cancel(errNativeOwnerClosed)
 	close(owner.done)
+}
+
+func watchNativeOwnerContext(ctx context.Context, callback func()) func() {
+	done := make(chan struct{})
+	stop := context.AfterFunc(ctx, func() {
+		callback()
+		close(done)
+	})
+	return func() {
+		if stop() {
+			close(done)
+		}
+		<-done
+	}
 }
 
 func expectedNativeOwnerRPCShutdown(err error) bool {
