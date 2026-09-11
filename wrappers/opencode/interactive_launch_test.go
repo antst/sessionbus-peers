@@ -42,7 +42,7 @@ func TestCompiledInteractiveLaunchOwnsChildAndResources(t *testing.T) {
 			defer listener.Close()
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
-			command := exec.CommandContext(ctx, filepath.Join(bin, "opencode-peer"), "--session", "ses_resume", "-g", "one,two", "-n", "initial")
+			command := exec.CommandContext(ctx, filepath.Join(bin, "opencode-peer"), "--resume", "ses_resume", "-g", "one,two", "-n", "initial")
 			command.Dir = bin
 			command.Env = []string{"PATH=" + bin, "HOME=" + bin, "SESSIONBUS_SOCKET=" + filepath.Join(directory, "bus.sock"), "SESSIONBUS_SESSION_ID=stale", "OC_TEST_SOCKET=" + listener.Addr().String(), "OC_TEST_MODE=" + mode}
 			if mode == "exit" {

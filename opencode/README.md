@@ -47,6 +47,9 @@ user installation. Installing only the Go command or only the npm plugin does
 not provide the complete integration.
 
 Native selection flags, including new/resume/fork behavior, remain native.
+`--resume <id>` and `--resume=<id>` before a literal `--` are rewritten in place
+to the native `--session` forms with the value forwarded verbatim; no session
+lookup or ID invention is performed, and native `-s`/`--session` stay authoritative.
 Wrapper `-n` applies once to the first selected native session and publishes the
 name only after native confirmation. Repeated comma-separated `-g` groups are
 combined before `--`; native arguments after `--` are retained. Home has no
