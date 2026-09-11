@@ -111,6 +111,15 @@ func TestPiOwnedInterruptJoinsAbortAndNativeTerminal(t *testing.T) {
 }
 
 func TestPiSDKInterruptCancelsHeldNativeAdmission(t *testing.T) {
+	t.Run("staged execute", func(t *testing.T) {
+		testPiSDKInterruptCancelsHeldNativeAdmission(t, false)
+	})
+	t.Run("delivery seed", func(t *testing.T) {
+		testPiSDKInterruptCancelsHeldNativeAdmission(t, true)
+	})
+}
+
+func testPiSDKInterruptCancelsHeldNativeAdmission(t *testing.T, deliverySeed bool) {
 	wrapper, cwd := newPiTestWrapper(t, "run-hold")
 	listener, err := net.Listen("unix", wrapper.socket)
 	if err != nil {
@@ -123,12 +132,14 @@ func TestPiSDKInterruptCancelsHeldNativeAdmission(t *testing.T) {
 	worker := sessionkit.NewWorker(wrapper)
 	wrapper.SetCaller(worker.Caller())
 	wrapper.SetShutdown(worker.Shutdown)
-	receipt, err := wrapper.Deliver(context.Background(), sessionkit.DeliveryRequest{
-		MessageID: "staged-before-interrupt", Body: "queued exactly once",
-		From: sessionkit.DeliverySource{SessionID: "sender@local", Product: "fixture"},
-	}, nil)
-	if err != nil || receipt.Disposition != "queued_for_next_turn" {
-		t.Fatalf("staged receipt = %+v, %v", receipt, err)
+	if !deliverySeed {
+		receipt, err := wrapper.Deliver(context.Background(), sessionkit.DeliveryRequest{
+			MessageID: "staged-before-interrupt", Body: "queued exactly once",
+			From: sessionkit.DeliverySource{SessionID: "sender@local", Product: "fixture"},
+		}, nil)
+		if err != nil || receipt.Disposition != "queued_for_next_turn" {
+			t.Fatalf("staged receipt = %+v, %v", receipt, err)
+		}
 	}
 	served := make(chan error, 1)
 	go func() { served <- worker.Serve(context.Background()) }()
@@ -187,10 +198,17 @@ func TestPiSDKInterruptCancelsHeldNativeAdmission(t *testing.T) {
 	if opened.ID != 1 || opened.Error != nil {
 		t.Fatalf("Open response = %+v", opened)
 	}
-	request(2, "turn.execute", protocol.ExecuteRequest{SessionID: "pi-fresh@local", RunID: "g/1", Input: "held prompt"})
-	executing := read()
-	if executing.ID != 2 || executing.Error != nil {
-		t.Fatalf("execute response = %+v", executing)
+	if deliverySeed {
+		request(2, "message.deliver", sessionkit.DeliveryRequest{
+			RunID: "g/1", MessageID: "delivery-before-interrupt", Body: "held delivery prompt",
+			From: sessionkit.DeliverySource{SessionID: "sender@local", Product: "fixture", Groups: []string{}},
+		})
+	} else {
+		request(2, "turn.execute", protocol.ExecuteRequest{SessionID: "pi-fresh@local", RunID: "g/1", Input: "held prompt"})
+		executing := read()
+		if executing.ID != 2 || executing.Error != nil {
+			t.Fatalf("execute response = %+v", executing)
+		}
 	}
 
 	deadline, cancelDeadline := context.WithTimeout(context.Background(), 5*time.Second)
@@ -225,8 +243,8 @@ func TestPiSDKInterruptCancelsHeldNativeAdmission(t *testing.T) {
 		}
 	}
 	request(3, "turn.interrupt", map[string]string{"session_id": "pi-fresh@local"})
-	interrupted, ready := false, false
-	for !interrupted || !ready {
+	deliveryAnswered, interrupted, ready := !deliverySeed, false, false
+	for !deliveryAnswered || !interrupted || !ready {
 		if err = connection.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
 			t.Fatal(err)
 		}
@@ -250,6 +268,14 @@ func TestPiSDKInterruptCancelsHeldNativeAdmission(t *testing.T) {
 				t.Fatalf("interrupt response = %+v", frame.Error)
 			}
 			interrupted = true
+		case deliverySeed && frame.ID == 2:
+			var receipt sessionkit.DeliveryReceipt
+			if frame.Error != nil || protocol.UnmarshalResult("message.deliver", frame.Result, &receipt) != nil ||
+				receipt.Disposition != "rejected" || receipt.Reason == "not_submitted" ||
+				!strings.Contains(receipt.Reason, errPiRunInterrupted.Error()) {
+				t.Fatalf("uncertain submitted delivery receipt = %+v, decoded %+v", frame, receipt)
+			}
+			deliveryAnswered = true
 		default:
 			t.Fatalf("unexpected Worker frame = %+v", frame)
 		}

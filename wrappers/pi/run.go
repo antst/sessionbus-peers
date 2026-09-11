@@ -30,6 +30,7 @@ type piNativeTurn struct {
 	failure          error
 	input            bool
 	preflight        bool
+	submitted        bool
 	admitted         bool
 	started          int
 	nativeStarts     int
@@ -527,6 +528,9 @@ func (p *Wrapper) startNativeTurn(ctx context.Context, run *sessionkit.Run, prom
 	p.active = turn
 	p.mu.Unlock()
 	submitted, callErr := p.rpc.callWithAdmission(ctx, "prompt", map[string]any{"message": prompt}, nil)
+	turn.mu.Lock()
+	turn.submitted = submitted
+	turn.mu.Unlock()
 	if callErr != nil {
 		if submitted {
 			turn.fail(callErr)
@@ -627,11 +631,12 @@ func (p *Wrapper) Run(ctx context.Context, run *sessionkit.Run, seed sessionkit.
 		}
 		p.mu.Unlock()
 	}()
-	nativeAdmitted := false
+	nativeSubmitted, nativeAdmitted := false, false
 	result, err = p.handoff.Run(runCtx, run, input, func(ctx context.Context, prompt string) (host.Turn, error) {
 		turn, startErr := p.startNativeTurn(ctx, run, prompt)
 		if turn != nil {
 			turn.mu.Lock()
+			nativeSubmitted = turn.submitted
 			nativeAdmitted = turn.admitted
 			if seed.Delivery != nil {
 				turn.report = run.ReportDelivery
@@ -641,12 +646,20 @@ func (p *Wrapper) Run(ctx context.Context, run *sessionkit.Run, seed sessionkit.
 		return turn, startErr
 	})
 	if !nativeAdmitted && errors.Is(context.Cause(runCtx), errPiRunInterrupted) {
+		var reportErr error
 		if seed.Delivery != nil {
-			if reportErr := run.ReportDelivery(sessionkit.DeliveryReceipt{Disposition: "rejected", Reason: "not_submitted"}, nil); reportErr != nil {
-				err = errors.Join(err, reportErr)
+			if nativeSubmitted {
+				reportErr = run.ReportDelivery(sessionkit.DeliveryReceipt{}, errPiRunInterrupted)
+			} else {
+				reportErr = run.ReportDelivery(sessionkit.DeliveryReceipt{Disposition: "rejected", Reason: "not_submitted"}, nil)
 			}
+			err = errors.Join(err, reportErr)
 		}
 		p.lose(errPiRunInterrupted)
+		if reportErr != nil {
+			p.lose(reportErr)
+			return sessionkit.TurnResult{}, err
+		}
 		if err == nil || errors.Is(err, errPiRunInterrupted) || errors.Is(err, context.Canceled) {
 			return sessionkit.TurnResult{Outcome: "interrupted"}, nil
 		}
