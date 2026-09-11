@@ -70,6 +70,8 @@ type ownerRegistryState struct {
 	completed            []string
 	completedSet         map[string]struct{}
 	preflights           map[string]string
+	preflightOrder       []string
+	preflightChanged     chan struct{}
 	consumedPreflights   []string
 	consumedPreflightSet map[string]struct{}
 	deliveries           chan ownerPublicDelivery
@@ -547,6 +549,8 @@ func (registry *OwnerRegistry) applyReportLocked(state *ownerRegistryState, repo
 			return err
 		}
 		state.preflights[request.RunToken] = request.Prompt
+		state.preflightOrder = append(state.preflightOrder, request.RunToken)
+		registry.signalPreflightLocked(state)
 		return nil
 	}
 	request := report.delivery
@@ -604,6 +608,7 @@ func (registry *OwnerRegistry) admit(ctx context.Context, scope, mode string, de
 		},
 		stageGate: make(chan struct{}, 1), batches: make(map[string]*ownerDeliveryBatch),
 		completedSet: make(map[string]struct{}), preflights: make(map[string]string),
+		preflightChanged:     make(chan struct{}),
 		consumedPreflightSet: make(map[string]struct{}), reports: make(map[uint64]ownerReport),
 		deliveries: make(chan ownerPublicDelivery, maxOwnerWork),
 	}
@@ -1003,7 +1008,61 @@ func (registry *OwnerRegistry) takePreflight(token, sessionID, runToken string) 
 	if !ok {
 		return "", pifamily.NewBridgeCallError("missing_preflight", "OMP native preflight is unavailable")
 	}
+	return registry.consumePreflightLocked(state, runToken, prompt), nil
+}
+
+// waitPreflight joins the next native preflight for one exact binding. The
+// run token is generated inside the extension, so the controller must consume
+// source order rather than search past an earlier foreign witness for equal
+// text. Cancellation leaves any arrived witness owned by the registry.
+func (registry *OwnerRegistry) waitPreflight(ctx context.Context, token, sessionID, expectedPrompt string) (string, error) {
+	if ctx == nil {
+		return "", errors.New("OMP preflight wait requires context")
+	}
+	for {
+		if err := ctx.Err(); err != nil {
+			return "", err
+		}
+		registry.mu.Lock()
+		state := registry.bindings[token]
+		if registry.ending || state == nil || !state.admitted || state.SessionID != sessionID {
+			registry.mu.Unlock()
+			return "", pifamily.NewBridgeCallError("stale_owner", "OMP preflight does not own a current binding")
+		}
+		if err := ctx.Err(); err != nil {
+			registry.mu.Unlock()
+			return "", err
+		}
+		if len(state.preflightOrder) != 0 {
+			runToken := state.preflightOrder[0]
+			prompt, ok := state.preflights[runToken]
+			if !ok || prompt != expectedPrompt {
+				err := registry.protocolFailureLocked("OMP native preflight does not match the owned Run")
+				registry.mu.Unlock()
+				return "", err
+			}
+			registry.consumePreflightLocked(state, runToken, prompt)
+			registry.mu.Unlock()
+			return runToken, nil
+		}
+		changed := state.preflightChanged
+		done := registry.ctx.Done()
+		registry.mu.Unlock()
+		select {
+		case <-ctx.Done():
+			return "", ctx.Err()
+		case <-done:
+			return "", errors.Join(errors.New("OMP owner registry ended while awaiting preflight"), registry.Err())
+		case <-changed:
+		}
+	}
+}
+
+func (registry *OwnerRegistry) consumePreflightLocked(state *ownerRegistryState, runToken, prompt string) string {
 	delete(state.preflights, runToken)
+	if index := slices.Index(state.preflightOrder, runToken); index >= 0 {
+		state.preflightOrder = slices.Delete(state.preflightOrder, index, index+1)
+	}
 	registry.releaseStateLocked(state, len(prompt))
 	state.consumedPreflights = append(state.consumedPreflights, runToken)
 	state.consumedPreflightSet[runToken] = struct{}{}
@@ -1012,7 +1071,15 @@ func (registry *OwnerRegistry) takePreflight(token, sessionID, runToken string) 
 		delete(state.consumedPreflightSet, state.consumedPreflights[0])
 		state.consumedPreflights = state.consumedPreflights[1:]
 	}
-	return prompt, nil
+	return prompt
+}
+
+func (registry *OwnerRegistry) signalPreflightLocked(state *ownerRegistryState) {
+	if state.preflightChanged == nil {
+		return
+	}
+	close(state.preflightChanged)
+	state.preflightChanged = make(chan struct{})
 }
 
 func (registry *OwnerRegistry) callPublic(ctx context.Context, state *ownerRegistryState, conn *kit.Connection, method string, params any) (json.RawMessage, error) {
@@ -1035,6 +1102,7 @@ func (registry *OwnerRegistry) remove(state *ownerRegistryState, reason string) 
 		registry.mu.Unlock()
 		return
 	}
+	registry.signalPreflightLocked(state)
 	delete(registry.bindings, state.OwnerToken)
 	registry.retiredTokens[state.OwnerToken] = struct{}{}
 	registry.retiredOrder = append(registry.retiredOrder, state.OwnerToken)
@@ -1066,6 +1134,7 @@ func (registry *OwnerRegistry) remove(state *ownerRegistryState, reason string) 
 	}
 	state.retainedBytes = 0
 	state.staged, state.batches, state.preflights, state.reports = nil, nil, nil, nil
+	state.preflightOrder, state.preflightChanged = nil, nil
 	state.completed, state.consumedPreflights = nil, nil
 	state.completedSet, state.consumedPreflightSet = nil, nil
 	registry.mu.Unlock()
@@ -1080,6 +1149,7 @@ func (registry *OwnerRegistry) Close() error {
 		bridge := registry.bridge
 		connections := make([]*kit.Connection, 0, len(registry.bindings))
 		for _, state := range registry.bindings {
+			registry.signalPreflightLocked(state)
 			if state.conn != nil {
 				connections = append(connections, state.conn)
 			}
