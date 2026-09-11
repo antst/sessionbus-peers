@@ -60,6 +60,9 @@ func fakeNativeHTTP() {
 	var hold chan struct{}
 	var interrupted bool
 	var permission any
+	var holdProjection bool
+	projectionStarted := make(chan struct{})
+	var projectionOnce sync.Once
 	events := make(chan any, 256)
 	eventEnd := make(chan struct{})
 	started := make(chan struct{})
@@ -122,7 +125,13 @@ func fakeNativeHTTP() {
 		case r.URL.Path == "/session/"+id+"/message" && r.Method == "GET":
 			mu.Lock()
 			copy := append([]withParts{}, history...)
+			held := holdProjection
 			mu.Unlock()
+			if held {
+				projectionOnce.Do(func() { close(projectionStarted) })
+				<-r.Context().Done()
+				return
+			}
 			reply(copy)
 		case r.URL.Path == "/session/"+id+"/message" && r.Method == "POST":
 			var req struct {
@@ -137,6 +146,7 @@ func fakeNativeHTTP() {
 			user := withParts{Info: nativeInfo{ID: req.MessageID, SessionID: id, Role: "user"}, Parts: []json.RawMessage{fakePart(id, req.MessageID, "text", text)}}
 			mu.Lock()
 			history = append(history, user)
+			holdProjection = text == "projection-held"
 			mu.Unlock()
 			emit("message.updated", map[string]any{"info": user.Info})
 			if req.NoReply {
@@ -236,6 +246,12 @@ func fakeNativeHTTP() {
 			}
 			mu.Unlock()
 			reply(true)
+		case r.URL.Path == "/fixture/projection-pending":
+			select {
+			case <-projectionStarted:
+				reply(true)
+			case <-r.Context().Done():
+			}
 		case r.URL.Path == "/fixture/started":
 			select {
 			case <-started:
