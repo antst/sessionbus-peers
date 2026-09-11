@@ -20,6 +20,7 @@ import (
 const launchEnvironmentName = "SESSIONBUS_PI_LAUNCH"
 
 var piCommand = exec.Command
+var piStartProcess = startPiProcess
 
 type piLaunch struct {
 	Directory string `json:"directory"`

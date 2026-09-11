@@ -31,6 +31,8 @@ type Wrapper struct {
 	bridge       *pifamily.Bridge
 	owner        piOwnerReady
 	ownerChanged chan struct{}
+	startupDone  chan struct{}
+	starting     bool
 	id, cwd      string
 	opened       bool
 	closing      bool
@@ -41,6 +43,7 @@ type Wrapper struct {
 	lossOnce     sync.Once
 	closeOnce    sync.Once
 	closeErr     error
+	workers      sync.WaitGroup
 }
 
 type piOwnerReady struct {
@@ -128,6 +131,8 @@ func (p *Wrapper) Open(ctx context.Context, request sessionkit.OpenRequest) (res
 	}
 	p.ctx, p.cancel = context.WithCancelCause(context.Background())
 	p.cwd = cwd
+	p.starting = true
+	p.startupDone = make(chan struct{})
 	p.mu.Unlock()
 	startup, cancelStartup := context.WithCancelCause(p.ctx)
 	stopStartup := context.AfterFunc(ctx, func() { cancelStartup(ctx.Err()) })
@@ -138,14 +143,20 @@ func (p *Wrapper) Open(ctx context.Context, request sessionkit.OpenRequest) (res
 			err = errors.Join(err, p.Close(context.WithoutCancel(ctx), sessionkit.SessionCloseRequest{}))
 		}
 	}()
+	defer p.finishStartup()
 
-	process, err := startPiProcess(p.socket, p.provisional, p.executable, cwd, arguments)
+	process, err := piStartProcess(p.socket, p.provisional, p.executable, cwd, arguments)
 	if err != nil {
 		return result, fmt.Errorf("start Pi native process: %w", err)
 	}
 	p.mu.Lock()
 	p.process = process
+	closing := p.closing
 	p.mu.Unlock()
+	if closing {
+		return result, errors.New("Pi owner closed during startup")
+	}
+	p.workers.Add(1)
 	go p.watchProcess(process)
 
 	rpc, err := newNativeRPC(process.input, process.output, p.observeNative, nativeRPCLimits{})
@@ -155,6 +166,7 @@ func (p *Wrapper) Open(ctx context.Context, request sessionkit.OpenRequest) (res
 	p.mu.Lock()
 	p.rpc = rpc
 	p.mu.Unlock()
+	p.workers.Add(1)
 	go p.watchRPC(rpc)
 
 	connection, err := process.accept(startup)
@@ -168,6 +180,7 @@ func (p *Wrapper) Open(ctx context.Context, request sessionkit.OpenRequest) (res
 	p.mu.Lock()
 	p.bridge = bridge
 	p.mu.Unlock()
+	p.workers.Add(1)
 	go p.watchBridge(bridge)
 	if err = bridge.Ready(startup); err != nil {
 		return result, fmt.Errorf("join Pi managed extension hello: %w", err)
@@ -217,6 +230,15 @@ func (p *Wrapper) Open(ctx context.Context, request sessionkit.OpenRequest) (res
 	p.opened = true
 	p.mu.Unlock()
 	return sessionkit.OpenResult{SessionID: state.SessionID}, nil
+}
+
+func (p *Wrapper) finishStartup() {
+	p.mu.Lock()
+	if p.starting {
+		p.starting = false
+		close(p.startupDone)
+	}
+	p.mu.Unlock()
 }
 
 func validatePiState(state piNativeState, readyID, requestedID string) error {
@@ -293,7 +315,7 @@ func (p *Wrapper) handleBridge(ctx context.Context, method string, raw json.RawM
 		err = pifamily.NewBridgeCallError("method_not_found", "Pi bridge method is unavailable")
 	}
 	if err != nil {
-		go p.lose(err)
+		p.loseFromHandler(err)
 		return nil, err
 	}
 	body, marshalErr := json.Marshal(result)
@@ -385,6 +407,7 @@ func piNamePart(name string) (string, error) {
 }
 
 func (p *Wrapper) watchProcess(process *piProcess) {
+	defer p.workers.Done()
 	err := process.Wait()
 	p.mu.Lock()
 	closing := p.closing
@@ -401,9 +424,13 @@ func (p *Wrapper) watchProcess(process *piProcess) {
 }
 
 func (p *Wrapper) watchRPC(rpc *nativeRPC) {
+	defer p.workers.Done()
 	<-rpc.Done()
 	p.mu.Lock()
 	closing := p.closing
+	if err := rpc.Err(); err != nil {
+		p.failure = errors.Join(p.failure, err)
+	}
 	p.mu.Unlock()
 	if !closing {
 		err := rpc.Err()
@@ -415,9 +442,13 @@ func (p *Wrapper) watchRPC(rpc *nativeRPC) {
 }
 
 func (p *Wrapper) watchBridge(bridge *pifamily.Bridge) {
+	defer p.workers.Done()
 	<-bridge.Done()
 	p.mu.Lock()
-	closing := p.closing
+	closing, ended := p.closing, p.ended
+	if err := bridge.Err(); err != nil && !(closing && ended && errors.Is(err, pifamily.ErrBridgeClosed)) {
+		p.failure = errors.Join(p.failure, err)
+	}
 	p.mu.Unlock()
 	if !closing {
 		err := bridge.Err()
@@ -429,6 +460,17 @@ func (p *Wrapper) watchBridge(bridge *pifamily.Bridge) {
 }
 
 func (p *Wrapper) lose(err error) {
+	p.loseInternal(err, true)
+}
+
+// A bridge handler cannot join its own transport. Killing the direct child and
+// closing native RPC makes the peer socket reach EOF after the handler returns;
+// the bridge watcher then joins the connection normally.
+func (p *Wrapper) loseFromHandler(err error) {
+	p.loseInternal(err, false)
+}
+
+func (p *Wrapper) loseInternal(err error, closeBridge bool) {
 	p.lossOnce.Do(func() {
 		p.mu.Lock()
 		p.failure = err
@@ -444,11 +486,13 @@ func (p *Wrapper) lose(err error) {
 		if rpc != nil {
 			_ = rpc.Close()
 		}
-		if bridge != nil {
+		if closeBridge && bridge != nil {
 			_ = bridge.Close()
 		}
 		if opened && shutdown != nil {
+			p.workers.Add(1)
 			go func() {
+				defer p.workers.Done()
 				if run != nil {
 					<-run.Done()
 				}
@@ -476,13 +520,21 @@ func (p *Wrapper) Close(ctx context.Context, request sessionkit.SessionCloseRequ
 	p.closeOnce.Do(func() {
 		p.mu.Lock()
 		p.closing = true
-		process, rpc, bridge, failure, cancel := p.process, p.rpc, p.bridge, p.failure, p.cancel
+		startupDone, starting, cancel := p.startupDone, p.starting, p.cancel
+		p.mu.Unlock()
+		if starting && cancel != nil {
+			cancel(errors.New("Pi owner closed during startup"))
+			<-startupDone
+		}
+		p.mu.Lock()
+		process, rpc, bridge, failure := p.process, p.rpc, p.bridge, p.failure
 		p.mu.Unlock()
 		if process == nil {
 			return
 		}
-		p.closeErr = errors.Join(p.closeErr, failure)
+		forceDone := make(chan struct{})
 		forced := context.AfterFunc(ctx, func() {
+			defer close(forceDone)
 			process.Force()
 			if rpc != nil {
 				_ = rpc.Close()
@@ -491,7 +543,12 @@ func (p *Wrapper) Close(ctx context.Context, request sessionkit.SessionCloseRequ
 				_ = bridge.Close()
 			}
 		})
-		defer forced()
+		defer func() {
+			if forced() {
+				close(forceDone)
+			}
+			<-forceDone
+		}()
 		if failure != nil || p.ctx.Err() != nil {
 			process.Force()
 		} else if rpc != nil {
@@ -502,13 +559,21 @@ func (p *Wrapper) Close(ctx context.Context, request sessionkit.SessionCloseRequ
 		}
 		childErr := process.Wait()
 		if rpc != nil {
-			_ = rpc.Close()
+			p.closeErr = errors.Join(p.closeErr, rpc.Close())
 		}
 		if bridge != nil {
-			_ = bridge.Close()
+			bridgeErr := bridge.Close()
+			p.mu.Lock()
+			ended := p.ended
+			p.mu.Unlock()
+			if !(ended && errors.Is(bridgeErr, pifamily.ErrBridgeClosed)) {
+				p.closeErr = errors.Join(p.closeErr, bridgeErr)
+			}
 		}
+		p.workers.Wait()
 		p.mu.Lock()
 		ended := p.ended
+		p.closeErr = errors.Join(p.closeErr, p.failure)
 		p.mu.Unlock()
 		if failure == nil && p.closeErr == nil && !ended {
 			p.closeErr = errors.New("Pi native session did not confirm shutdown")
