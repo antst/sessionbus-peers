@@ -7,11 +7,23 @@ import (
 	"encoding/json"
 	"io"
 	"net"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/antst/sessionbus-peers/wrappers/mcp"
 )
+
+type initializedToolObserver struct {
+	*laneToolOwner
+	initializedDone chan struct{}
+	once            sync.Once
+}
+
+func (o *initializedToolObserver) Initialized() {
+	o.laneToolOwner.Initialized()
+	o.once.Do(func() { close(o.initializedDone) })
+}
 
 // Each fixture uses the actual common MCP codec and joins Serve after EOF.
 // The in-memory endpoint excludes the accept loop so negative lifetime checks
@@ -35,6 +47,7 @@ func TestLaneEndpointInitializedConnectionLossPolicy(t *testing.T) {
 				client, server := net.Pipe()
 				_ = client.SetDeadline(time.Now().Add(5 * time.Second))
 				o := &laneToolOwner{endpoint: e}
+				observed := &initializedToolObserver{laneToolOwner: o, initializedDone: make(chan struct{})}
 				e.mu.Lock()
 				e.clients[server] = o
 				e.mu.Unlock()
@@ -42,7 +55,7 @@ func TestLaneEndpointInitializedConnectionLossPolicy(t *testing.T) {
 				go func() {
 					defer close(done)
 					defer server.Close()
-					_ = mcp.ServeSessionbus(o, server, server, mcp.ReportHandler{})
+					_ = mcp.ServeSessionbus(observed, server, server, mcp.ReportHandler{})
 				}()
 				t.Cleanup(func() { client.Close(); <-done })
 				if initialize {
@@ -59,7 +72,7 @@ func TestLaneEndpointInitializedConnectionLossPolicy(t *testing.T) {
 						t.Fatalf("initialize: %s", line)
 					}
 					select {
-					case <-e.ready:
+					case <-observed.initializedDone:
 					case <-time.After(5 * time.Second):
 						t.Fatal("initialize response callback missing")
 					}
