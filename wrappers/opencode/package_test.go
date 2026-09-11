@@ -178,7 +178,7 @@ func TestLiteralArchiveInstallsTwiceWithoutNodeAndImportsNativeEntries(t *testin
 	if err := json.Unmarshal(b, &manifest); err != nil {
 		t.Fatal(err)
 	}
-	if manifest.Bin != nil || len(manifest.Dependencies) != 1 || manifest.Dependencies["@sessionbus/kit"] != "https://pkg.pr.new/@sessionbus/kit@8cc6a59" {
+	if manifest.Bin != nil || len(manifest.Dependencies) != 1 || manifest.Dependencies["@sessionbus/kit"] != "https://pkg.pr.new/@sessionbus/kit@0b35c99" {
 		t.Fatal("wrong installed dependency or installer", manifest)
 	}
 }

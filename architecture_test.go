@@ -218,7 +218,7 @@ func TestOpenCodePackageBoundary(t *testing.T) {
 	if manifest.Repository.Type != "git" || manifest.Repository.URL != "git+https://github.com/antst/sessionbus-peers.git" || manifest.Repository.Directory != "opencode" {
 		t.Errorf("OpenCode repository metadata is invalid: %#v", manifest.Repository)
 	}
-	if len(manifest.Dependencies) != 1 || manifest.Dependencies["@sessionbus/kit"] != "https://pkg.pr.new/@sessionbus/kit@8cc6a59" || strings.HasPrefix(manifest.Dependencies["@sessionbus/kit"], "file:") {
+	if len(manifest.Dependencies) != 1 || manifest.Dependencies["@sessionbus/kit"] != "https://pkg.pr.new/@sessionbus/kit@0b35c99" || strings.HasPrefix(manifest.Dependencies["@sessionbus/kit"], "file:") {
 		t.Errorf("OpenCode kit dependency is not exact: %q", manifest.Dependencies["@sessionbus/kit"])
 	}
 	workflow := read(t, ".github/workflows/pkg-pr-new.yml")
