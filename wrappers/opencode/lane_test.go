@@ -35,6 +35,10 @@ func fakePart(session, id, kind, text string) json.RawMessage {
 	return b
 }
 func fakeNativeHTTP() {
+	if mode := os.Getenv("OPENCODE_TEST_OPEN_MODE"); mode != "" {
+		fakeOpenFailureNative(mode)
+		return
+	}
 	if os.Getenv("OPENCODE_REVIEW_ROLLBACK_NOTIFY") != "" {
 		reviewStalledRollbackNative()
 		return
