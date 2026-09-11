@@ -853,6 +853,62 @@ func TestNativeRPCUICancellationDuringUnsettledWriteRetires(t *testing.T) {
 	waitNativeRPCStats(t, rpc, nativeRPCStats{})
 }
 
+func TestNativeRPCHeldUICancellationDoesNotOwnAdmissionLock(t *testing.T) {
+	for _, operation := range []string{"call", "end input"} {
+		t.Run(operation, func(t *testing.T) {
+			rpc, peer, held, release := newHeldNativeRPCTest(t, nativeRPCLimits{})
+			held.enabled.Store(true)
+			ui := make(chan error, 1)
+			go func() { ui <- rpc.CancelUI(nativeRPCTestContext(t), "held-dialog") }()
+			request := peer.read(t)
+			if nativeRPCField(t, request, "type") != "extension_ui_response" {
+				t.Fatalf("UI cancellation = %#v", request)
+			}
+			<-held.wrote
+
+			// Hold the next atomic admission boundary after the UI frame has
+			// entered the writer. Cancel the independent operation there. A UI
+			// waiter which still owned outboundMu would deadlock this lock.
+			rpc.outboundMu.Lock()
+			base, cancel := context.WithCancel(context.Background())
+			cancelled := &observedCancellationContext{Context: base, checked: make(chan struct{})}
+			result := make(chan error, 1)
+			go func() {
+				if operation == "call" {
+					result <- rpc.Call(cancelled, "get_state", nil, nil)
+				} else {
+					result <- rpc.EndInput(cancelled)
+				}
+			}()
+			<-cancelled.checked
+			cancel()
+			rpc.outboundMu.Unlock()
+			if err := <-result; !errors.Is(err, context.Canceled) {
+				t.Fatalf("independent %s cancellation = %v", operation, err)
+			}
+			if stats := rpc.Stats(); stats.pendingCalls != 0 || stats.pendingWrites != 1 {
+				t.Fatalf("ownership before UI release = %#v", stats)
+			}
+
+			release()
+			if err := <-ui; err != nil {
+				t.Fatalf("held UI cancellation = %v", err)
+			}
+			call := make(chan error, 1)
+			go func() { call <- rpc.Call(nativeRPCTestContext(t), "get_state", nil, nil) }()
+			request = peer.read(t)
+			if id := nativeRPCField(t, request, "id"); id != "omp:2" {
+				t.Fatalf("first ID after canceled admission = %q", id)
+			}
+			peer.write(t, `{"id":"omp:2","type":"response","command":"get_state","success":true,"data":{}}`)
+			if err := <-call; err != nil {
+				t.Fatal(err)
+			}
+			waitNativeRPCStats(t, rpc, nativeRPCStats{})
+		})
+	}
+}
+
 func TestNativeRPCCancellationDuringPartialWriteRetiresAndJoins(t *testing.T) {
 	rpc, peer := newNativeRPCTest(t, nil, nativeRPCLimits{})
 	callCtx, cancel := context.WithCancel(nativeRPCTestContext(t))
