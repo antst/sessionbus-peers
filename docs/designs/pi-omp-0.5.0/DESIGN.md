@@ -211,6 +211,15 @@ witness. Its staged input is consumed before retirement and cannot be replayed;
 its delivery receipt must not claim `not_submitted`. That reason is reserved
 for rejection before queue admission.
 
+The pinned SDK has a retirement limit: acknowledging `turn.ready` completes
+the Run before the SDK necessarily writes an in-flight interrupt reply.
+Retiring the Worker at that point may therefore give the interrupt caller
+`no_receipt`, while the acknowledged terminal status remains authoritative.
+A controlled test binds this ordering after the actual delivery receipt and
+terminal were received. It does not treat an earlier EOF as success or promise
+an interrupt receipt after retirement. No SDK change is selected for this
+milestone.
+
 ## OMP protocol
 
 OMP 18.1.17 advertises protocols 1 and 2. Its initial `ready` precedes extension
