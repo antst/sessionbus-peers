@@ -260,7 +260,7 @@ func TestInteractiveOwnerPublishesRebindsAndRoutesExactToolIdentity(t *testing.T
 	}
 	nativeState.set("native-two", "", "/work/two")
 	hello, _, _ = interactiveReady(t, native, listener, interactiveReadyRequest{interactiveTopology, owner.directory, "native-two", ""})
-	if hello.SessionID != "native-two" || hello.Name != "" || hello.Info["cwd"] != "/work/two" {
+	if hello.SessionID != "native-two" || hello.Name != "wrapper fallback" || hello.Info["cwd"] != "/work/two" {
 		t.Fatalf("replacement hello = %+v", hello)
 	}
 }
