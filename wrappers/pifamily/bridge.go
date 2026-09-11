@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // Package pifamily contains transport shared only by the Pi-family wrappers.
 package pifamily
 
