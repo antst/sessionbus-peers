@@ -24,6 +24,13 @@ func installerFixture(t *testing.T) InstallOptions {
 	if err := os.WriteFile(filepath.Join(plugin, "package.json"), []byte(`{"name":"@sessionbus/opencode"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	skill := filepath.Join(plugin, "skills", "sessionbus", "SKILL.md")
+	if err := os.MkdirAll(filepath.Dir(skill), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(skill, []byte("---\nname: sessionbus\ndescription: fixture\n---\nFixture skill\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	dir := filepath.Join(root, "config")
 	if err := os.Mkdir(dir, 0o700); err != nil {
 		t.Fatal(err)

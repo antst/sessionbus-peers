@@ -21,6 +21,14 @@ func TestKiloMaintenanceFacadeUsesNativeConfigAndNoRuntime(t *testing.T) {
 	}
 	t.Setenv("XDG_CONFIG_HOME", config)
 	t.Setenv("PATH", "")
+	skill := filepath.Join(plugin, "skills", "sessionbus", "SKILL.md")
+	if err := os.MkdirAll(filepath.Dir(skill), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(skill, []byte("fixture skill"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
 	for _, args := range [][]string{nil, {"--plugin-dir", "relative"}, {"--specifier", "@sessionbus/opencode@old"}, {"--remove", "extra"}} {
 		if err := InstallPlugin(args); err == nil {
 			t.Fatal("invalid maintenance arguments accepted", args)

@@ -150,6 +150,7 @@ func testLiteralNativeArchive(t *testing.T, product string) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	var firstConfig []byte
 	for round := 0; round < 2; round++ {
 		stale := filepath.Join(root, "plugin", "skills", product+"-lane")
 		if err := os.MkdirAll(stale, 0o755); err != nil {
@@ -165,6 +166,23 @@ func testLiteralNativeArchive(t *testing.T, product string) {
 		}
 		if _, err := os.Stat(stale); !os.IsNotExist(err) {
 			t.Fatal("stale skill retained", err)
+		}
+		file := filepath.Join(config, product+".jsonc")
+		physicalSkills, err := filepath.EvalSymlinks(filepath.Join(root, "plugin", "skills"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := installedSkillPaths(t, file); len(got) != 1 || got[0] != physicalSkills {
+			t.Fatal("wrong bundled skill registration", got)
+		}
+		body, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if round == 0 {
+			firstConfig = body
+		} else if string(body) != string(firstConfig) {
+			t.Fatal("repeat changed native skill/plugin config")
 		}
 	}
 	want := (&url.URL{Scheme: "file", Path: filepath.Join(root, "plugin")}).String()
@@ -200,6 +218,21 @@ func testLiteralNativeArchive(t *testing.T, product string) {
 	}
 	if manifest.Bin != nil || len(manifest.Dependencies) != 1 || manifest.Dependencies["@sessionbus/kit"] != "https://pkg.pr.new/@sessionbus/kit@0b35c99" {
 		t.Fatal("wrong installed dependency or installer", manifest)
+	}
+	remove := exec.Command(filepath.Join(root, product+"-peer"), "--sessionbus-install", "--remove")
+	remove.Env = []string{"HOME=" + home, "PATH=" + tools}
+	if output, err := remove.CombinedOutput(); err != nil {
+		t.Fatalf("actual uninstall: %v %s", err, output)
+	}
+	if got := installedSkillPaths(t, filepath.Join(config, product+".jsonc")); len(got) != 0 {
+		t.Fatal("retained bundled skill registration", got)
+	}
+	for _, name := range []string{product + ".jsonc", "tui.jsonc"} {
+		for _, entry := range installedPluginEntries(t, filepath.Join(config, name), false) {
+			if entry == want {
+				t.Fatal("retained owned plugin", name)
+			}
+		}
 	}
 }
 

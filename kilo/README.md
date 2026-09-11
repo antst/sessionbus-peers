@@ -56,7 +56,8 @@ managed topology values for ordinary descendants; native auth stripping remains
 Kilo's own policy. No caller config layer is replaced.
 
 Ordinary Kilo plugin loading supplies no Sessionbus tool, endpoint or Peer. The
-generic skill remains discoverable. Managed TUI selection establishes native
+generic skill is registered for native discovery by local package installation.
+Managed TUI selection establishes native
 session Peers; an actual tool call can establish its own native session first,
 including a native subagent child. Tool attribution always uses the actual native
 session/message context. Navigation does not evict prior owners. Native deletion
@@ -102,3 +103,11 @@ connections and finite frame/write/work bounds. Native SDK response parsing and
 native histories remain native-owned allocations. Common source is staged into
 each self-contained product package; the only JS dependency is the immutable
 Sessionbus kit at `0b35c99`, with no plugin SDK, Effect or Solid package added.
+
+Local package installation (`--plugin-dir` or a validated `file:` package directory)
+registers the bundled generic Sessionbus skill through native `skills.paths`.
+A fresh native instance discovers it; installation does not restart an existing
+native process. Other native skill paths and permissions remain in effect.
+Uninstall removes the identity-validated owned path alongside plugin entries.
+Npm and tarball `--specifier` installs register the plugin only: without a local
+extracted package directory they do not register a bundled skill path.

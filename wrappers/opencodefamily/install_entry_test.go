@@ -36,6 +36,13 @@ func testCompiledMaintenanceEntry(t *testing.T, product string) {
 	if err := os.WriteFile(filepath.Join(plugin, "package.json"), []byte(`{"name":"@sessionbus/`+product+`"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	skill := filepath.Join(plugin, "skills", "sessionbus", "SKILL.md")
+	if err := os.MkdirAll(filepath.Dir(skill), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(skill, []byte("fixture skill"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	for i := 0; i < 2; i++ {
 		command := exec.Command(bin, "--sessionbus-install", "--plugin-dir", plugin)
 		command.Env = []string{"HOME=" + home, "XDG_CONFIG_HOME=" + config, "PATH=" + filepath.Join(dir, "no-executables")}

@@ -70,6 +70,10 @@ func configurePluginFor(kind nativeKind, options InstallOptions, commit func([]c
 	if !options.Remove && (!validInstallText(options.Specifier) || !installableSpecifier(kind, options.Specifier, options.Directory)) {
 		return false, fmt.Errorf("specifier is not an installable %s package", kind.installPackage())
 	}
+	skillRoot, err := packageSkillRoot(kind, options)
+	if err != nil {
+		return false, err
+	}
 	groups := kind.installConfigNames()
 	var changes []configChange
 	var identities []os.FileInfo
@@ -132,13 +136,34 @@ func configurePluginFor(kind nativeKind, options InstallOptions, commit func([]c
 				}
 			}
 		}
-		if options.Remove && owned == 0 || !options.Remove && owned == 1 && exact {
-			continue
+		var skillDoc *configDocument
+		if group == 0 {
+			var err error
+			skillDoc, err = skillTarget(kind, docs)
+			if err != nil {
+				return false, err
+			}
 		}
+		pluginUnchanged := options.Remove && owned == 0 || !options.Remove && owned == 1 && exact
 		for _, doc := range docs {
-			body, err := editPluginConfig(doc, options.Specifier, options.Remove)
+			body := doc.body
+			var err error
+			if !pluginUnchanged {
+				body, err = editPluginConfig(doc, options.Specifier, options.Remove)
+			}
 			if err != nil {
 				return false, fmt.Errorf("%s: %w", doc.file, err)
+			}
+			if group == 0 {
+				updated := *doc
+				updated.body = body
+				updated.tree, err = parseConfig(body)
+				if err == nil {
+					body, err = editSkillConfig(&updated, skillRoot, doc == skillDoc)
+				}
+				if err != nil {
+					return false, fmt.Errorf("%s: %w", doc.file, err)
+				}
 			}
 			if !bytes.Equal(body, doc.body) {
 				changes = append(changes, configChange{doc: doc, body: body})
