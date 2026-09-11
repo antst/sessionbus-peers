@@ -136,6 +136,10 @@ func fakeNativeHTTP() {
 				<-r.Context().Done()
 				return
 			}
+			if os.Getenv("OPENCODE_TEST_SUMMARY") == "history" {
+				reply(reviewSummaryHistory(copy))
+				return
+			}
 			reply(copy)
 		case r.URL.Path == "/session/"+id+"/message" && r.Method == "POST":
 			var req struct {
@@ -152,6 +156,11 @@ func fakeNativeHTTP() {
 			history = append(history, user)
 			holdProjection = text == "projection-held"
 			mu.Unlock()
+			if mode := os.Getenv("OPENCODE_TEST_SUMMARY"); mode == "event-user" {
+				emit("message.updated", map[string]any{"sessionID": id, "info": reviewUserSummary(user.Info)})
+			} else if mode == "event-session" {
+				emit("session.updated", map[string]any{"sessionID": id, "info": map[string]any{"id": id, "summary": map[string]int{"additions": 0, "deletions": 0, "files": 0}}})
+			}
 			emit("message.updated", map[string]any{"info": user.Info})
 			if req.NoReply {
 				reply(user)

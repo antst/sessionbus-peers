@@ -421,27 +421,58 @@ func (p *Wrapper) Deliver(ctx context.Context, request kit.DeliveryRequest, run 
 }
 func (p *Wrapper) observe(raw []byte) error {
 	var e struct {
-		Type       string `json:"type"`
-		Properties struct {
-			SessionID string     `json:"sessionID"`
-			ID        string     `json:"id"`
-			Info      nativeInfo `json:"info"`
-			Status    struct {
-				Type string `json:"type"`
-			} `json:"status"`
-		} `json:"properties"`
+		Type       string          `json:"type"`
+		Properties json.RawMessage `json:"properties"`
 	}
 	if json.Unmarshal(raw, &e) != nil || e.Type == "" {
 		return errors.New("malformed native event")
+	}
+	// Other native events have their own payloads. Decode only the variants
+	// used by this owner, after discriminating the event type.
+	switch e.Type {
+	case "message.updated", "session.created", "session.updated", "session.deleted", "session.status", "permission.asked", "question.asked":
+	default:
+		return nil
+	}
+	var properties struct {
+		SessionID string          `json:"sessionID"`
+		ID        string          `json:"id"`
+		Info      json.RawMessage `json:"info"`
+		Status    struct {
+			Type string `json:"type"`
+		} `json:"status"`
+	}
+	if json.Unmarshal(e.Properties, &properties) != nil {
+		return errors.New("malformed native event properties")
+	}
+	var info nativeInfo
+	switch e.Type {
+	case "message.updated":
+		if json.Unmarshal(properties.Info, &info) != nil || !validMessageID(info.ID) || !validNativeID(info.SessionID) || (info.Role != "user" && info.Role != "assistant") || (properties.SessionID != "" && properties.SessionID != info.SessionID) {
+			return errors.New("malformed native message event")
+		}
+	case "session.created", "session.updated", "session.deleted":
+		var session struct {
+			ID      string          `json:"id"`
+			Summary json.RawMessage `json:"summary"`
+		}
+		if json.Unmarshal(properties.Info, &session) != nil || !validNativeID(session.ID) || (properties.SessionID != "" && properties.SessionID != session.ID) {
+			return errors.New("malformed native session event")
+		}
+		if len(session.Summary) != 0 {
+			if err := validateNativeSummary(session.Summary, false); err != nil {
+				return err
+			}
+		}
 	}
 	p.mu.Lock()
 	t := p.active
 	id := p.id
 	if t != nil {
-		if e.Type == "message.updated" && e.Properties.Info.SessionID == id && e.Properties.Info.ID == t.initial && e.Properties.Info.Role == "user" {
+		if e.Type == "message.updated" && info.SessionID == id && info.ID == t.initial && info.Role == "user" {
 			t.userSeen = true
 		}
-		if e.Type == "session.status" && e.Properties.SessionID == id && e.Properties.Status.Type == "busy" && t.userSeen {
+		if e.Type == "session.status" && properties.SessionID == id && properties.Status.Type == "busy" && t.userSeen {
 			t.startOnce.Do(func() { close(t.started) })
 		}
 	}
@@ -449,12 +480,12 @@ func (p *Wrapper) observe(raw []byte) error {
 	if e.Type != "permission.asked" && e.Type != "question.asked" {
 		return nil
 	}
-	if !validNativeID(e.Properties.SessionID) || e.Properties.ID == "" {
+	if !validNativeID(properties.SessionID) || properties.ID == "" {
 		return errors.New("invalid native permission/question request")
 	}
 	// Keep the stream reader available for the ordered startup/cancel gate.
 	// Native ancestry lookups and rejection responses are bounded joined work.
-	if len(e.Properties.ID) > 4096 || strings.ContainsAny(e.Properties.ID, "\x00\r\n") {
+	if len(properties.ID) > 4096 || strings.ContainsAny(properties.ID, "\x00\r\n") {
 		return errors.New("invalid native request ID")
 	}
 	select {
@@ -466,14 +497,14 @@ func (p *Wrapper) observe(raw []byte) error {
 	go func() {
 		defer p.workers.Done()
 		defer func() { <-p.eventWork }()
-		if err := p.ownsSession(p.ctx, e.Properties.SessionID); err != nil {
+		if err := p.ownsSession(p.ctx, properties.SessionID); err != nil {
 			p.fail(err)
 			return
 		}
-		path := "/question/" + url.PathEscape(e.Properties.ID) + "/reject"
+		path := "/question/" + url.PathEscape(properties.ID) + "/reject"
 		var body any = map[string]any{}
 		if e.Type == "permission.asked" {
-			path = "/permission/" + url.PathEscape(e.Properties.ID) + "/reply"
+			path = "/permission/" + url.PathEscape(properties.ID) + "/reply"
 			body = map[string]string{"reply": "reject"}
 		}
 		if _, err := p.client.call(p.ctx, "POST", path, body, 200); err != nil {

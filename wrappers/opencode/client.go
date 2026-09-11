@@ -27,7 +27,7 @@ type nativeInfo struct {
 	ParentID  string          `json:"parentID"`
 	Role      string          `json:"role"`
 	Finish    string          `json:"finish"`
-	Summary   bool            `json:"summary"`
+	Summary   bool            `json:"summary,omitempty"`
 	Error     json.RawMessage `json:"error"`
 	Time      struct {
 		Completed *float64 `json:"completed"`
