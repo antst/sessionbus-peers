@@ -37,3 +37,20 @@ func TestReviewCancelledRunDoesNotCompleteAtToolCallStep(t *testing.T) {
 		t.Fatalf("cancelled execution promoted tool-call step to completion: %+v", r.Result)
 	}
 }
+
+func TestLegacyCancelUsesNativeCompletedUserStopPredicate(t *testing.T) {
+	for _, tc := range []struct{ variant, outcome, reason string }{
+		{"ordinary", "interrupted", ""}, {"unknown", "interrupted", ""},
+		{"provider", "completed", "stop"}, {"orphan", "completed", "stop"}, {"stop", "completed", "stop"},
+	} {
+		t.Run(tc.variant, func(t *testing.T) {
+			f := newWorkerFixture(t)
+			f.start(t, 1, "hold-terminal-"+tc.variant)
+			f.call(t, "turn.interrupt", map[string]any{"session_id": "ses_native@local"}, nil)
+			r := f.wait(t, 1)
+			if r.Result == nil || r.Result.Outcome != tc.outcome || r.Result.NativeStopReason != tc.reason {
+				t.Fatalf("native final classification: %+v", r.Result)
+			}
+		})
+	}
+}

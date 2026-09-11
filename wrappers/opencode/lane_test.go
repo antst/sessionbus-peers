@@ -167,7 +167,24 @@ func fakeNativeHTTP() {
 			if interrupted && text == "hold-toolcalls" {
 				answer.Info.Finish = "tool-calls"
 			}
-			if interrupted && text != "hold-summary" && text != "hold-toolcalls" {
+			if strings.HasPrefix(text, "hold-terminal-") {
+				variant := strings.TrimPrefix(text, "hold-terminal-")
+				if variant == "unknown" {
+					answer.Info.Finish = "unknown"
+				}
+				if variant != "stop" && variant != "unknown" {
+					part := map[string]any{"type": "tool", "sessionID": id, "messageID": answer.Info.ID, "tool": "fixture", "callID": "call_fixture", "state": map[string]any{"status": "completed", "input": map[string]any{}, "output": "done", "title": "fixture", "time": map[string]int{"start": 1, "end": 2}}}
+					if variant == "provider" {
+						part["metadata"] = map[string]bool{"providerExecuted": true}
+					}
+					if variant == "orphan" {
+						part["state"] = map[string]any{"status": "error", "input": map[string]any{}, "error": "interrupted", "metadata": map[string]bool{"interrupted": true}, "time": map[string]int{"start": 1, "end": 2}}
+					}
+					raw, _ := json.Marshal(part)
+					answer.Parts = append(answer.Parts, raw)
+				}
+			}
+			if interrupted && text != "hold-summary" && text != "hold-toolcalls" && !strings.HasPrefix(text, "hold-terminal-") {
 				answer.Info.Error = json.RawMessage(`{"name":"MessageAbortedError","data":{"message":"aborted"}}`)
 			}
 			history = append(history, answer)

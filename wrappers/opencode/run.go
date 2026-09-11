@@ -194,13 +194,57 @@ func (p *Wrapper) executeRun(ctx context.Context, run *kit.Run, input kit.RunInp
 		if cause.Name == "MessageAbortedError" {
 			result.Outcome = "interrupted"
 		}
-	} else if final.Info.Time.Completed == nil || final.Info.Finish == "" || final.Info.Finish == "tool-calls" || final.Info.Finish == "unknown" {
-		if interrupted {
-			return kit.TurnResult{Outcome: "interrupted"}, nil
+	} else {
+		complete, err := completedNativeAssistant(final)
+		if err != nil {
+			return kit.TurnResult{}, err
 		}
-		return kit.TurnResult{}, errors.New("native terminal lacks completed assistant")
+		if !complete {
+			if interrupted {
+				return kit.TurnResult{Outcome: "interrupted"}, nil
+			}
+			return kit.TurnResult{}, errors.New("native terminal lacks completed assistant")
+		}
 	}
 	return result, nil
+}
+
+// Native prompt.ts keeps running on ordinary tool calls, even when a provider
+// reports finish=stop. Provider-executed tools and cleanup-marked interrupted
+// orphans are the native exceptions; error terminals take precedence above.
+func completedNativeAssistant(final withParts) (bool, error) {
+	if final.Info.Time.Completed == nil || final.Info.Finish == "" || final.Info.Finish == "tool-calls" || final.Info.Finish == "unknown" {
+		return false, nil
+	}
+	for _, raw := range final.Parts {
+		var kind struct {
+			Type string `json:"type"`
+		}
+		if json.Unmarshal(raw, &kind) != nil {
+			return false, errors.New("malformed native terminal part")
+		}
+		if kind.Type != "tool" {
+			continue
+		}
+		var part struct {
+			Metadata struct {
+				ProviderExecuted bool `json:"providerExecuted"`
+			} `json:"metadata"`
+			State struct {
+				Status   string `json:"status"`
+				Metadata struct {
+					Interrupted bool `json:"interrupted"`
+				} `json:"metadata"`
+			} `json:"state"`
+		}
+		if err := json.Unmarshal(raw, &part); err != nil {
+			return false, errors.New("malformed native terminal tool metadata")
+		}
+		if !part.Metadata.ProviderExecuted && !(part.State.Status == "error" && part.State.Metadata.Interrupted) {
+			return false, nil
+		}
+	}
+	return true, nil
 }
 func (p *Wrapper) ensureInterrupt(t *laneRun) *nativeInterrupt {
 	p.mu.Lock()
