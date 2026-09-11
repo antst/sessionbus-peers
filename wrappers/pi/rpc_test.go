@@ -270,6 +270,7 @@ func TestNativeRPCResponseViolationsRetireAndReleaseCaller(t *testing.T) {
 		"unknown":          `{"id":"pi:99","type":"response","command":"get_state","success":true,"data":{}}`,
 		"command mismatch": `{"id":"pi:1","type":"response","command":"abort","success":true}`,
 		"invalid shape":    `{"id":"pi:1","type":"response","command":"get_state","success":true,"error":"bad"}`,
+		"null error":       `{"id":"pi:1","type":"response","command":"get_state","success":false,"error":null}`,
 	}
 	for name, frame := range tests {
 		t.Run(name, func(t *testing.T) {

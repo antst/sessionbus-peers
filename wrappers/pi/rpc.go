@@ -745,8 +745,9 @@ func nativeRPCText(object map[string]json.RawMessage, key string, limit int) (st
 	if !ok {
 		return "", fmt.Errorf("%w: frame omitted %s", errNativeRPCProtocol, key)
 	}
+	trimmed := bytes.TrimSpace(raw)
 	var value string
-	if json.Unmarshal(raw, &value) != nil || len(value) > limit || !utf8.ValidString(value) {
+	if len(trimmed) == 0 || trimmed[0] != '"' || json.Unmarshal(trimmed, &value) != nil || len(value) > limit || !utf8.ValidString(value) {
 		return "", fmt.Errorf("%w: frame %s is invalid", errNativeRPCProtocol, key)
 	}
 	return value, nil
