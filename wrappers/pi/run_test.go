@@ -279,15 +279,15 @@ func testPiSDKInterruptCancelsHeldNativeAdmission(t *testing.T, deliverySeed, ho
 	if held != nil {
 		<-held.called
 	}
-	deliveryAnswered, interrupted, ready := !deliverySeed, false, false
+	inputAnswered, interrupted, ready := !deliverySeed, false, false
 	workerEOF := false
-	for !deliveryAnswered || !interrupted || !ready {
+	for !inputAnswered || !interrupted || !ready {
 		if err = connection.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
 			t.Fatal(err)
 		}
 		line, readErr := reader.ReadBytes('\n')
 		if readErr != nil {
-			if deliverySeed && deliveryAnswered && ready && errors.Is(readErr, io.EOF) {
+			if inputAnswered && ready && errors.Is(readErr, io.EOF) {
 				workerEOF = true
 				break
 			}
@@ -324,7 +324,7 @@ func testPiSDKInterruptCancelsHeldNativeAdmission(t *testing.T, deliverySeed, ho
 				!strings.Contains(receipt.Reason, errPiRunInterrupted.Error()) {
 				t.Fatalf("uncertain submitted delivery receipt = %+v, decoded %+v", frame, receipt)
 			}
-			deliveryAnswered = true
+			inputAnswered = true
 		default:
 			t.Fatalf("unexpected Worker frame = %+v", frame)
 		}
