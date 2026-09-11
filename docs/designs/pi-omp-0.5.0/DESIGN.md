@@ -1,9 +1,10 @@
 # Pi and OMP integration
 
 Status: implementation in progress. Native prerequisites are installed and
-version/help checked. Pi's first permanent Open/Close build is installed;
-Run implementation review and native acceptance remain in progress. OMP's
-wrapper is not yet implemented. The source base is peers
+version/help checked. Pi's first permanent build passed zero-input Worker
+Open/Close and persisted interactive resume/quit. Run implementation review and
+model acceptance remain in progress. OMP's native executable resolver is
+implemented; its wrapper lifecycle remains to be built. The source base is peers
 `75866839b7f024edf2c7f9d2d3af647a343f4987`.
 
 ## Native versions and implementation cost
@@ -204,6 +205,11 @@ admission, cancellation must prevent a delayed preflight from escaping cleanup;
 an idle `abort` response alone does not establish that. After admission, native
 abort and actual outcome/terminal collection are joined. Canceling a public
 waiter does not consume or erase the Worker's cached terminal result.
+Writer-queue submission is distinct from full native admission. A command that
+crossed that queue boundary may have reached Pi even without an admission
+witness. Its staged input is consumed before retirement and cannot be replayed;
+its delivery receipt must not claim `not_submitted`. That reason is reserved
+for rejection before queue admission.
 
 ## OMP protocol
 
@@ -315,6 +321,15 @@ digest, absolute native executable and absolute extension path. Caller and
 shutdown callbacks are supplied by the command. Product-specific process/RPC
 state remains private to that implementation. The command, native resolver and
 interactive owner are developed separately against this boundary.
+
+On the installed `30192cb` checkpoint, the actual Worker advertised `pi-peer`
+with its daemon-owned identity and closed with its captured wrapper/native
+generations and private directory gone. Interactive Pi resumed an existing
+persisted native session, advertised its exact ID and native name, and exited
+with Ctrl-D; the fixture verified unchanged session history. These rows made
+no Run or model request and do not establish delivery or terminal-result
+behavior. The original process-detector timeout and retained-name collision
+remain separate failed fixture attempts in the evidence record.
 
 The first installed Pi checkpoint must distinguish these authorities:
 
