@@ -2,9 +2,10 @@
 
 Status: implementation in progress. Native prerequisites are installed and
 version/help checked. Pi's first permanent build passed zero-input Worker
-Open/Close and persisted interactive resume/quit. Run implementation review and
-model acceptance remain in progress. OMP's native executable resolver is
-implemented; its wrapper lifecycle remains to be built. The source base is peers
+Open/Close and persisted interactive resume/quit. Run implementation and the
+UI-admission correction are integrated; model acceptance remains in progress.
+OMP's native executable resolver, process owner and RPC transport are integrated;
+its public Wrapper and native extension remain to be wired. The source base is peers
 `75866839b7f024edf2c7f9d2d3af647a343f4987`.
 
 ## Native versions and implementation cost
@@ -236,6 +237,20 @@ initialization. Adoption requires protocol-2 negotiation, a correlated
 `get_state`, and the managed extension's bridge readiness, with exact identity
 and cwd checks. Physical and assembled frames need separate bounds because
 protocol 2 supports chunked messages.
+
+The transport pins the advertised limits to this native version: 1 MiB per
+physical frame and 64 MiB per assembled frame. A native `rpc_frame_error`
+reports a dropped oversized event; retiring on it preserves attribution rather
+than treating missing event content as success. An oversized response remains
+a native failed response. An elided `agent_end` with empty messages is not
+evidence that no assistant ran and cannot replace the required terminal flag.
+OMP does not redirect unrelated stdout writes as Pi does; an ambient extension
+writing non-protocol text can therefore retire the managed transport.
+
+One-way UI cancellation enters the ordered writer queue atomically, then
+releases the admission lock before awaiting its write. A blocked UI write must
+not prevent a separately canceled call from reaching its cancellation check.
+The same ownership rule applies to Pi's native RPC writer.
 
 OMP has an explicit same-request `prompt_result`, including
 `agentInvoked:false`. Its immediate RPC success acknowledges the command,
