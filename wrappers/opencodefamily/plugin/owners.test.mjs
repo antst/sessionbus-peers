@@ -47,7 +47,15 @@ async function fixture(t, options = {}) {
     },
     async status(params, config) { return options.status ? options.status(params, config) : result({}); },
     async update(params, config) { updates.push(params); return options.update ? options.update(params, config) : result(info(params.sessionID, params.title)); },
-    async promptAsync() { throw new Error("unexpected model input"); },
+    async promptAsync(params, config) {
+      if (!options.promptAsync) throw new Error("unexpected model input");
+      assert.equal(config.throwOnError, true); assert.equal(config.redirect, "error");
+      return options.promptAsync(params, config);
+    },
+  }, permission: { list: (params, config) => options.permission ? options.permission(params, config) : result([]) },
+    question: { list: (params, config) => options.question ? options.question(params, config) : result([]) },
+  }, state: { session: {
+    permission: (id) => options.livePermission?.(id) || [], question: (id) => options.liveQuestion?.(id) || [],
   } } };
   const owners = new NativeOwners(api, { socket, groups: ["group"], name: options.name || "" }, { report: (error) => failures.push(error), peer: options.peer });
   t.after(async () => {
@@ -236,3 +244,132 @@ test("actual sole Caller preserves originating self_info with filtered rows", { 
   const f = await fixture(t, { call: (wire, request) => wire.result(request, value) });
   assert.deepEqual(await f.action("ses_native"), value);
 });
+
+const inbound = (id = "blocker_delivery") => ({ message_id: id, body: "inbound", from: { session_id: "sender", product: "test", groups: [] } });
+for (const type of ["question", "permission"]) {
+  test(`Kilo initial ${type} snapshot blocks despite empty TUI maps; terminal event drains once`, { skip: !nativeProduct.blockers, timeout: 5000 }, async (t) => {
+    let pending = true, submissions = 0, lists = 0;
+    const submitted = deferred();
+    const f = await fixture(t, { [type]: async (params, config) => {
+      lists++; assert.deepEqual(params, { directory: "/native/project" });
+      assert.equal(config.throwOnError, true); assert.equal(config.redirect, "error");
+      return result(pending ? [{ id: "native_request", sessionID: "ses_blocked" }] : []);
+    }, promptAsync: async (params) => {
+      submissions++; assert.equal(params.sessionID, "ses_blocked");
+      assert.equal(Object.hasOwn(params, "messageID"), false);
+      submitted.resolve(); return result(undefined, 204);
+    } });
+    await f.action("ses_blocked");
+    const receipt = await f.wires.get("ses_blocked").call("message.deliver", inbound());
+    assert.equal(receipt.disposition, "queued_for_next_turn");
+    assert.equal(submissions, 0); assert.equal(lists, 1);
+    pending = false;
+    f.events.emit(`${type}.replied`, { properties: { sessionID: "ses_blocked", requestID: "native_request" } });
+    await submitted.promise; await f.owners.dispose();
+    assert.equal(submissions, 1);
+  });
+}
+
+test("Kilo another native session's pending question does not block the exact delivery owner", { skip: !nativeProduct.blockers, timeout: 5000 }, async (t) => {
+  let submissions = 0;
+  const f = await fixture(t, { question: async () => result([{ sessionID: "ses_other" }]),
+    promptAsync: async (params) => { submissions++; assert.equal(params.sessionID, "ses_target"); return result(undefined, 204); },
+  });
+  await f.action("ses_target"); await f.owners.select("ses_other");
+  assert.equal((await f.wires.get("ses_target").call("message.deliver", inbound())).disposition, "written");
+  assert.equal(submissions, 1);
+});
+
+test("Kilo blocker arriving during held delivery GET preserves unsent input", { skip: !nativeProduct.blockers, timeout: 5000 }, async (t) => {
+  const entered = deferred(), release = deferred(), submitted = deferred();
+  let hold = false, pending = false, submissions = 0;
+  const f = await fixture(t, { get: async ({ sessionID }) => {
+    if (hold) { hold = false; entered.resolve(); await release.promise; }
+    return result(info(sessionID));
+  }, question: async () => result(pending ? [{ sessionID: "ses_target" }] : []),
+    promptAsync: async () => { submissions++; submitted.resolve(); return result(undefined, 204); },
+  });
+  await f.action("ses_target"); hold = true;
+  const delivering = f.wires.get("ses_target").call("message.deliver", inbound());
+  await entered.promise; pending = true;
+  f.events.emit("question.asked", { properties: { sessionID: "ses_target", id: "native_question" } });
+  release.resolve();
+  assert.equal((await delivering).disposition, "queued_for_next_turn"); assert.equal(submissions, 0);
+  pending = false;
+  f.events.emit("question.rejected", { properties: { sessionID: "ses_target", requestID: "native_question" } });
+  await submitted.promise; await f.owners.dispose(); assert.equal(submissions, 1);
+});
+
+test("Kilo final invocation recheck catches a blocker crossing the earlier live check", { skip: !nativeProduct.blockers, timeout: 5000 }, async (t) => {
+  let checks = 0, pending = false, submissions = 0;
+  const submitted = deferred();
+  const f = await fixture(t, { liveQuestion: () => {
+    checks++;
+    // First check follows the snapshots, second follows GET. Native event/state
+    // becomes visible in the microtask before the owned HTTP invocation runs.
+    if (checks === 2) queueMicrotask(() => { pending = true; });
+    return pending ? [{ sessionID: "ses_target" }] : [];
+  }, promptAsync: async () => { submissions++; submitted.resolve(); return result(undefined, 204); } });
+  await f.action("ses_target");
+  assert.equal((await f.wires.get("ses_target").call("message.deliver", inbound())).disposition, "queued_for_next_turn");
+  assert.equal(submissions, 0); assert.ok(checks >= 3);
+  pending = false;
+  f.events.emit("question.replied", { properties: { sessionID: "ses_target", requestID: "q" } });
+  await submitted.promise; await f.owners.dispose(); assert.equal(submissions, 1);
+});
+
+test("Kilo deletion cancels and joins held pending-request snapshots without submission", { skip: !nativeProduct.blockers, timeout: 5000 }, async (t) => {
+  const entered = deferred(), release = deferred();
+  let signal, submissions = 0;
+  const f = await fixture(t, { permission: async (_params, options) => {
+    signal = options.signal; entered.resolve(); await release.promise; return result([]);
+  }, promptAsync: async () => { submissions++; return result(undefined, 204); } });
+  await f.action("ses_target");
+  const delivering = f.wires.get("ses_target").call("message.deliver", inbound()).catch((error) => error);
+  await entered.promise;
+  f.events.emit("session.deleted", { properties: { info: { id: "ses_target" } } });
+  assert.equal(signal.aborted, true);
+  let joined = false; const closing = f.owners.dispose().then(() => { joined = true; });
+  await Promise.resolve(); assert.equal(joined, false);
+  release.resolve(); await closing; await delivering; assert.equal(submissions, 0);
+});
+
+test("Kilo idle event during blocker snapshot cannot turn a stale snapshot into admission", { skip: !nativeProduct.blockers, timeout: 5000 }, async (t) => {
+  const entered = deferred(), release = deferred(); let initial = true, pending = false, submissions = 0;
+  const f = await fixture(t, { question: async () => {
+    if (initial) { initial = false; entered.resolve(); await release.promise; return result([]); }
+    return result(pending ? [{ sessionID: "ses_target" }] : []);
+  }, promptAsync: async () => { submissions++; return result(undefined, 204); } });
+  await f.action("ses_target");
+  const delivering = f.wires.get("ses_target").call("message.deliver", inbound());
+  await entered.promise; pending = true;
+  f.events.emit("question.asked", { properties: { sessionID: "ses_target", id: "q" } });
+  f.events.emit("session.status", { properties: { sessionID: "ses_target", status: { type: "idle" } } });
+  release.resolve();
+  assert.equal((await delivering).disposition, "queued_for_next_turn"); assert.equal(submissions, 0);
+});
+
+test("Kilo native busy event during pending-request snapshots prevents handoff", { skip: !nativeProduct.blockers, timeout: 5000 }, async (t) => {
+  const entered = deferred(), release = deferred(); let submissions = 0;
+  const f = await fixture(t, { question: async () => { entered.resolve(); await release.promise; return result([]); },
+    promptAsync: async () => { submissions++; return result(undefined, 204); },
+  });
+  await f.action("ses_target");
+  const delivering = f.wires.get("ses_target").call("message.deliver", inbound());
+  await entered.promise;
+  f.events.emit("session.status", { properties: { sessionID: "ses_target", status: { type: "busy" } } });
+  release.resolve();
+  assert.equal((await delivering).disposition, "queued_for_next_turn"); assert.equal(submissions, 0);
+});
+
+for (const bad of [result({}), result([{ sessionID: "wrong" }]), { error: new Error("native list failed"), response: { status: 500 } }]) {
+  test(`Kilo unknown pending-request state fails closed (${JSON.stringify(bad)})`, { skip: !nativeProduct.blockers, timeout: 5000 }, async (t) => {
+    let submissions = 0;
+    const f = await fixture(t, { question: async () => bad,
+      promptAsync: async () => { submissions++; return result(undefined, 204); },
+    });
+    await f.action("ses_target");
+    const receipt = await f.wires.get("ses_target").call("message.deliver", inbound());
+    assert.equal(receipt.disposition, "rejected"); assert.equal(submissions, 0);
+  });
+}

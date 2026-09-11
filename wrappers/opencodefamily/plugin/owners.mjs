@@ -64,6 +64,16 @@ export class NativeOwners {
       record.statusRevision++;
       if (status === "idle" && record.delivery) this.#background(record.delivery.idle());
     }));
+    if (nativeProduct.blockers) {
+      for (const type of ["permission.asked", "permission.replied", "question.asked", "question.replied", "question.rejected"]) {
+        this.#unsub.push(api.event.on(type, (event) => {
+          const record = this.#owners.get(event.properties.sessionID);
+          if (!record) return;
+          record.blockerEpoch = {};
+          if (record.delivery) this.#background(record.delivery.idle());
+        }));
+      }
+    }
   }
 
   #report(error) { (this.#options.report || ((cause) => console.error(`sessionbus: ${cause?.message || cause}`)))(error); }
@@ -89,10 +99,16 @@ export class NativeOwners {
     const task = Promise.resolve().then(async () => {
       this.#check(record);
       if (cancel.aborted) throw cancel.reason;
+      // Kilo prompt_async can dismiss pending questions. Check again at the
+      // final owned invocation boundary, after all awaited snapshot/GET work.
+      // Native offers no atomic check-and-submit operation: a new blocker may
+      // still cross this handoff. Never answer/reject a blocker ourselves.
+      if (method === "promptAsync" && nativeProduct.blockers && !this.#unblocked(record)) return false;
       submitted?.();
       // The managed launcher selects real native fetch. SDK parsing allocation
       // belongs to native; this bounds concurrent operations, not that parser.
-      const result = await this.#api.client.session[method](parameters, { signal: cancel, throwOnError: true, redirect: "error" });
+      const [group, operation] = method.includes(".") ? method.split(".") : ["session", method];
+      const result = await this.#api.client[group][operation](parameters, { signal: cancel, throwOnError: true, redirect: "error" });
       if (result?.error !== undefined && result.error !== null || result?.response?.status !== (method === "promptAsync" ? 204 : 200)) throw new Error(`${nativeProduct.label} ${method} response was not confirmed`);
       this.#check(record);
       return result.data;
@@ -122,13 +138,44 @@ export class NativeOwners {
     return record.status;
   }
 
+  #unblocked(record) {
+    this.#check(record);
+    if (record.checkedBlockers !== record.blockerEpoch || record.status !== "idle") return false;
+    // Native reactive maps are only a live recheck, never authoritative initial
+    // snapshots. Two token references per owner bound invalidation state.
+    for (const type of ["permission", "question"]) {
+      const pending = this.#api.state.session[type](record.id);
+      if (!Array.isArray(pending)) throw new Error(`${nativeProduct.label} live ${type} state is malformed`);
+      if (pending.length) return false;
+    }
+    return true;
+  }
+
+  async #deliveryStatus(record, signal) {
+    const status = await this.#status(record, signal);
+    if (!nativeProduct.blockers || status !== "idle") return status;
+    const epoch = record.blockerEpoch;
+    const snapshots = await Promise.all(["permission", "question"].map((type) =>
+      this.#native(record, `${type}.list`, { directory: record.info.directory }, signal)));
+    this.#check(record);
+    for (const pending of snapshots) {
+      if (!Array.isArray(pending) || pending.some((request) => !object(request) || !nativeID(request.sessionID))) {
+        throw new Error(`${nativeProduct.label} pending blocker snapshot is malformed`);
+      }
+      if (pending.some((request) => request.sessionID === record.id)) return "busy";
+    }
+    if (epoch !== record.blockerEpoch) return "busy";
+    record.checkedBlockers = epoch;
+    return this.#unblocked(record) ? "idle" : "busy";
+  }
+
   #ensure(id) {
     if (!nativeID(id)) throw new Error("invalid native session ID");
     if (this.#controller.signal.aborted) throw this.#controller.signal.reason;
     const existing = this.#owners.get(id);
     if (existing) return existing;
     if (this.#records.size >= ownerLimits.owners || this.#pending >= ownerLimits.establishing) throw new Error("Sessionbus native owner limit reached");
-    const record = { id, controller: new AbortController(), gate: new ReadyGate(), revision: 0, statusRevision: 0 };
+    const record = { id, controller: new AbortController(), gate: new ReadyGate(), revision: 0, statusRevision: 0, ...(nativeProduct.blockers ? { blockerEpoch: {} } : {}) };
     this.#owners.set(id, record);
     this.#records.add(record);
     this.#pending++;
@@ -138,7 +185,8 @@ export class NativeOwners {
         await this.#status(record);
         this.#check(record);
         record.delivery = new NativeDelivery({ sessionID: id, signal: record.controller.signal, report: (error) => this.#report(error),
-          status: (signal) => this.#status(record, signal), info: (signal) => this.#get(record, signal),
+          status: (signal) => nativeProduct.blockers ? this.#deliveryStatus(record, signal) : this.#status(record, signal),
+          ...(nativeProduct.blockers ? { maySubmit: () => this.#unblocked(record) } : {}), info: (signal) => this.#get(record, signal),
           submit: (params, signal, submitted) => this.#native(record, "promptAsync", params, signal, submitted),
           reserve: (bytes) => { if (this.#bytes + bytes > deliveryLimits.totalBytes) return false; this.#bytes += bytes; return true; },
           release: (bytes) => { this.#bytes -= bytes; },

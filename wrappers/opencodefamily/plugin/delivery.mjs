@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 
+import { nativeProduct } from "./profile.mjs";
 import { createHash } from "node:crypto";
 
 export const deliveryLimits = Object.freeze({ messages: 64, ownerBytes: 1024 * 1024, totalBytes: 16 * 1024 * 1024 });
@@ -76,20 +77,22 @@ export class NativeDelivery {
             if (await this.#options.status(cancel) !== "idle") break;
             const info = await this.#options.info(cancel);
             if (cancel.aborted || this.#closed) throw cancel.reason || new Error("native owner closed");
+            if (this.#options.maySubmit && !this.#options.maySubmit()) break;
             const item = this.#queue[0];
             if (!item) return;
             const model = info.model && { providerID: info.model.providerID, modelID: info.model.id };
             const parameters = { sessionID: this.#options.sessionID, directory: info.directory,
-              messageID: item.id, parts: [{ type: "text", text: item.text }],
+              ...(nativeProduct.nativeMessageID ? {} : { messageID: item.id }), parts: [{ type: "text", text: item.text }],
               ...(info.agent ? { agent: info.agent } : {}), ...(model ? { model } : {}),
               ...(info.model?.variant && info.model.variant !== "default" ? { variant: info.model.variant } : {}),
             };
             // Removing from local FIFO is the attempted-handoff boundary. A native
             // busy/terminal race may store input without consuming it in that turn.
-            await this.#options.submit(parameters, cancel, () => {
+            const submitted = await this.#options.submit(parameters, cancel, () => {
               this.#remove(item);
               item.attempted = true;
             });
+            if (nativeProduct.blockers && submitted === false) break;
             item.written = true;
           }
         } while (this.#idleDemand && !this.#closed && this.#queue.length);

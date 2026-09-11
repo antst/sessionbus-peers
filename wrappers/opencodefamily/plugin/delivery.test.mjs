@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: MIT
 
+import { nativeProduct } from "./profile.mjs";
+import { createHash } from "node:crypto";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { readFile } from "node:fs/promises";
@@ -32,6 +34,8 @@ test("busy stage uses native idle event then one explicit native-session submiss
   assert.deepEqual(p.model, { providerID: "native-provider", modelID: "native-model" });
   assert.equal(p.agent, "native-agent"); assert.equal(p.variant, "native-variant");
   assert.match(p.parts[0].text, /message_1/);
+  if (nativeProduct.nativeMessageID) assert.equal(Object.hasOwn(p, "messageID"), false);
+  else assert.equal(p.messageID, `msg_${createHash("sha256").update("message_1").digest("hex").slice(0, 32)}`);
 });
 
 test("attempted uncertain native handoff is never restored or retried", async (t) => {
