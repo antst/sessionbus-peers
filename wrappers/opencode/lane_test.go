@@ -35,6 +35,10 @@ func fakePart(session, id, kind, text string) json.RawMessage {
 	return b
 }
 func fakeNativeHTTP() {
+	if os.Getenv("OPENCODE_REVIEW_ROLLBACK_NOTIFY") != "" {
+		reviewStalledRollbackNative()
+		return
+	}
 	cwd, _ := os.Getwd()
 	id := "ses_native"
 	if strings.Join(os.Args[1:], " ") != "serve --hostname 127.0.0.1 --port 0" {

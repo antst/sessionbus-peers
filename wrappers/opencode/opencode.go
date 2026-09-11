@@ -100,10 +100,10 @@ func (p *Wrapper) Open(ctx context.Context, request kit.OpenRequest) (result kit
 	created := ""
 	defer func() {
 		if err != nil {
-			// Fresh rollback only while the original child remains owned. An already
-			// lost transport cannot be used to delete an unrelated resumed session.
+			// Fresh rollback stays subject to startup cancellation and native loss.
+			// Cancellation may prevent deletion; it must still reach joined Close.
 			if created != "" && p.ctx.Err() == nil {
-				err = errors.Join(err, p.client.remove(p.ctx, created))
+				err = errors.Join(err, p.client.remove(startupCtx, created))
 			}
 			err = errors.Join(err, p.Close(context.WithoutCancel(ctx), kit.SessionCloseRequest{}))
 			p.mu.Lock()
