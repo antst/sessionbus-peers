@@ -353,6 +353,13 @@ was requested, never that the process has exited.
 OMP loads its explicit CLI extension after ambient extensions, so Pi's first
 settled-handler guard does not transfer. OMP marks a prompt in flight before
 calling preflight hooks, preventing an independent run inside those hooks.
+The private bridge and stdout can deliver their observations in either order.
+The controller waits for the next unconsumed preflight of the exact owner token
+and session ID, in native report order. It rejects a leading foreign prompt
+instead of searching for later matching text. Cancellation or recorded owner
+failure before consumption leaves that witness and its byte accounting intact.
+The Run controller must join this wait with native no-agent results, terminal
+events and owner loss; the waiter alone is not run admission.
 Its wire terminal waits for that prompt to unwind, including awaited
 `session_stop` continuations. The separate extension `agent_end` notification
 is detached: its handlers are not joined by the terminal. Work they start later
