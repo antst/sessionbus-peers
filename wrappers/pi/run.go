@@ -438,20 +438,22 @@ func (p *Wrapper) observeNativeUI(raw json.RawMessage) error {
 	if json.Unmarshal(raw, &event) != nil || !validPiText(event.ID, 256, false) || !validPiText(event.Method, 32, false) {
 		return errors.New("Pi native extension UI request is invalid")
 	}
+	switch event.Method {
+	case "notify", "setStatus", "setWidget", "setTitle", "set_editor_text":
+		// These are native fire-and-forget notifications. Native extensions can
+		// emit them before Open publishes its owner or while the owner is idle.
+		return nil
+	case "select", "confirm", "input", "editor":
+	default:
+		return fmt.Errorf("Pi native requested unknown extension UI method %q", event.Method)
+	}
 	p.mu.Lock()
 	turn, opened, closing := p.active, p.opened, p.closing
 	p.mu.Unlock()
 	if !opened || closing || turn == nil {
-		return errors.New("Pi native requested unsupported startup UI")
+		return fmt.Errorf("Pi native requested unsupported startup UI method %q", event.Method)
 	}
-	switch event.Method {
-	case "select", "confirm", "input", "editor":
-		return turn.cancelUI(event.ID)
-	case "notify", "setStatus", "setWidget", "setTitle", "set_editor_text":
-		return nil
-	default:
-		return errors.New("Pi native requested an unknown extension UI method")
-	}
+	return turn.cancelUI(event.ID)
 }
 
 func (p *Wrapper) currentNativeTurn(sessionID string) (*piNativeTurn, error) {
