@@ -13,8 +13,11 @@ owner registry, native extension and joined process owner are integrated as
 components. The process owner separates terminal and RPC transport and joins
 startup, cancellation and shutdown cleanup in local subprocess tests. Its public
 Wrapper, Run controller, managed payload resolver and thin interactive launcher
-are integrated. Command and package integration, explicit interrupt validation
-and installed native acceptance remain pending; no native OMP acceptance is claimed. The source base is peers
+are integrated with the command, installer and release package. Local tests
+cover fresh Open, admitted interruption followed by a healthy Run, and submitted
+staged delivery interrupted before preflight without replay. The first permanent
+OMP installation is released for execution; installed native acceptance remains
+pending. No native OMP acceptance is claimed. The source base is peers
 `75866839b7f024edf2c7f9d2d3af647a343f4987`.
 
 ## Native versions and implementation cost
@@ -61,6 +64,14 @@ closure remain required behavior; the estimate cannot be met by deleting those
 semantics. Final accounting will count shared source once, each shipped copy
 separately, and native prerequisites separately from wrapper binaries and
 extensions. These source counts do not measure linked bytes or runtime memory.
+
+The first OMP wrapper artifact at `1c7fef76f1977d988d12d3b443ccddac8faf5e6e`
+contains eight regular files totaling 4,188,047 bytes. Its stripped Linux amd64
+Go binary is 4,124,834 bytes; the managed OMP extension and private bridge total
+56,596 bytes. The compressed archive is 1,739,536 bytes. These figures exclude
+the existing native OMP/Bun installation and do not measure memory use. Its Go
+dependency set is unchanged from the reviewed Pi artifact, and it adds no
+JavaScript package or sidecar. Test-only follow-ups preserve these shipped bytes.
 
 ## Ownership
 
