@@ -37,10 +37,27 @@ invocation passed both Worker Open/Close and ordinary interactive startup/Ctrl-D
 with exact public identities, direct Bun ancestry, and observed peer/process/private
 resource cleanup. Service generations and installed correspondence remained valid.
 The private configuration comparison recorded an active-agent change despite
-equal exported metadata; configuration content equality is not claimed. No OMP
-prompt or Run has been issued by these fixtures. Pi's matching
-startup-notification correction is integrated and packaged separately; its
-permanent replacement also remains pending. The source base is peers
+equal exported metadata; configuration content equality is not claimed.
+
+The first normal Run on the permanent `332471c` build completed with the native
+startup-selected `openai-codex/gpt-5.5` model, one managed Sessionbus list execution,
+matching public/native final results, and ordinary Close with observed resource
+cleanup. The execution fixture exited with a verifier error: native OMP exposed
+the discoverable Sessionbus tool through `write` to `xd://sessionbus`, returning
+its result under `details.xdev.inner`. Independent review of the preserved capture
+and native source verified that dispatch and the matching call/session identities.
+The core Run is verified; the fixture failure and its secondary closed-stream
+capture error remain recorded. No model retry was performed.
+
+Native persistence also permits the tool-start marker before the assistant's
+message entry because their handlers complete asynchronously. OAuth credential
+pinning can insert a bookkeeping entry after the assistant. Evidence checks must
+follow the actual parent graph and source-defined entry types rather than assume
+a fixed message/marker order. Credential-pin hashes are not part of the public
+verification projection.
+
+Pi's matching startup-notification correction is permanently installed at `19f1b1b`;
+its separate zero-input regression remains pending. The source base is peers
 `75866839b7f024edf2c7f9d2d3af647a343f4987`.
 
 ## Native versions and implementation cost
