@@ -73,6 +73,20 @@ the existing native OMP/Bun installation and do not measure memory use. Its Go
 dependency set is unchanged from the reviewed Pi artifact, and it adds no
 JavaScript package or sidecar. Test-only follow-ups preserve these shipped bytes.
 
+At that source pin, production files under the two commands and wrappers have
+the following physical line counts (comments and blank lines included):
+
+| Component | Go | JavaScript |
+| --- | ---: | ---: |
+| Pi | 4,166 | 484 |
+| OMP | 5,822 | 820 |
+| Shared private transport, counted once | 993 | 724 |
+
+These counts exclude tests, build tooling, documentation and dependencies. Each
+installed product ships its own copy of the 23,728-byte JavaScript bridge. The
+shared transport alone exceeds the historical estimate; no 650-line claim is
+made for this implementation.
+
 ## Ownership
 
 `pi-peer` and `omp-peer` are the public products in every hello. The native
