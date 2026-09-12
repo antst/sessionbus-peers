@@ -16,18 +16,26 @@ Wrapper, Run controller, managed payload resolver and thin interactive launcher
 are integrated with the command, installer and release package. Local tests
 cover fresh Open, admitted interruption followed by a healthy Run, and submitted
 staged delivery interrupted before preflight without replay. The first permanent
-OMP installation passed exact artifact, alias and captured service checks; native
-Worker and interactive startup acceptance remain pending. The first Worker
-attempt failed before Open completed: the UI observer rejected a startup UI
-frame. The observer applied its startup/idle guard before notification classification.
-The integrated correction accepts validated notifications before that guard;
-startup dialogs still fail with a method-only diagnostic. OMP's built-in
-autoresearch extension emits a startup `setWidget` notification, providing a
-source-bound regression case. The captured failed frame's method is unknown.
-The corrected full OMP race suite passes; permanent replacement and a separate
-native invocation remain required. Final installation, service and observed
-cleanup checks passed on the failed attempt. No successful
-native OMP acceptance is claimed. The source base is peers
+OMP installation passed exact artifact, alias and captured service checks.
+The first Worker attempt failed before Open because the UI observer applied its
+startup guard before notification classification. The installed correction
+accepts validated notifications first; startup dialogs still fail with a
+method-only diagnostic. OMP's built-in autoresearch extension supplies a
+source-bound startup `setWidget` case; the original captured method is unknown.
+
+On the corrected permanent build, Worker Open/Close passed with exact public
+identity, direct Bun ancestry and observed process/private-resource cleanup.
+An earlier fixture incorrectly required `info.cwd` on a daemon-owned lane row;
+its failure is preserved separately. Explicit lane cwd is validated against the
+live binding during Open, while interactive/child Peers expose `info.cwd`.
+The subsequent interactive attempt failed before native discovery because its
+planner omitted the default daemon socket. The integrated correction uses the
+existing SDK socket policy when the managed socket is missing, preserves explicit
+values and leaves native passthrough unchanged. Independent command and OMP race
+tests pass. Its permanent replacement and interactive native acceptance remain
+pending. No OMP prompt or Run has been issued by these fixtures. Pi's matching
+startup-notification correction is integrated and packaged separately; its
+permanent replacement also remains pending. The source base is peers
 `75866839b7f024edf2c7f9d2d3af647a343f4987`.
 
 ## Native versions and implementation cost
