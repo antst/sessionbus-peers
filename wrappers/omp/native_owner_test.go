@@ -47,8 +47,10 @@ type ompNativeOwnerHelper struct {
 	state          chan struct{}
 	stateRequested chan struct{}
 	releaseState   chan struct{}
+	releaseExit    chan struct{}
 	endAck         chan struct{}
 	once           sync.Once
+	exitOnce       sync.Once
 }
 
 func TestOMPNativeOwnerHelper(t *testing.T) {
@@ -117,7 +119,7 @@ func runOMPNativeOwnerHelper() error {
 	helper := &ompNativeOwnerHelper{
 		launch: launch, cwd: cwd, scenario: os.Getenv(ompNativeOwnerScenarioEnv),
 		shutdown: make(chan struct{}), state: make(chan struct{}), stateRequested: make(chan struct{}),
-		releaseState: make(chan struct{}), endAck: make(chan struct{}),
+		releaseState: make(chan struct{}), releaseExit: make(chan struct{}), endAck: make(chan struct{}),
 	}
 	bridge, err := pifamily.NewBridge(connection, pifamily.BridgeNative, helper.handleBridge, pifamily.BridgeLimits{})
 	if err != nil {
@@ -161,6 +163,7 @@ func runOMPNativeOwnerHelper() error {
 	}
 	<-helper.state
 	if helper.scenario == "exit_after_ready" {
+		<-helper.releaseExit
 		os.Exit(23)
 	}
 	<-helper.shutdown
@@ -222,6 +225,12 @@ func (helper *ompNativeOwnerHelper) handleBridge(ctx context.Context, method str
 		return json.Marshal(ownerShutdownResult{
 			OwnerToken: ompNativeOwnerToken, SessionID: ompNativeOwnerSID, Requested: true,
 		})
+	case "fixture.exit":
+		if helper.scenario != "exit_after_ready" {
+			return nil, pifamily.NewBridgeCallError("bad_request", "unexpected fixture exit")
+		}
+		helper.exitOnce.Do(func() { close(helper.releaseExit) })
+		return json.Marshal(struct{}{})
 	default:
 		return nil, pifamily.NewBridgeCallError("method_not_found", "unexpected native owner method")
 	}
@@ -586,6 +595,14 @@ func TestNativeOwnerRetiresUnexpectedChildExit(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitNativeOwnerReady(t, owner)
+	select {
+	case <-owner.Done():
+		t.Fatal("fixture child exited before the explicit post-readiness release")
+	default:
+	}
+	if err = owner.bridge.Call(nativeOwnerTestContext(t), "fixture.exit", nil, nil); err != nil && !errors.Is(err, pifamily.ErrBridgeClosed) {
+		t.Fatal(err)
+	}
 	select {
 	case <-owner.Done():
 	case <-nativeOwnerTestContext(t).Done():
