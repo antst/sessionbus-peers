@@ -32,8 +32,13 @@ The subsequent interactive attempt failed before native discovery because its
 planner omitted the default daemon socket. The integrated correction uses the
 existing SDK socket policy when the managed socket is missing, preserves explicit
 values and leaves native passthrough unchanged. Independent command and OMP race
-tests pass. Its permanent replacement and interactive native acceptance remain
-pending. No OMP prompt or Run has been issued by these fixtures. Pi's matching
+tests pass. After permanent replacement, the first exact corrected zero-input
+invocation passed both Worker Open/Close and ordinary interactive startup/Ctrl-D,
+with exact public identities, direct Bun ancestry, and observed peer/process/private
+resource cleanup. Service generations and installed correspondence remained valid.
+The private configuration comparison recorded an active-agent change despite
+equal exported metadata; configuration content equality is not claimed. No OMP
+prompt or Run has been issued by these fixtures. Pi's matching
 startup-notification correction is integrated and packaged separately; its
 permanent replacement also remains pending. The source base is peers
 `75866839b7f024edf2c7f9d2d3af647a343f4987`.
