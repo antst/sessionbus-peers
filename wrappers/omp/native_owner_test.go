@@ -47,8 +47,10 @@ type ompNativeOwnerHelper struct {
 	state          chan struct{}
 	stateRequested chan struct{}
 	releaseState   chan struct{}
+	releaseExit    chan struct{}
 	endAck         chan struct{}
 	once           sync.Once
+	exitOnce       sync.Once
 }
 
 func TestOMPNativeOwnerHelper(t *testing.T) {
@@ -92,6 +94,19 @@ func runOMPNativeOwnerHelper() error {
 			}
 		}
 	}
+	if os.Getenv(ompNativeOwnerScenarioEnv) == "changed_cwd" {
+		launchCWD, cwdErr := os.Getwd()
+		if cwdErr != nil {
+			return cwdErr
+		}
+		selected := filepath.Join(launchCWD, "persisted-project")
+		if cwdErr = os.Mkdir(selected, 0o700); cwdErr != nil {
+			return cwdErr
+		}
+		if cwdErr = os.Chdir(selected); cwdErr != nil {
+			return cwdErr
+		}
+	}
 	connection, err := net.Dial("unix", launch.Socket)
 	if err != nil {
 		return err
@@ -104,7 +119,7 @@ func runOMPNativeOwnerHelper() error {
 	helper := &ompNativeOwnerHelper{
 		launch: launch, cwd: cwd, scenario: os.Getenv(ompNativeOwnerScenarioEnv),
 		shutdown: make(chan struct{}), state: make(chan struct{}), stateRequested: make(chan struct{}),
-		releaseState: make(chan struct{}), endAck: make(chan struct{}),
+		releaseState: make(chan struct{}), releaseExit: make(chan struct{}), endAck: make(chan struct{}),
 	}
 	bridge, err := pifamily.NewBridge(connection, pifamily.BridgeNative, helper.handleBridge, pifamily.BridgeLimits{})
 	if err != nil {
@@ -148,6 +163,7 @@ func runOMPNativeOwnerHelper() error {
 	}
 	<-helper.state
 	if helper.scenario == "exit_after_ready" {
+		<-helper.releaseExit
 		os.Exit(23)
 	}
 	<-helper.shutdown
@@ -209,6 +225,12 @@ func (helper *ompNativeOwnerHelper) handleBridge(ctx context.Context, method str
 		return json.Marshal(ownerShutdownResult{
 			OwnerToken: ompNativeOwnerToken, SessionID: ompNativeOwnerSID, Requested: true,
 		})
+	case "fixture.exit":
+		if helper.scenario != "exit_after_ready" {
+			return nil, pifamily.NewBridgeCallError("bad_request", "unexpected fixture exit")
+		}
+		helper.exitOnce.Do(func() { close(helper.releaseExit) })
+		return json.Marshal(struct{}{})
 	default:
 		return nil, pifamily.NewBridgeCallError("method_not_found", "unexpected native owner method")
 	}
@@ -575,11 +597,36 @@ func TestNativeOwnerRetiresUnexpectedChildExit(t *testing.T) {
 	waitNativeOwnerReady(t, owner)
 	select {
 	case <-owner.Done():
+		t.Fatal("fixture child exited before the explicit post-readiness release")
+	default:
+	}
+	if err = owner.bridge.Call(nativeOwnerTestContext(t), "fixture.exit", nil, nil); err != nil && !errors.Is(err, pifamily.ErrBridgeClosed) {
+		t.Fatal(err)
+	}
+	select {
+	case <-owner.Done():
 	case <-nativeOwnerTestContext(t).Done():
 		t.Fatal("unexpected child exit did not retire owner")
 	}
 	if owner.Err() == nil {
 		t.Fatal("unexpected child exit was not retained")
+	}
+}
+
+func TestNativeOwnerAdoptsLiveCWDSeparateFromLaunchDirectory(t *testing.T) {
+	options, _ := nativeOwnerFixture(t, "changed_cwd")
+	owner, err := StartNativeOwner(nativeOwnerTestContext(t), options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitNativeOwnerReady(t, owner)
+	binding, ok := owner.Primary()
+	want := filepath.Join(options.CWD, "persisted-project")
+	if !ok || binding.CWD != want || binding.CWD == options.CWD {
+		t.Fatalf("live cwd binding = %+v, want %q", binding, want)
+	}
+	if err = owner.Close(nativeOwnerTestContext(t)); err != nil {
+		t.Fatal(err)
 	}
 }
 
