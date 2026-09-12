@@ -92,6 +92,19 @@ func runOMPNativeOwnerHelper() error {
 			}
 		}
 	}
+	if os.Getenv(ompNativeOwnerScenarioEnv) == "changed_cwd" {
+		launchCWD, cwdErr := os.Getwd()
+		if cwdErr != nil {
+			return cwdErr
+		}
+		selected := filepath.Join(launchCWD, "persisted-project")
+		if cwdErr = os.Mkdir(selected, 0o700); cwdErr != nil {
+			return cwdErr
+		}
+		if cwdErr = os.Chdir(selected); cwdErr != nil {
+			return cwdErr
+		}
+	}
 	connection, err := net.Dial("unix", launch.Socket)
 	if err != nil {
 		return err
@@ -580,6 +593,23 @@ func TestNativeOwnerRetiresUnexpectedChildExit(t *testing.T) {
 	}
 	if owner.Err() == nil {
 		t.Fatal("unexpected child exit was not retained")
+	}
+}
+
+func TestNativeOwnerAdoptsLiveCWDSeparateFromLaunchDirectory(t *testing.T) {
+	options, _ := nativeOwnerFixture(t, "changed_cwd")
+	owner, err := StartNativeOwner(nativeOwnerTestContext(t), options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitNativeOwnerReady(t, owner)
+	binding, ok := owner.Primary()
+	want := filepath.Join(options.CWD, "persisted-project")
+	if !ok || binding.CWD != want || binding.CWD == options.CWD {
+		t.Fatalf("live cwd binding = %+v, want %q", binding, want)
+	}
+	if err = owner.Close(nativeOwnerTestContext(t)); err != nil {
+		t.Fatal(err)
 	}
 }
 

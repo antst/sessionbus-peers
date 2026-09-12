@@ -361,9 +361,10 @@ func (owner *NativeOwner) bootstrap(options NativeOwnerOptions) error {
 	if !ok || binding.Scope != ownerScopePrimary {
 		return errors.New("OMP primary owner is unavailable after readiness")
 	}
-	if binding.CWD != options.CWD {
-		return errors.New("OMP native working directory contradicts its managed owner")
-	}
+	// options.CWD is the direct child's physical launch directory. OMP may
+	// legitimately select another live project during startup (for example a
+	// resumed session). The validated managed description is authoritative for
+	// the native session cwd.
 	if owner.rpc != nil {
 		var raw json.RawMessage
 		if err = owner.rpc.Call(startup, "get_state", nil, &raw); err != nil {
