@@ -12,8 +12,9 @@ OMP's native executable resolver, argument routing, process/RPC components,
 owner registry, native extension and joined process owner are integrated as
 components. The process owner separates terminal and RPC transport and joins
 startup, cancellation and shutdown cleanup in local subprocess tests. Its public
-Wrapper, command and package integration remain to be wired; no native OMP
-acceptance is claimed. The source base is peers
+Wrapper, Run controller, managed payload resolver and thin interactive launcher
+are integrated. Command and package integration, explicit interrupt validation
+and installed native acceptance remain pending; no native OMP acceptance is claimed. The source base is peers
 `75866839b7f024edf2c7f9d2d3af647a343f4987`.
 
 ## Native versions and implementation cost
@@ -278,6 +279,10 @@ One-way UI cancellation enters the ordered writer queue atomically, then
 releases the admission lock before awaiting its write. A blocked UI write must
 not prevent a separately canceled call from reaching its cancellation check.
 The same ownership rule applies to Pi's native RPC writer.
+The OMP turn joins admitted UI cancellation work before finalizing its result.
+If caller cancellation or transport retirement interrupts that join, the turn
+cancels its owned UI context and reports unsettled writes as failure. A native
+terminal cannot conceal a pending cancellation-write failure.
 
 OMP has an explicit same-request `prompt_result`, including
 `agentInvoked:false`. Its immediate RPC success acknowledges the command,
