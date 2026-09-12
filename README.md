@@ -29,6 +29,7 @@ curl -fsSL https://raw.githubusercontent.com/antst/sessionbus-peers/develop/scri
 curl -fsSL https://raw.githubusercontent.com/antst/sessionbus-peers/develop/scripts/install-opencode.sh | sh
 curl -fsSL https://raw.githubusercontent.com/antst/sessionbus-peers/develop/scripts/install-kilo.sh | sh
 curl -fsSL https://raw.githubusercontent.com/antst/sessionbus-peers/develop/scripts/install-pi.sh | sh
+curl -fsSL https://raw.githubusercontent.com/antst/sessionbus-peers/develop/scripts/install-omp.sh | sh
 ```
 
 Each command installs only that peer and its plugin into your normal user
@@ -37,8 +38,9 @@ daemon or hub. Use your normal login shell with `~/.local/bin` on PATH. Linux
 and macOS, amd64 and arm64 archives are provided. No Go or npm is needed on the
 target. OpenCode and Kilo use their Go installer and small plugin in the native product's
 existing Bun runtime; no separate Node or Bun installation is required. Pi's
-managed extension runs inside its native product's existing Node process, with
-no sidecar or global extension registration. The OpenCode-family plugins'
+managed extension runs inside its native product's existing Node process; OMP's
+runs inside its existing Bun process. Neither adds a sidecar or global extension
+registration. The OpenCode-family plugins'
 only JavaScript runtime dependency is the bundled pinned Sessionbus kit.
 Grok/Qwen install their native plugin globally; Claude/Codex retain their
 documented managed-launch activation. OpenCode and Kilo register tiny server/TUI hooks
@@ -63,7 +65,7 @@ the current adapters; the per-product facts still define their accepted scope
 Maintainers build Claude/Codex using `scripts/package-claude` and
 `scripts/package-codex`. For other products use
 `scripts/package-product PRODUCT OUTPUT_DIRECTORY`. The `Binary releases`
-workflow builds all seven for four platforms, publishes development after its tests and builds pass, and publishes a stable release when a new `vX.Y.Z` tag is pushed. Release
+workflow builds all eight for four platforms, publishes development after its tests and builds pass, and publishes a stable release when a new `vX.Y.Z` tag is pushed. Release
 archives record their exact source in the accompanying `SOURCE.txt`.
 
 ## Interactive CLI aliases
@@ -160,8 +162,8 @@ Complete each product hookup using only the retained integration:
 
 Product evidence and constraints are in `docs/products/claude.md`,
 `docs/products/codex.md`, `docs/products/opencode.md`,
-`docs/products/grok.md`, and `docs/products/qwen.md`. Pi's in-progress contract
-is in [`docs/designs/pi-omp-0.5.0/DESIGN.md`](docs/designs/pi-omp-0.5.0/DESIGN.md).
+`docs/products/grok.md`, and `docs/products/qwen.md`. Pi and OMP's in-progress contract and installed acceptance status
+are in [`docs/designs/pi-omp-0.5.0/DESIGN.md`](docs/designs/pi-omp-0.5.0/DESIGN.md).
 Held Claude lane references are outside the activated plugin under
 `docs/designs/claude-0.5.0/held-lane-skills/` as historical references;
 this README is the installation authority until then.
