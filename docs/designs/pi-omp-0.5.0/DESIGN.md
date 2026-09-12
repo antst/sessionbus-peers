@@ -17,7 +17,13 @@ are integrated with the command, installer and release package. Local tests
 cover fresh Open, admitted interruption followed by a healthy Run, and submitted
 staged delivery interrupted before preflight without replay. The first permanent
 OMP installation passed exact artifact, alias and captured service checks; native
-Worker and interactive startup acceptance remain pending. No native OMP acceptance is claimed. The source base is peers
+Worker and interactive startup acceptance remain pending. The first Worker
+attempt failed before Open completed: the UI observer rejected a startup UI
+frame. Its notification classification currently follows the startup/idle guard,
+so even benign notifications are rejected. The captured error does not identify
+the actual method. Final installation, service and observed cleanup checks
+passed; a correction and a separate invocation remain required. No successful
+native OMP acceptance is claimed. The source base is peers
 `75866839b7f024edf2c7f9d2d3af647a343f4987`.
 
 ## Native versions and implementation cost
