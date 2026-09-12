@@ -4,6 +4,7 @@ package omp
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"slices"
 	"strings"
@@ -109,6 +110,64 @@ func TestOMPWrapperOpenFreshConfirmsNativeNameAndClose(t *testing.T) {
 	case <-wrapper.owner.Done():
 	default:
 		t.Fatal("fresh Close returned before NativeOwner joined")
+	}
+}
+
+func TestOMPWrapperOpenAcceptsStartupAndIdleNotifications(t *testing.T) {
+	options, _ := nativeOwnerFixture(t, "startup_widget")
+	wrapper := New(options.DaemonSocket, options.Provisional, options.Native, options.Extension)
+	wrapper.SetCaller(options.PrimaryCaller)
+	result, err := wrapper.Open(nativeOwnerTestContext(t), sessionkit.OpenRequest{
+		Name: "fresh-requested@local", Groups: []string{"fixture"},
+		Open: sessionkit.OpenOptions{Cwd: options.CWD},
+	})
+	if err != nil || result.SessionID != ompNativeOwnerSID {
+		t.Fatalf("fresh Open after startup setWidget = %+v, %v", result, err)
+	}
+	if err = wrapper.observeNative(json.RawMessage(
+		`{"type":"extension_ui_request","id":"idle-widget","method":"setWidget","widgetKey":"autoresearch"}`,
+	)); err != nil {
+		t.Fatalf("idle setWidget = %v", err)
+	}
+	if wrapper.failure != nil {
+		t.Fatalf("idle setWidget retired wrapper: %v", wrapper.failure)
+	}
+	if err = wrapper.Close(nativeOwnerTestContext(t), sessionkit.SessionCloseRequest{}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-wrapper.owner.Done():
+	default:
+		t.Fatal("Close returned before NativeOwner joined")
+	}
+}
+
+func TestOMPWrapperOpenRejectsStartupDialogWithMethod(t *testing.T) {
+	options, _ := nativeOwnerFixture(t, "startup_dialog")
+	wrapper := New(options.DaemonSocket, options.Provisional, options.Native, options.Extension)
+	wrapper.SetCaller(options.PrimaryCaller)
+	result, err := wrapper.Open(nativeOwnerTestContext(t), sessionkit.OpenRequest{
+		Name: "fresh-requested@local", Groups: []string{"fixture"},
+		Open: sessionkit.OpenOptions{Cwd: options.CWD},
+	})
+	if err == nil || !strings.Contains(err.Error(), `unsupported startup UI method "confirm"`) {
+		t.Fatalf("startup dialog Open = %+v, %v", result, err)
+	}
+	if wrapper.opened {
+		t.Fatal("startup dialog committed Open")
+	}
+	if wrapper.owner != nil {
+		select {
+		case <-wrapper.owner.Done():
+		default:
+			t.Fatal("failed Open returned before NativeOwner joined")
+		}
+	}
+	unknown := &Wrapper{}
+	if err = unknown.observeNativeUI(json.RawMessage(
+		`{"type":"extension_ui_request","id":"startup-unknown","method":"future"}`,
+	)); err == nil || !strings.Contains(err.Error(), `unknown extension UI method "future"`) {
+		t.Fatalf("unknown startup method = %v", err)
 	}
 }
 

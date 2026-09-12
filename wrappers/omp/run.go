@@ -565,20 +565,22 @@ func (p *Wrapper) observeNativeUI(raw json.RawMessage) error {
 	if json.Unmarshal(raw, &event) != nil || !validOwnerID(event.ID) || !validOwnerText(event.Method, 32) || event.Method == "" {
 		return errors.New("OMP native extension UI request is invalid")
 	}
+	switch event.Method {
+	case "cancel", "notify", "open_url", "setStatus", "setWidget", "setTitle", "set_editor_text":
+		// These are native fire-and-forget notifications. Session-start hooks can
+		// emit them after RPC readiness but before Open publishes its owner.
+		return nil
+	case "select", "confirm", "input", "editor":
+	default:
+		return fmt.Errorf("OMP native requested unknown extension UI method %q", event.Method)
+	}
 	p.mu.Lock()
 	turn, opened, closing := p.active, p.opened, p.closing
 	p.mu.Unlock()
 	if !opened || closing || turn == nil {
-		return errors.New("OMP native requested unsupported startup UI")
+		return fmt.Errorf("OMP native requested unsupported startup UI method %q", event.Method)
 	}
-	switch event.Method {
-	case "select", "confirm", "input", "editor":
-		return turn.cancelUI(event.ID)
-	case "cancel", "notify", "open_url", "setStatus", "setWidget", "setTitle", "set_editor_text":
-		return nil
-	default:
-		return errors.New("OMP native requested an unknown extension UI method")
-	}
+	return turn.cancelUI(event.ID)
 }
 
 func (p *Wrapper) startNativeTurn(ctx context.Context, run *sessionkit.Run, prompt string) (*ompNativeTurn, error) {

@@ -144,6 +144,16 @@ func runOMPNativeOwnerHelper() error {
 	}, nil); err != nil {
 		return err
 	}
+	if helper.scenario == "startup_widget" {
+		if _, err = fmt.Fprintln(os.Stdout, `{"type":"extension_ui_request","id":"startup-widget","method":"setWidget","widgetKey":"autoresearch"}`); err != nil {
+			return err
+		}
+	}
+	if helper.scenario == "startup_dialog" {
+		if _, err = fmt.Fprintln(os.Stdout, `{"type":"extension_ui_request","id":"startup-dialog","method":"confirm","title":"startup","message":"continue"}`); err != nil {
+			return err
+		}
+	}
 	var commandsDone chan error
 	if launch.Topology == ownerTopologyLane {
 		commandsDone = make(chan error, 1)
