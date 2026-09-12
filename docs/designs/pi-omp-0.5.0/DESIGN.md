@@ -19,10 +19,14 @@ staged delivery interrupted before preflight without replay. The first permanent
 OMP installation passed exact artifact, alias and captured service checks; native
 Worker and interactive startup acceptance remain pending. The first Worker
 attempt failed before Open completed: the UI observer rejected a startup UI
-frame. Its notification classification currently follows the startup/idle guard,
-so even benign notifications are rejected. The captured error does not identify
-the actual method. Final installation, service and observed cleanup checks
-passed; a correction and a separate invocation remain required. No successful
+frame. The observer applied its startup/idle guard before notification classification.
+The integrated correction accepts validated notifications before that guard;
+startup dialogs still fail with a method-only diagnostic. OMP's built-in
+autoresearch extension emits a startup `setWidget` notification, providing a
+source-bound regression case. The captured failed frame's method is unknown.
+The corrected full OMP race suite passes; permanent replacement and a separate
+native invocation remain required. Final installation, service and observed
+cleanup checks passed on the failed attempt. No successful
 native OMP acceptance is claimed. The source base is peers
 `75866839b7f024edf2c7f9d2d3af647a343f4987`.
 
