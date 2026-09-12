@@ -16,8 +16,8 @@ Wrapper, Run controller, managed payload resolver and thin interactive launcher
 are integrated with the command, installer and release package. Local tests
 cover fresh Open, admitted interruption followed by a healthy Run, and submitted
 staged delivery interrupted before preflight without replay. The first permanent
-OMP installation is released for execution; installed native acceptance remains
-pending. No native OMP acceptance is claimed. The source base is peers
+OMP installation passed exact artifact, alias and captured service checks; native
+Worker and interactive startup acceptance remain pending. No native OMP acceptance is claimed. The source base is peers
 `75866839b7f024edf2c7f9d2d3af647a343f4987`.
 
 ## Native versions and implementation cost
