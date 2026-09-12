@@ -42,6 +42,7 @@ type ompNativeOwnerCapture struct {
 type ompNativeOwnerHelper struct {
 	launch         ompLaunch
 	cwd            string
+	name           string
 	scenario       string
 	shutdown       chan struct{}
 	state          chan struct{}
@@ -51,6 +52,7 @@ type ompNativeOwnerHelper struct {
 	endAck         chan struct{}
 	once           sync.Once
 	exitOnce       sync.Once
+	stateOnce      sync.Once
 }
 
 func TestOMPNativeOwnerHelper(t *testing.T) {
@@ -117,7 +119,7 @@ func runOMPNativeOwnerHelper() error {
 		return err
 	}
 	helper := &ompNativeOwnerHelper{
-		launch: launch, cwd: cwd, scenario: os.Getenv(ompNativeOwnerScenarioEnv),
+		launch: launch, cwd: cwd, name: ompNativeOwnerName, scenario: os.Getenv(ompNativeOwnerScenarioEnv),
 		shutdown: make(chan struct{}), state: make(chan struct{}), stateRequested: make(chan struct{}),
 		releaseState: make(chan struct{}), releaseExit: make(chan struct{}), endAck: make(chan struct{}),
 	}
@@ -252,6 +254,12 @@ func (helper *ompNativeOwnerHelper) serveCommands() error {
 		switch kind {
 		case "negotiate_protocol":
 			data = map[string]int{"protocolVersion": 2}
+		case "set_session_name":
+			name, parseErr := nativeRPCText(command, "name", 4096)
+			if parseErr != nil || !validOwnerText(name, 4096) || name == "" {
+				return errors.New("invalid native owner fixture name")
+			}
+			helper.name = name
 		case "get_state":
 			if helper.scenario == "close_bridge_during_state" {
 				close(helper.stateRequested)
@@ -263,7 +271,7 @@ func (helper *ompNativeOwnerHelper) serveCommands() error {
 				sessionID = "wrong-native-session"
 			}
 			data = map[string]any{
-				"sessionId": sessionID, "sessionName": ompNativeOwnerName,
+				"sessionId": sessionID, "sessionName": helper.name,
 				"isStreaming": false, "isCompacting": false, "queuedMessageCount": 0,
 			}
 		default:
@@ -279,7 +287,7 @@ func (helper *ompNativeOwnerHelper) serveCommands() error {
 			return err
 		}
 		if kind == "get_state" {
-			close(helper.state)
+			helper.stateOnce.Do(func() { close(helper.state) })
 			if helper.scenario == "event_after_ready" {
 				if _, err = fmt.Fprintln(os.Stdout, `{"type":"agent_start"}`); err != nil {
 					return err

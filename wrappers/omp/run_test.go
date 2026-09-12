@@ -10,9 +10,11 @@ import (
 	"io"
 	"net"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/antst/sessionbus-peers/internal/testsocket"
 	"github.com/antst/sessionbus-peers/wrappers/host"
@@ -350,6 +352,278 @@ func TestOMPRunCancelsOwnedRuntimeUIAndJoinsWrite(t *testing.T) {
 	result, err := start.turn.Wait(nativeRPCTestContext(t))
 	if err != nil || result.Outcome != "interrupted" || result.NativeStopReason != "aborted" {
 		t.Fatalf("UI-canceled result = %+v, %v", result, err)
+	}
+}
+
+func TestOMPAdmittedInterruptJoinsAbortAndPreservesNextRun(t *testing.T) {
+	fixture := newOMPRunFixture(t)
+	run := &kit.Run{}
+	_, started := fixture.prompt(t, "first prompt", "")
+	fixture.preflight(t, 1, "run-one", "first prompt")
+	fixture.peer.write(t, `{"type":"agent_start"}`)
+	first := <-started
+	if first.err != nil || first.turn == nil {
+		t.Fatalf("first start = %#v, %v", first.turn, first.err)
+	}
+	fixture.wrapper.mu.Lock()
+	fixture.wrapper.run = run
+	fixture.wrapper.mu.Unlock()
+	interrupted := make(chan error, 1)
+	go func() { interrupted <- fixture.wrapper.Interrupt(nativeRPCTestContext(t), run) }()
+	abort := fixture.peer.read(t)
+	if nativeRPCField(t, abort, "type") != "abort" {
+		t.Fatalf("native abort = %#v", abort)
+	}
+	abortID := nativeRPCField(t, abort, "id")
+	fixture.peer.write(t, `{"id":`+mustOMPJSONText(t, abortID)+`,"type":"response","command":"abort","success":true}`)
+	if err := <-interrupted; err != nil {
+		t.Fatalf("admitted Interrupt = %v", err)
+	}
+	fixture.peer.write(t, `{"type":"message_end","message":{"role":"assistant","content":"","stopReason":"aborted"}}`)
+	fixture.peer.write(t, `{"type":"agent_end","messages":[],"isTerminal":true}`)
+	result, err := first.turn.Wait(nativeRPCTestContext(t))
+	if err != nil || result.Outcome != "interrupted" || result.Result != "" || result.NativeStopReason != "aborted" {
+		t.Fatalf("interrupted result = %+v, %v", result, err)
+	}
+
+	fixture.wrapper.mu.Lock()
+	fixture.wrapper.run = nil
+	fixture.wrapper.mu.Unlock()
+	_, started = fixture.prompt(t, "second prompt", "")
+	fixture.preflight(t, 2, "run-two", "second prompt")
+	fixture.peer.write(t, `{"type":"agent_start"}`)
+	second := <-started
+	if second.err != nil || second.turn == nil {
+		t.Fatalf("second start = %#v, %v", second.turn, second.err)
+	}
+	fixture.peer.write(t, `{"type":"message_end","message":{"role":"assistant","content":"healthy","stopReason":"stop"}}`)
+	fixture.peer.write(t, `{"type":"agent_end","messages":[],"isTerminal":true}`)
+	result, err = second.turn.Wait(nativeRPCTestContext(t))
+	if err != nil || result.Outcome != "completed" || result.Result != "healthy" {
+		t.Fatalf("post-interrupt result = %+v, %v", result, err)
+	}
+	waitNativeRPCStats(t, fixture.rpc, nativeRPCStats{})
+}
+
+func TestOMPWorkerInterruptsSubmittedDeliveryBeforePreflight(t *testing.T) {
+	fixture := newOMPRunFixture(t)
+	listener, err := net.Listen("unix", filepath.Join(testsocket.Directory(t), "bus.sock"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(host.SocketEnv, listener.Addr().String())
+	t.Setenv(host.TokenEnv, "omp-interrupt-worker-token")
+	t.Setenv(host.LocalKeyEnv, "")
+	worker := kit.NewWorker(&ompWorkerProduct{fixture.wrapper})
+	fixture.wrapper.SetCaller(worker.Caller())
+	var shutdownOnce sync.Once
+	fixture.wrapper.SetShutdown(func() {
+		shutdownOnce.Do(func() {
+			_ = fixture.rpc.Close()
+			_ = fixture.registry.Close()
+			_ = fixture.native.Close()
+			worker.Shutdown()
+		})
+	})
+	served := make(chan error, 1)
+	go func() { served <- worker.Serve(context.Background()) }()
+	servedJoined := false
+	connection, err := listener.Accept()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = connection.Close()
+		_ = listener.Close()
+		fixture.wrapper.shutdown()
+		<-worker.Closed()
+		if !servedJoined {
+			<-served
+		}
+	})
+	reader := bufio.NewReader(connection)
+	read := func() (protocol.Frame, error) {
+		line, readErr := reader.ReadBytes('\n')
+		if readErr != nil {
+			return protocol.Frame{}, readErr
+		}
+		frame, decodeErr := protocol.DecodeFrame(line[:len(line)-1])
+		return frame, decodeErr
+	}
+	write := func(body []byte) {
+		t.Helper()
+		if _, writeErr := connection.Write(body); writeErr != nil {
+			t.Fatal(writeErr)
+		}
+	}
+	request := func(id int64, method string, params any) {
+		t.Helper()
+		body, encodeErr := protocol.RequestBytes(id, method, params)
+		if encodeErr != nil {
+			t.Fatal(encodeErr)
+		}
+		write(body)
+	}
+	hello, err := read()
+	if err != nil || hello.Method != "session.hello" {
+		t.Fatalf("Worker hello = %+v, %v", hello, err)
+	}
+	ack, err := protocol.ResultBytes(hello.ID, hello.Method, struct{}{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	write(ack)
+	request(1, "session.open", kit.OpenRequest{Name: "managed@local", Groups: []string{}})
+	opened, err := read()
+	if err != nil || opened.ID != 1 || opened.Error != nil {
+		t.Fatalf("Open response = %+v, %v", opened, err)
+	}
+	staged := kit.DeliveryRequest{
+		RunID: "staged/1", MessageID: "staged-before-worker-run", Body: "DISTINCT_STAGED_OMP_MESSAGE",
+		From: kit.DeliverySource{SessionID: "stager@local", Product: "fixture", Groups: []string{}},
+	}
+	stagedReceipt, err := fixture.wrapper.Deliver(nativeRPCTestContext(t), staged, nil)
+	if err != nil || stagedReceipt.Disposition != "queued_for_next_turn" {
+		t.Fatalf("staged delivery receipt = %+v, %v", stagedReceipt, err)
+	}
+	seed := kit.DeliveryRequest{
+		RunID: "g/1", MessageID: "delivery-before-preflight", Body: "held delivery prompt",
+		From: kit.DeliverySource{SessionID: "sender@local", Product: "fixture", Groups: []string{}},
+	}
+	request(2, "message.deliver", seed)
+	prompt := fixture.peer.read(t)
+	promptID := nativeRPCField(t, prompt, "id")
+	if nativeRPCField(t, prompt, "type") != "prompt" {
+		t.Fatalf("native prompt = %#v", prompt)
+	}
+	stagedEnvelope, err := host.RenderNativeMessage(staged)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seedEnvelope, err := host.RenderNativeMessage(seed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	message := nativeRPCField(t, prompt, "message")
+	if message != stagedEnvelope+"\n"+seedEnvelope || strings.Count(message, "DISTINCT_STAGED_OMP_MESSAGE") != 1 ||
+		strings.Index(message, "DISTINCT_STAGED_OMP_MESSAGE") >= strings.Index(message, "held delivery prompt") {
+		t.Fatalf("native prompt did not consume the staged FIFO once before the seed: %q", message)
+	}
+	fixture.peer.write(t, `{"id":`+mustOMPJSONText(t, promptID)+`,"type":"response","command":"prompt","success":true}`)
+
+	deadline, cancelDeadline := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancelDeadline()
+	var turn *ompNativeTurn
+	for {
+		fixture.wrapper.mu.Lock()
+		turn = fixture.wrapper.active
+		fixture.wrapper.mu.Unlock()
+		if turn != nil {
+			turn.mu.Lock()
+			submitted, native := turn.submitted, turn.native
+			turn.mu.Unlock()
+			if submitted && native != nil {
+				break
+			}
+			select {
+			case <-deadline.Done():
+				t.Fatal("submitted native prompt did not reach held preflight")
+			default:
+				runtime.Gosched()
+			}
+			continue
+		}
+		select {
+		case <-deadline.Done():
+			t.Fatal("native turn was not installed")
+		default:
+		}
+	}
+	request(3, "turn.interrupt", map[string]string{"session_id": fixture.binding.SessionID})
+	receiptSeen, readySeen, interruptSeen, workerEOF := false, false, false, false
+	for !receiptSeen || !readySeen || !interruptSeen {
+		if err = connection.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
+			t.Fatal(err)
+		}
+		frame, readErr := read()
+		if readErr != nil {
+			if receiptSeen && readySeen && errors.Is(readErr, io.EOF) {
+				workerEOF = true
+				break
+			}
+			t.Fatalf("Worker ended before receipt and terminal: %v", readErr)
+		}
+		switch {
+		case frame.Method == "turn.ready":
+			var terminal struct {
+				State   string `json:"state"`
+				Outcome string `json:"outcome"`
+			}
+			if json.Unmarshal(frame.Params, &terminal) != nil || terminal.State != "done" || terminal.Outcome != "interrupted" {
+				t.Fatalf("interrupted terminal = %s", frame.Params)
+			}
+			ack, encodeErr := protocol.ResultBytes(frame.ID, frame.Method, struct{}{})
+			if encodeErr != nil {
+				t.Fatal(encodeErr)
+			}
+			write(ack)
+			readySeen = true
+		case frame.ID == 2:
+			var receipt kit.DeliveryReceipt
+			if frame.Error != nil || protocol.UnmarshalResult("message.deliver", frame.Result, &receipt) != nil ||
+				receipt.Disposition != "rejected" || receipt.Reason == "not_submitted" ||
+				!strings.Contains(receipt.Reason, errOMPRunInterrupted.Error()) {
+				t.Fatalf("submitted delivery receipt = %+v, decoded %+v", frame, receipt)
+			}
+			receiptSeen = true
+		case frame.ID == 3:
+			if frame.Error != nil {
+				t.Fatalf("interrupt response = %+v", frame.Error)
+			}
+			interruptSeen = true
+		default:
+			t.Fatalf("unexpected Worker frame = %+v", frame)
+		}
+	}
+	t.Logf("interrupt response observed before retirement: %v; EOF: %v", interruptSeen, workerEOF)
+	_ = connection.SetReadDeadline(time.Time{})
+	select {
+	case <-worker.Closed():
+	case <-deadline.Done():
+		t.Fatal("interrupted Worker did not retire")
+	}
+	serveErr := <-served
+	servedJoined = true
+	if serveErr != nil && serveErr.Error() != "sessionbus connection closed" {
+		t.Fatalf("Worker Serve = %v", serveErr)
+	}
+	turn.mu.Lock()
+	submitted, preflight, starts := turn.submitted, turn.preflight, turn.starts
+	turn.mu.Unlock()
+	if !submitted || preflight || starts != 0 {
+		t.Fatalf("held admission = submitted %v, preflight %v, starts %d", submitted, preflight, starts)
+	}
+	if queued := fixture.wrapper.handoff.Claim(); len(queued) != 0 {
+		t.Fatalf("consumed staged delivery became replayable: %#v", queued)
+	}
+	select {
+	case <-fixture.rpc.Done():
+	default:
+		t.Fatal("interrupted native RPC was not joined")
+	}
+	select {
+	case <-fixture.registry.Done():
+	default:
+		t.Fatal("interrupted owner registry was not joined")
+	}
+	select {
+	case <-fixture.native.Done():
+	default:
+		t.Fatal("interrupted native bridge endpoint was not joined")
+	}
+	waitNativeRPCStats(t, fixture.rpc, nativeRPCStats{})
+	if stats := fixture.native.Stats(); stats != (pifamily.BridgeStats{}) {
+		t.Fatalf("native bridge ownership after cleanup = %#v", stats)
 	}
 }
 
