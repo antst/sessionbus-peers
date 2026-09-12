@@ -20,6 +20,7 @@ const maxOMPAssistantMessages = 256
 const maxOMPAssistantBytes = 8 << 20
 
 var errOMPRunInterrupted = errors.New("OMP Run interrupted before native admission")
+var errOMPUIUnsettled = errors.New("OMP native UI cancellation remained unsettled at turn completion")
 
 type ompAssistant struct {
 	text       string
@@ -54,6 +55,8 @@ type ompNativeTurn struct {
 	uiClosed         bool
 	pendingUI        int
 	uiIDs            map[string]bool
+	uiContext        context.Context
+	uiCancel         context.CancelCauseFunc
 	interruptOnce    sync.Once
 	interruptDone    chan struct{}
 	interruptStarted bool
@@ -62,9 +65,11 @@ type ompNativeTurn struct {
 }
 
 func newOMPNativeTurn(owner *Wrapper, run *sessionkit.Run, prompt string, binding OwnerBinding) *ompNativeTurn {
+	uiContext, uiCancel := context.WithCancelCause(owner.ctx)
 	return &ompNativeTurn{
 		owner: owner, run: run, prompt: prompt, binding: binding,
-		changed: make(chan struct{}), uiIDs: make(map[string]bool), interruptDone: make(chan struct{}),
+		changed: make(chan struct{}), uiIDs: make(map[string]bool), uiContext: uiContext, uiCancel: uiCancel,
+		interruptDone: make(chan struct{}),
 	}
 }
 
@@ -275,8 +280,9 @@ func decodeOMPAssistant(raw json.RawMessage) (ompAssistant, bool, error) {
 }
 
 func ompMessageText(raw json.RawMessage) (string, error) {
+	trimmed := bytes.TrimSpace(raw)
 	var text string
-	if json.Unmarshal(raw, &text) == nil {
+	if len(trimmed) > 0 && trimmed[0] == '"' && json.Unmarshal(trimmed, &text) == nil {
 		return text, nil
 	}
 	var parts []struct {
@@ -291,7 +297,8 @@ func ompMessageText(raw json.RawMessage) (string, error) {
 		if part.Type != "text" {
 			continue
 		}
-		if json.Unmarshal(part.Text, &text) != nil {
+		trimmed = bytes.TrimSpace(part.Text)
+		if len(trimmed) == 0 || trimmed[0] != '"' || json.Unmarshal(trimmed, &text) != nil {
 			return "", errors.New("OMP native assistant text is invalid")
 		}
 		result.WriteString(text)
@@ -400,10 +407,13 @@ func (turn *ompNativeTurn) cancelUI(requestID string) error {
 	turn.signalLocked()
 	turn.mu.Unlock()
 	go func() {
-		err := turn.owner.owner.rpc.CancelUI(turn.owner.ctx, requestID)
+		err := turn.owner.owner.rpc.CancelUI(turn.uiContext, requestID)
 		turn.mu.Lock()
 		turn.pendingUI--
 		if err != nil {
+			if cause := context.Cause(turn.uiContext); cause != nil {
+				err = errors.Join(err, cause)
+			}
 			turn.failLocked(err)
 		} else {
 			turn.signalLocked()
@@ -413,11 +423,15 @@ func (turn *ompNativeTurn) cancelUI(requestID string) error {
 	return nil
 }
 
-func (turn *ompNativeTurn) joinOwnedWork() {
+func (turn *ompNativeTurn) joinOwnedWork(cause error) {
 	turn.mu.Lock()
 	turn.uiClosed = true
 	turn.signalLocked()
 	turn.mu.Unlock()
+	if cause == nil {
+		cause = errOMPUIUnsettled
+	}
+	turn.uiCancel(cause)
 	for {
 		turn.mu.Lock()
 		pending, changed, interruptStarted := turn.pendingUI, turn.changed, turn.interruptStarted
@@ -434,37 +448,36 @@ func (turn *ompNativeTurn) joinOwnedWork() {
 
 func (turn *ompNativeTurn) Wait(ctx context.Context) (result sessionkit.TurnResult, err error) {
 	defer turn.owner.finishNativeTurn(turn)
-	defer turn.joinOwnedWork()
 	turn.mu.Lock()
 	admitted, noAgent := turn.preflight && turn.starts > 0, turn.noAgent
 	turn.mu.Unlock()
 	if admitted && turn.report != nil {
-		if err = turn.report(sessionkit.DeliveryReceipt{Disposition: "injected"}, nil); err != nil {
-			err = turn.finishPrompt(err)
-			turn.owner.lose(err)
-			return result, err
-		}
+		err = turn.report(sessionkit.DeliveryReceipt{Disposition: "injected"}, nil)
 	} else if noAgent && turn.report != nil {
-		if err = turn.report(sessionkit.DeliveryReceipt{Disposition: "rejected", Reason: "native_submission_refused"}, nil); err != nil {
-			err = turn.finishPrompt(err)
-			turn.owner.lose(err)
-			return result, err
-		}
+		err = turn.report(sessionkit.DeliveryReceipt{Disposition: "rejected", Reason: "native_submission_refused"}, nil)
 	}
-	if turn.run != nil && turn.run.Interrupted() && admitted {
+	if err == nil && turn.run != nil && turn.run.Interrupted() && admitted {
 		_ = turn.Interrupt(ctx)
 	}
-	err = turn.finishPrompt(turn.awaitCompletion(ctx))
+	if err == nil {
+		err = turn.awaitCompletion(ctx)
+	}
+	err = turn.finishPrompt(err)
+	// Join every UI cancellation and interrupt admitted by this turn before the
+	// final failure/result snapshot. Their completion may record an ownership
+	// failure after the native terminal event was received.
+	joinCause := err
+	if joinCause == nil {
+		joinCause = errors.Join(context.Cause(ctx), errOMPUIUnsettled)
+	}
+	turn.joinOwnedWork(joinCause)
 	turn.mu.Lock()
 	interruptStarted := turn.interruptStarted
-	turn.mu.Unlock()
 	if interruptStarted {
-		<-turn.interruptDone
 		err = errors.Join(err, turn.interruptError)
 	}
-	turn.mu.Lock()
 	if turn.failure != nil {
-		err = turn.failure
+		err = errors.Join(err, turn.failure)
 	} else if err == nil {
 		result = turn.result
 	}

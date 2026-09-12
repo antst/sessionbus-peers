@@ -133,6 +133,58 @@ func TestOMPAdoptOpenRejectsCallerCancellationAtCommitBoundary(t *testing.T) {
 	}
 }
 
+func TestOMPAdoptOpenRejectsClosingWithoutAContextError(t *testing.T) {
+	wrapper := &Wrapper{closing: true}
+	wrapper.ctx, wrapper.cancel = context.WithCancelCause(context.Background())
+	t.Cleanup(func() { wrapper.cancel(errNativeOwnerClosed) })
+	err := wrapper.adoptOpen(context.Background(), context.Background(), OwnerBinding{SessionID: "native-session"})
+	if !errors.Is(err, errNativeOwnerClosed) {
+		t.Fatalf("closing-only Open adoption = %v", err)
+	}
+	if wrapper.opened {
+		t.Fatal("closing-only Open was committed")
+	}
+}
+
+func TestOMPAdoptOpenRejectsChangedBindingAndRecordedOwnerFailure(t *testing.T) {
+	options, _ := nativeOwnerFixture(t, "")
+	owner, err := StartNativeOwner(nativeOwnerTestContext(t), options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitNativeOwnerReady(t, owner)
+	binding, ok := owner.Primary()
+	if !ok {
+		t.Fatal("ready owner has no primary binding")
+	}
+	wrapper := &Wrapper{ctx: context.Background(), owner: owner}
+	wrong := binding
+	wrong.OwnerToken += "-replacement"
+	if err = wrapper.adoptOpen(context.Background(), context.Background(), wrong); err == nil || !strings.Contains(err.Error(), "registry changed") {
+		t.Fatalf("replacement binding adoption = %v", err)
+	}
+	if wrapper.opened {
+		t.Fatal("replacement binding was committed")
+	}
+
+	want := errors.New("recorded registry failure before owner Done")
+	owner.registry.recordError(want)
+	if err = wrapper.adoptOpen(context.Background(), context.Background(), binding); !errors.Is(err, want) {
+		t.Fatalf("recorded owner failure adoption = %v", err)
+	}
+	if wrapper.opened {
+		t.Fatal("failing owner was committed")
+	}
+	select {
+	case <-owner.Done():
+		t.Fatal("test did not preserve the recorded-error-before-Done interval")
+	default:
+	}
+	if err = owner.Close(nativeOwnerTestContext(t)); !errors.Is(err, want) {
+		t.Fatalf("joined owner cleanup = %v", err)
+	}
+}
+
 func TestOMPLossShutdownWorkIsAdmittedBeforeCloseWait(t *testing.T) {
 	wrapper := &Wrapper{opened: true}
 	wrapper.ctx, wrapper.cancel = context.WithCancelCause(context.Background())

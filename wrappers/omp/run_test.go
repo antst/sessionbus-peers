@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net"
 	"path/filepath"
 	"strings"
@@ -73,6 +74,29 @@ func newOMPRunFixture(t *testing.T) *ompRunFixture {
 	wrapper.owner = &NativeOwner{ctx: wrapper.ctx, rpc: rpc, registry: registry}
 	t.Cleanup(func() { wrapper.cancel(errNativeOwnerClosed) })
 	return &ompRunFixture{wrapper: wrapper, rpc: rpc, peer: peer, registry: registry, native: native, binding: binding}
+}
+
+func attachHeldOMPRPC(t *testing.T, fixture *ompRunFixture) (*heldNativeRPCWriter, func()) {
+	t.Helper()
+	commands, input := io.Pipe()
+	output, events := io.Pipe()
+	held := &heldNativeRPCWriter{WriteCloser: input, wrote: make(chan struct{}), release: make(chan struct{})}
+	rpc, err := newNativeRPC(held, output, fixture.wrapper.observeNative, nativeRPCLimits{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	peer := &nativeRPCTestPeer{commands: bufio.NewReader(commands), events: events}
+	readyNativeRPCTest(t, rpc, peer)
+	fixture.rpc, fixture.peer, fixture.wrapper.owner.rpc = rpc, peer, rpc
+	var once sync.Once
+	release := func() { once.Do(func() { close(held.release) }) }
+	t.Cleanup(func() {
+		release()
+		_ = commands.Close()
+		_ = events.Close()
+		_ = rpc.Close()
+	})
+	return held, release
 }
 
 func (fixture *ompRunFixture) start(t *testing.T, prompt string) <-chan struct {
@@ -329,6 +353,85 @@ func TestOMPRunCancelsOwnedRuntimeUIAndJoinsWrite(t *testing.T) {
 	}
 }
 
+func TestOMPTerminalCancelsAndJoinsUnsettledUIBeforeResult(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		foreign    bool
+		cancelWait bool
+	}{
+		{name: "wait context", cancelWait: true},
+		{name: "foreign retirement", foreign: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newOMPRunFixture(t)
+			held, release := attachHeldOMPRPC(t, fixture)
+			_, started := fixture.prompt(t, "owned prompt", "")
+			fixture.preflight(t, 1, "run-one", "owned prompt")
+			fixture.peer.write(t, `{"type":"agent_start"}`)
+			start := <-started
+			if start.err != nil || start.turn == nil {
+				t.Fatalf("start = %#v, %v", start.turn, start.err)
+			}
+
+			held.enabled.Store(true)
+			if err := fixture.wrapper.observeNative(json.RawMessage(`{"type":"extension_ui_request","id":"held-dialog","method":"confirm"}`)); err != nil {
+				t.Fatal(err)
+			}
+			cancel := fixture.peer.read(t)
+			if nativeRPCField(t, cancel, "type") != "extension_ui_response" || nativeRPCField(t, cancel, "id") != "held-dialog" {
+				t.Fatalf("held UI cancellation = %#v", cancel)
+			}
+			<-held.wrote
+			if err := start.turn.recordEvent("message_end", json.RawMessage(`{"type":"message_end","message":{"role":"assistant","content":"finished","stopReason":"stop"}}`)); err != nil {
+				t.Fatal(err)
+			}
+			if err := start.turn.recordEvent("agent_end", json.RawMessage(`{"type":"agent_end","messages":[],"isTerminal":true}`)); err != nil {
+				t.Fatal(err)
+			}
+			if test.foreign {
+				retired := fixture.wrapper.observeNative(json.RawMessage(`{"type":"agent_start"}`))
+				if retired == nil {
+					t.Fatal("foreign post-terminal work was accepted")
+				}
+				fixture.rpc.stop(retired, false)
+				<-fixture.rpc.ctx.Done()
+			}
+			waitCtx, cancelWait := context.WithCancel(nativeRPCTestContext(t))
+			if test.cancelWait {
+				cancelWait()
+			} else {
+				defer cancelWait()
+			}
+			waited := make(chan error, 1)
+			go func() {
+				_, err := start.turn.Wait(waitCtx)
+				waited <- err
+			}()
+			var waitErr error
+			select {
+			case waitErr = <-waited:
+			case <-nativeRPCTestContext(t).Done():
+				t.Fatal("Wait did not cancel and join the unsettled UI operation")
+			}
+			if waitErr == nil || !errors.Is(waitErr, errOMPUIUnsettled) {
+				t.Fatalf("unsettled UI result = %v", waitErr)
+			}
+			if test.cancelWait && !errors.Is(waitErr, context.Canceled) {
+				t.Fatalf("Wait cancellation was lost: %v", waitErr)
+			}
+			start.turn.mu.Lock()
+			pending := start.turn.pendingUI
+			start.turn.mu.Unlock()
+			if pending != 0 {
+				t.Fatalf("Wait returned with %d owned UI operations", pending)
+			}
+			release()
+			waitNativeRPCDone(t, fixture.rpc)
+			waitNativeRPCStats(t, fixture.rpc, nativeRPCStats{})
+		})
+	}
+}
+
 func TestOMPManagedExtensionFailureAndPostTerminalWorkRetireRPC(t *testing.T) {
 	fixture := newOMPRunFixture(t)
 	ambient := `{"type":"extension_error","extensionPath":"/ambient.mjs","event":"agent_end","error":"ambient"}`
@@ -421,5 +524,15 @@ func TestOMPAssistantDecoderRejectsUnknownStopAndUsesTextParts(t *testing.T) {
 	}
 	if terminal, err := decodeOMPTerminal(json.RawMessage(`{"type":"agent_end","isTerminal":false}`)); err != nil || terminal {
 		t.Fatalf("nonterminal agent_end = %v, %v", terminal, err)
+	}
+	for name, body := range map[string]string{
+		"null content": `{"type":"message_end","message":{"role":"assistant","content":null,"stopReason":"stop"}}`,
+		"null text":    `{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":null}],"stopReason":"stop"}}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, _, err := decodeOMPAssistant(json.RawMessage(body)); err == nil {
+				t.Fatal("null assistant text was accepted")
+			}
+		})
 	}
 }

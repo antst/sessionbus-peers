@@ -236,10 +236,78 @@ func (p *Wrapper) adoptOpen(caller, startup context.Context, binding OwnerBindin
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.failure != nil || p.closing || p.ctx.Err() != nil || caller.Err() != nil || startup.Err() != nil {
-		return errors.Join(p.failure, context.Cause(p.ctx), context.Cause(startup), caller.Err())
+		err := errors.Join(p.failure, context.Cause(p.ctx), context.Cause(startup), caller.Err())
+		if err == nil {
+			err = errNativeOwnerClosed
+		}
+		return err
+	}
+	if p.owner == nil {
+		return errors.New("OMP native owner is unavailable during Open adoption")
+	}
+	if err := p.owner.adoptionFailure(binding); err != nil {
+		return err
 	}
 	p.binding = binding
 	p.opened = true
+	return nil
+}
+
+// adoptionFailure validates the exact live primary and every owned component
+// at Wrapper Open's final commit boundary. NativeOwner.Done closes only after
+// all joins, so component-local failures must be observed directly here too.
+func (owner *NativeOwner) adoptionFailure(binding OwnerBinding) error {
+	if owner == nil {
+		return errors.New("OMP native owner is unavailable during Open adoption")
+	}
+	owner.mu.Lock()
+	ready, closing, ownerErr, bridge := owner.readySet, owner.closing, owner.err, owner.bridge
+	owner.mu.Unlock()
+	if !ready || closing || ownerErr != nil || owner.ctx.Err() != nil {
+		return errors.Join(errors.New("OMP native owner is unavailable during Open adoption"), ownerErr, context.Cause(owner.ctx))
+	}
+	if owner.registry == nil {
+		return errors.New("OMP owner registry is unavailable during Open adoption")
+	}
+	owner.registry.mu.Lock()
+	registryErr, registryContextErr, ending := owner.registry.err, owner.registry.ctx.Err(), owner.registry.ending
+	state := owner.registry.bindings[owner.registry.primaryToken]
+	current := !ending && state != nil && state.admitted && state.OwnerBinding == binding &&
+		owner.registry.primaryToken == binding.OwnerToken
+	owner.registry.mu.Unlock()
+	if registryErr != nil || registryContextErr != nil || !current {
+		return errors.Join(errors.New("OMP owner registry changed during Open adoption"), registryErr, registryContextErr)
+	}
+	if bridge == nil {
+		return errors.New("OMP managed extension is unavailable during Open adoption")
+	}
+	if err := bridge.Err(); err != nil {
+		return errors.Join(errors.New("OMP managed extension failed during Open adoption"), err)
+	}
+	select {
+	case <-bridge.Done():
+		return errors.Join(errors.New("OMP managed extension ended during Open adoption"), bridge.Err())
+	default:
+	}
+	if owner.rpc == nil {
+		return errors.New("OMP native RPC is unavailable during Open adoption")
+	}
+	if err := owner.rpc.Err(); err != nil {
+		return errors.Join(errors.New("OMP native RPC failed during Open adoption"), err)
+	}
+	select {
+	case <-owner.rpc.Done():
+		return errors.Join(errors.New("OMP native RPC ended during Open adoption"), owner.rpc.Err())
+	default:
+	}
+	if owner.process == nil {
+		return errors.New("OMP native process is unavailable during Open adoption")
+	}
+	select {
+	case <-owner.process.done:
+		return errors.Join(errors.New("OMP native process ended during Open adoption"), owner.process.Wait())
+	default:
+	}
 	return nil
 }
 
