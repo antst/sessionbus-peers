@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
 
@@ -80,7 +81,10 @@ func TestOMPNonTerminalInputOrOutputUsesExactNativePassthrough(t *testing.T) {
 func TestOMPTTYRoutesManagedAndNativeInvocations(t *testing.T) {
 	resetOMPCommandHooks(t)
 	unsetOMPLaneMode(t)
-	t.Setenv(host.SocketEnv, "/bus.sock")
+	t.Setenv(host.SocketEnv, "")
+	runtimeRoot := filepath.Join(t.TempDir(), "runtime")
+	t.Setenv("XDG_RUNTIME_DIR", runtimeRoot)
+	wantSocket := filepath.Join(runtimeRoot, "sessionbus", "presence.sock")
 	native := ompCommandNativeFixture()
 	ompResolveNative = func(front string) (omp.NativeExecutable, error) {
 		if front != "omp" {
@@ -98,7 +102,8 @@ func TestOMPTTYRoutesManagedAndNativeInvocations(t *testing.T) {
 	ompRunInteractive = func(_ context.Context, plan host.ExecPlan, gotNative omp.NativeExecutable, extension string) error {
 		if gotNative != native || extension != "/installed/plugin/omp/extension.mjs" || plan.Path != native.RuntimePath ||
 			!reflect.DeepEqual(plan.Args, []string{native.EntryPath, "--model", "fixture"}) ||
-			ompCommandEnvironmentValue(plan.Env, host.GroupsEnv) != `["team"]` {
+			ompCommandEnvironmentValue(plan.Env, host.GroupsEnv) != `["team"]` ||
+			ompCommandEnvironmentValue(plan.Env, host.SocketEnv) != wantSocket {
 			t.Fatalf("managed native=%+v plan=%+v extension=%q", gotNative, plan, extension)
 		}
 		return errors.New("managed fixture")

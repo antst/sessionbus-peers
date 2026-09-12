@@ -132,6 +132,7 @@ func TestOMPInteractivePlanRoutesProjectedNativeArguments(t *testing.T) {
 }
 
 func TestOMPInteractivePlanNativePassthroughIsExact(t *testing.T) {
+	t.Setenv(host.SocketEnv, "/ambient/presence.sock")
 	environment := []string{"KEEP=value", host.GroupsEnv + `=["native"]`}
 	tests := [][]string{
 		{"--help"}, {"-h"}, {"--version"}, {"-v"}, {"help"}, {"--smoke-test"}, {"--license"},
