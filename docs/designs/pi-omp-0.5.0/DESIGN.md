@@ -68,6 +68,15 @@ executable names remain `pi` and `omp`. The real native session ID is the
 identity authority; a display name, wrapper request ID or bus run ID cannot
 replace it. Open/resume must verify the returned native ID and directory.
 
+OMP distinguishes the direct child's launch directory from its live native
+working directory. Native startup may apply `--cwd`, choose a directory when
+started from HOME, or restore a resumed session's project. The managed extension
+and its describe response supply that live directory. A lane with an explicit
+`Open.Cwd` must match it for both fresh and resumed sessions. With an omitted
+resume cwd, the lane adopts the validated persisted directory while still
+requiring the exact requested native session ID. A fresh lane must match its
+chosen launch directory. Interactive argv retains native cwd behavior.
+
 `Close` joins the native lifetime. `Forget` additionally asks the daemon to
 remove its retained lane row after the Worker stops; it does not delete the
 native transcript. Pi has no session-deletion RPC. Its interactive picker is
