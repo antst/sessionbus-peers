@@ -156,6 +156,7 @@ Complete each product hookup using only the retained integration:
 - Grok: build with `scripts/package-product grok ./dist` and run the archive installer in [`grok/README.md`](grok/README.md).
 - Qwen: build the archive with `scripts/package-product qwen ./dist` and follow [`qwen/README.md`](qwen/README.md); registering only the plugin does not install the required private sibling alias.
 - Pi: build the archive with `scripts/package-product pi ./dist` and follow [`pi/README.md`](pi/README.md); its fixed extension is activated only by managed launches.
+- OMP: build the archive with `scripts/package-product omp ./dist` and follow [`omp/README.md`](omp/README.md); its managed extension is activated only for wrapper-owned launches.
 
 Product evidence and constraints are in `docs/products/claude.md`,
 `docs/products/codex.md`, `docs/products/opencode.md`,
@@ -178,7 +179,7 @@ GOWORK=off go test ./...
 Standalone command builds are useful for development checks:
 
 ```sh
-GOWORK=off go build ./cmd/grok-peer ./cmd/qwen-peer ./cmd/opencode-peer ./cmd/pi-peer
+GOWORK=off go build ./cmd/grok-peer ./cmd/qwen-peer ./cmd/omp-peer ./cmd/opencode-peer ./cmd/pi-peer
 ```
 
 Use the archive installers for a runnable product integration. The binary
@@ -200,7 +201,7 @@ Development checks also require Node.js 24 for the Node packages and
 - Claude interactive uses one Go artifact, public Connection/Caller, native exec and a private MCP alias; no Node runtime.
 - `wrappers/<product>` and `cmd/<product>-peer` contain the Go adapters and
   commands.
-- `claude/`, `codex/`, `grok/`, `qwen/`, `opencode/`, `pi/`, and the retained plugin manifests
+- `claude/`, `codex/`, `grok/`, `qwen/`, `omp/`, `opencode/`, `pi/`, and the retained plugin manifests
   contain product integration assets.
 - `docs/products/` preserves verified facts and immutable historical
   citations.

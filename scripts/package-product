@@ -3,7 +3,7 @@
 set -eu
 product=${1:?usage: scripts/package-product PRODUCT OUTPUT_DIRECTORY}
 out=${2:?usage: scripts/package-product PRODUCT OUTPUT_DIRECTORY}
-case "$product" in grok|qwen|opencode|kilo|pi) ;; *) echo 'Use package-claude or package-codex for those products.' >&2; exit 1;; esac
+case "$product" in grok|qwen|opencode|kilo|pi|omp) ;; *) echo 'Use package-claude or package-codex for those products.' >&2; exit 1;; esac
 mkdir -p "$out"
 out=$(CDPATH='' cd "$out" && pwd -P)
 repo=$(CDPATH='' cd "$(dirname "$0")/.." && pwd -P)
@@ -29,6 +29,10 @@ if [ "$product" = opencode ] || [ "$product" = kilo ]; then
 elif [ "$product" = pi ]; then
  mkdir -p "$stage/plugin/pi" "$stage/plugin/pifamily/extension"
  cp wrappers/pi/extension.mjs wrappers/pi/native.mjs "$stage/plugin/pi/"
+ cp wrappers/pifamily/extension/bridge.mjs "$stage/plugin/pifamily/extension/"
+elif [ "$product" = omp ]; then
+ mkdir -p "$stage/plugin/omp" "$stage/plugin/pifamily/extension"
+ cp wrappers/omp/extension.mjs "$stage/plugin/omp/"
  cp wrappers/pifamily/extension/bridge.mjs "$stage/plugin/pifamily/extension/"
 else
  cp -R "$product/." "$stage/plugin/"
