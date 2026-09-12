@@ -111,6 +111,16 @@ func runPiNativeHelper(mode string) error {
 	if acknowledged.SessionID != id {
 		return errors.New("helper owner changed native identity")
 	}
+	if mode == "startup-widget" {
+		if _, err = fmt.Fprintln(os.Stdout, `{"type":"extension_ui_request","id":"startup-widget","method":"setWidget","widgetKey":"fixture"}`); err != nil {
+			return err
+		}
+	}
+	if mode == "startup-dialog" {
+		if _, err = fmt.Fprintln(os.Stdout, `{"type":"extension_ui_request","id":"startup-dialog","method":"confirm","title":"startup","message":"continue"}`); err != nil {
+			return err
+		}
+	}
 
 	reader := bufio.NewScanner(os.Stdin)
 	writer := bufio.NewWriter(os.Stdout)
@@ -344,6 +354,63 @@ func TestPiOwnedOpenCloseFreshAndResume(t *testing.T) {
 				t.Fatalf("bridge retained work: %+v", stats)
 			}
 		})
+	}
+}
+
+func TestPiOpenAcceptsStartupAndIdleNotifications(t *testing.T) {
+	wrapper, cwd := newPiTestWrapper(t, "startup-widget")
+	result, err := wrapper.Open(context.Background(), sessionkit.OpenRequest{
+		Name: "managed@local", Open: sessionkit.OpenOptions{Cwd: cwd},
+	})
+	if err != nil || result.SessionID != "pi-fresh" {
+		t.Fatalf("fresh Open after startup setWidget = %+v, %v", result, err)
+	}
+	if err = wrapper.observeNative(json.RawMessage(
+		`{"type":"extension_ui_request","id":"idle-widget","method":"setWidget","widgetKey":"fixture"}`,
+	)); err != nil {
+		t.Fatalf("idle setWidget = %v", err)
+	}
+	wrapper.mu.Lock()
+	failure := wrapper.failure
+	wrapper.mu.Unlock()
+	if failure != nil {
+		t.Fatalf("idle setWidget retired wrapper: %v", failure)
+	}
+	if err = wrapper.Close(context.Background(), sessionkit.SessionCloseRequest{}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-wrapper.process.done:
+	default:
+		t.Fatal("Close returned before native process joined")
+	}
+}
+
+func TestPiOpenRejectsStartupDialogWithMethod(t *testing.T) {
+	wrapper, cwd := newPiTestWrapper(t, "startup-dialog")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	result, err := wrapper.Open(ctx, sessionkit.OpenRequest{
+		Name: "managed@local", Open: sessionkit.OpenOptions{Cwd: cwd},
+	})
+	if err == nil || !strings.Contains(err.Error(), `unsupported startup UI method "confirm"`) {
+		t.Fatalf("startup dialog Open = %+v, %v", result, err)
+	}
+	if wrapper.opened {
+		t.Fatal("startup dialog committed Open")
+	}
+	if wrapper.process != nil {
+		select {
+		case <-wrapper.process.done:
+		default:
+			t.Fatal("failed Open returned before native process joined")
+		}
+	}
+	unknown := &Wrapper{}
+	if err = unknown.observeNativeUI(json.RawMessage(
+		`{"type":"extension_ui_request","id":"startup-unknown","method":"future"}`,
+	)); err == nil || !strings.Contains(err.Error(), `unknown extension UI method "future"`) {
+		t.Fatalf("unknown startup method = %v", err)
 	}
 }
 
