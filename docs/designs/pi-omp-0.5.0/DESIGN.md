@@ -56,8 +56,13 @@ follow the actual parent graph and source-defined entry types rather than assume
 a fixed message/marker order. Credential-pin hashes are not part of the public
 verification projection.
 
-Pi's matching startup-notification correction is permanently installed at `19f1b1b`;
-its separate zero-input regression remains pending. The source base is peers
+Pi's matching startup-notification correction is permanently installed at `19f1b1b`.
+Its first separate zero-input regression passed fresh Worker Open/Close and exact
+persisted interactive resume/Ctrl-D. All four captured history copies remained
+byte-identical at 10,746 bytes. Exact wrapper/Node generations and private
+directories were absent after cleanup; service generations and installed
+correspondence were unchanged. No prompt or model input was sent, and no actual
+startup notification method is attributed. The source base is peers
 `75866839b7f024edf2c7f9d2d3af647a343f4987`.
 
 ## Native versions and implementation cost
