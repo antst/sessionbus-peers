@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/antst/sessionbus-peers/wrappers/host"
+	sessionkit "github.com/antst/sessionbus/bus/sdk/go"
 )
 
 // Native 3b3a6dc cli/flag-tables.ts. Keep one traversal for native value
@@ -114,6 +115,9 @@ func InteractivePlan(native NativeExecutable, arguments, environment []string) (
 	environment = ompSetEnvironment(environment, host.GroupsEnv, string(encoded))
 	environment = ompSetEnvironment(environment, host.SessionIDEnv, "")
 	environment = ompSetEnvironment(environment, host.NameEnv, projected.name)
+	if ompLastEnvironmentValue(environment, host.SocketEnv) == "" {
+		environment = ompSetEnvironment(environment, host.SocketEnv, sessionkit.Socket())
+	}
 	return host.ExecPlan{Path: native.RuntimePath, Args: forwarded, Env: environment}, false, nil
 }
 

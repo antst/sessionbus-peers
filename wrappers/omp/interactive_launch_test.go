@@ -77,6 +77,52 @@ func TestInteractiveOwnerOptionsPreserveNativeArgumentsAndBindIdentity(t *testin
 	}
 }
 
+func TestInteractivePlanSocketPolicyPassesRealOwnerOptionsBoundary(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv(host.SocketEnv, "")
+	t.Setenv("XDG_RUNTIME_DIR", filepath.Join(root, "runtime"))
+	plugin := managedPluginFixture(t, root)
+	extension := filepath.Join(plugin, "omp", "extension.mjs")
+	native := NativeExecutable{
+		Path: filepath.Join(root, "bin", "omp"), EntryPath: filepath.Join(root, "package", "dist", "cli.js"),
+		RuntimePath: filepath.Join(root, "bin", "bun"), PackageRoot: filepath.Join(root, "package"),
+	}
+
+	for _, test := range []struct {
+		name        string
+		environment []string
+		wantSocket  string
+	}{
+		{
+			name:        "sdk-default",
+			environment: []string{"KEEP=value"},
+			wantSocket:  filepath.Join(root, "runtime", "sessionbus", "presence.sock"),
+		},
+		{
+			name:        "explicit",
+			environment: []string{"KEEP=value", host.SocketEnv + "=" + filepath.Join(root, "explicit.sock")},
+			wantSocket:  filepath.Join(root, "explicit.sock"),
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			plan, passthrough, err := InteractivePlan(native, []string{"--peer-name", "fixture"}, test.environment)
+			if err != nil || passthrough {
+				t.Fatalf("plan = %#v, passthrough = %t, error = %v", plan, passthrough, err)
+			}
+			options, err := interactiveOwnerOptions(context.Background(), plan, native, extension, bytes.NewReader(make([]byte, 16)))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if options.DaemonSocket != test.wantSocket || ompLastEnvironmentValue(plan.Env, host.SocketEnv) != test.wantSocket {
+				t.Fatalf("socket plan=%q options=%q, want %q", ompLastEnvironmentValue(plan.Env, host.SocketEnv), options.DaemonSocket, test.wantSocket)
+			}
+			if ompLastEnvironmentValue(plan.Env, "KEEP") != "value" {
+				t.Fatalf("unrelated environment = %#v", plan.Env)
+			}
+		})
+	}
+}
+
 func TestInteractiveOwnerOptionsRejectMismatchedPlanAndStaleOwnership(t *testing.T) {
 	root := t.TempDir()
 	plugin := managedPluginFixture(t, root)
@@ -92,6 +138,7 @@ func TestInteractiveOwnerOptionsRejectMismatchedPlanAndStaleOwnership(t *testing
 		"session": func(plan *host.ExecPlan) { plan.Env = append(plan.Env, host.SessionIDEnv+"=stale") },
 		"key":     func(plan *host.ExecPlan) { plan.Env = append(plan.Env, host.LocalKeyEnv+"=stale") },
 		"groups":  func(plan *host.ExecPlan) { plan.Env = ompSetEnvironment(plan.Env, host.GroupsEnv, "null") },
+		"socket":  func(plan *host.ExecPlan) { plan.Env = ompSetEnvironment(plan.Env, host.SocketEnv, "relative.sock") },
 	} {
 		t.Run(name, func(t *testing.T) {
 			plan := host.ExecPlan{Path: base.Path, Args: append([]string(nil), base.Args...), Env: append([]string(nil), base.Env...)}
