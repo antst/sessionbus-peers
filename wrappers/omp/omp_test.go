@@ -88,6 +88,30 @@ func TestOMPWrapperOpenResumeAndCloseUsesNativeOwner(t *testing.T) {
 	}
 }
 
+func TestOMPWrapperOpenFreshConfirmsNativeNameAndClose(t *testing.T) {
+	options, _ := nativeOwnerFixture(t, "")
+	wrapper := New(options.DaemonSocket, options.Provisional, options.Native, options.Extension)
+	wrapper.SetCaller(options.PrimaryCaller)
+	result, err := wrapper.Open(nativeOwnerTestContext(t), sessionkit.OpenRequest{
+		Name: "fresh-requested@local", Groups: []string{"fixture"},
+		Open: sessionkit.OpenOptions{Cwd: options.CWD},
+	})
+	if err != nil || result.SessionID != ompNativeOwnerSID {
+		t.Fatalf("fresh Open = %+v, %v", result, err)
+	}
+	if !wrapper.opened || wrapper.binding.SessionID != ompNativeOwnerSID {
+		t.Fatalf("fresh binding = %+v, opened %v", wrapper.binding, wrapper.opened)
+	}
+	if err = wrapper.Close(nativeOwnerTestContext(t), sessionkit.SessionCloseRequest{}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-wrapper.owner.Done():
+	default:
+		t.Fatal("fresh Close returned before NativeOwner joined")
+	}
+}
+
 func TestOMPNameAndResumeValidation(t *testing.T) {
 	if _, err := ompNamePart("missing-domain"); err == nil {
 		t.Fatal("invalid lane name accepted")
