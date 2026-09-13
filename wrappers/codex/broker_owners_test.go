@@ -6,12 +6,28 @@ import (
 	"encoding/json"
 	"net"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/antst/sessionbus-peers/internal/testsocket"
 	kit "github.com/antst/sessionbus/bus/sdk/go"
+	"github.com/antst/sessionbus/bus/sdk/go/protocol"
 )
+
+type signaledBrokerWriteConn struct {
+	net.Conn
+	once     sync.Once
+	entered  chan struct{}
+	released chan struct{}
+}
+
+func (c *signaledBrokerWriteConn) Write(body []byte) (int, error) {
+	c.once.Do(func() { close(c.entered) })
+	n, err := c.Conn.Write(body)
+	close(c.released)
+	return n, err
+}
 
 func residentFixture(t *testing.T) (*brokerOwners, *brokerMux, *muxPipe, <-chan *muxPipe) {
 	t.Helper()
@@ -77,6 +93,46 @@ func residentBarrier(t *testing.T, p *muxPipe) {
 	t.Helper() // A same-reader inbound request must follow the hello observer.
 	if err := p.Write(frame("message.deliver", 2, kit.DeliveryRequest{MessageID: "preflight", From: kit.DeliverySource{SessionID: "source@local", Product: "fixture", Groups: []string{"launch"}}, Body: "x"})); err != nil {
 		t.Fatal(err)
+	}
+}
+func gateResidentRetries(o *brokerOwners) (<-chan struct{}, chan<- struct{}) {
+	waiting := make(chan struct{})
+	release := make(chan struct{})
+	o.retry = func(ctx context.Context) bool {
+		select {
+		case waiting <- struct{}{}:
+		case <-ctx.Done():
+			return false
+		}
+		select {
+		case <-release:
+			return true
+		case <-ctx.Done():
+			return false
+		}
+	}
+	return waiting, release
+}
+func completeIdleResidentDelivery(t *testing.T, bus, native *muxPipe) {
+	t.Helper()
+	residentBarrier(t, bus)
+	read := receiveNative(t, native)
+	if string(read["method"]) != `"thread/read"` {
+		t.Fatal(read)
+	}
+	if err := native.Write(brokerFrame{"jsonrpc": brokerRaw("2.0"), "id": read["id"], "result": brokerRaw(map[string]any{"thread": map[string]any{"id": "one", "status": map[string]string{"type": "idle"}}})}); err != nil {
+		t.Fatal(err)
+	}
+	turn := receiveNative(t, native)
+	if string(turn["method"]) != `"turn/start"` {
+		t.Fatal(turn)
+	}
+	if err := native.Write(brokerFrame{"jsonrpc": brokerRaw("2.0"), "id": turn["id"], "result": brokerRaw(map[string]any{"turn": map[string]string{"id": "barrier-turn"}})}); err != nil {
+		t.Fatal(err)
+	}
+	receipt := receiveNative(t, bus)
+	if string(receipt["id"]) != "2" || string(receipt["result"]) != `{"disposition":"injected"}` {
+		t.Fatal(receipt)
 	}
 }
 func TestBrokerResidentIdentityReadyRenameAndClosed(t *testing.T) {
@@ -166,7 +222,7 @@ func TestBrokerResidentToolAndDeliveryMakeProgressTogether(t *testing.T) {
 	if err := <-action; err != nil {
 		t.Fatal(err)
 	}
-	// EOF closes this resident permanently; there is no Peer/reconnect loop.
+	// Ending the native broker remains terminal and joins the resident publisher.
 	_ = bus.Close()
 	o.End()
 	select {
@@ -174,6 +230,197 @@ func TestBrokerResidentToolAndDeliveryMakeProgressTogether(t *testing.T) {
 		_ = unexpected.Close()
 		t.Fatal("unexpected reconnect")
 	default:
+	}
+}
+
+func TestBrokerResidentReconnectsLatestIdentityAndDoesNotReplayLostCall(t *testing.T) {
+	o, m, p, buses := residentFixture(t)
+	waiting, retry := gateResidentRetries(o)
+	loaded(t, o, m, p, "one")
+	readyCatalog(t, m, p, "one")
+	bus := receiveBus(t, buses)
+	acceptHello(t, bus)
+	completeIdleResidentDelivery(t, bus, p)
+	o.mu.Lock()
+	resident := o.owners["one"]
+	o.mu.Unlock()
+	resident.mu.Lock()
+	oldConnection := resident.connection
+	resident.mu.Unlock()
+
+	returned := make(chan error, 1)
+	go func() {
+		_, err := o.action(context.Background(), "list", json.RawMessage(`{}`), json.RawMessage(`{"threadId":"one"}`))
+		returned <- err
+	}()
+	lost := receiveNative(t, bus)
+	if string(lost["method"]) != `"session.list"` {
+		t.Fatal(lost)
+	}
+	_ = bus.Close()
+	if err := <-returned; err == nil {
+		t.Fatal("lost admitted call succeeded")
+	}
+	<-waiting
+	if _, err := o.action(context.Background(), "list", json.RawMessage(`{}`), json.RawMessage(`{"threadId":"one"}`)); err == nil {
+		t.Fatal("outage action succeeded")
+	}
+	nativeEvent(t, p, m, "thread/name/updated", map[string]any{"threadId": "one", "threadName": "renamed while down"})
+	retry <- struct{}{}
+	next := receiveBus(t, buses)
+	hello := acceptHello(t, next)
+	var identity kit.Identity
+	if err := json.Unmarshal(hello["params"], &identity); err != nil {
+		t.Fatal(err)
+	}
+	if identity.SessionID != "one" || identity.Name != "renamed while down" || identity.Info["cwd"] != "/real" || len(identity.Groups) != 1 || identity.Groups[0] != "launch" {
+		t.Fatal(identity)
+	}
+	// A same-reader delivery after the hello response proves admission and also
+	// proves that the lost session.list was not replayed on the fresh wire.
+	completeIdleResidentDelivery(t, next, p)
+	resident.handle(oldConnection, &kit.Request{ID: 99, Method: "session.superseded", Params: &struct{}{}})
+	go func() {
+		_, err := o.action(context.Background(), "list", json.RawMessage(`{}`), json.RawMessage(`{"threadId":"one"}`))
+		returned <- err
+	}()
+	fresh := receiveNative(t, next)
+	if string(fresh["method"]) != `"session.list"` {
+		t.Fatal(fresh)
+	}
+	if err := next.Write(brokerFrame{"jsonrpc": brokerRaw("2.0"), "id": fresh["id"], "result": brokerRaw(map[string]any{"sessions": []any{}})}); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-returned; err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestBrokerOwnerEndJoinsCanceledDialAndHelloWrite(t *testing.T) {
+	for _, phase := range []string{"dial", "hello-write"} {
+		t.Run(phase, func(t *testing.T) {
+			o, m, p, _ := residentFixture(t)
+			entered, released := make(chan struct{}), make(chan struct{})
+			var peer net.Conn
+			o.dial = func(ctx context.Context, _, _ string) (net.Conn, error) {
+				if phase == "dial" {
+					close(entered)
+					<-ctx.Done()
+					close(released)
+					return nil, ctx.Err()
+				}
+				a, b := net.Pipe()
+				peer = b
+				return &signaledBrokerWriteConn{Conn: a, entered: entered, released: released}, nil
+			}
+			loaded(t, o, m, p, "one")
+			readyCatalog(t, m, p, "one")
+			<-entered
+			done := make(chan struct{})
+			go func() { o.End(); close(done) }()
+			<-released
+			<-done
+			if peer != nil {
+				_ = peer.Close()
+			}
+		})
+	}
+}
+
+func TestBrokerInvalidHelloIsTerminalWithoutReconnect(t *testing.T) {
+	o, m, p, buses := residentFixture(t)
+	waiting, _ := gateResidentRetries(o)
+	loaded(t, o, m, p, "one")
+	readyCatalog(t, m, p, "one")
+	bus := receiveBus(t, buses)
+	hello := receiveNative(t, bus)
+	if err := bus.Write(brokerFrame{"jsonrpc": brokerRaw("2.0"), "id": hello["id"], "error": brokerRaw(map[string]any{"code": protocol.InvalidHello, "message": "invalid_hello"})}); err != nil {
+		t.Fatal(err)
+	}
+	o.work.Wait()
+	o.End()
+	select {
+	case <-waiting:
+		t.Fatal("invalid hello entered reconnect backoff")
+	default:
+	}
+	if _, err := o.action(context.Background(), "list", json.RawMessage(`{}`), json.RawMessage(`{"threadId":"one"}`)); err == nil {
+		t.Fatal("invalid hello resident accepted action")
+	}
+}
+
+func TestBrokerResidentRecoversWhenDaemonAbsentAtStartup(t *testing.T) {
+	o, m, p, buses := residentFixture(t)
+	waiting, retry := gateResidentRetries(o)
+	originalDial := o.dial
+	first := true
+	o.dial = func(ctx context.Context, network, address string) (net.Conn, error) {
+		if first {
+			first = false
+			return nil, context.DeadlineExceeded
+		}
+		return originalDial(ctx, network, address)
+	}
+	loaded(t, o, m, p, "one")
+	readyCatalog(t, m, p, "one")
+	<-waiting
+	retry <- struct{}{}
+	bus := receiveBus(t, buses)
+	hello := acceptHello(t, bus)
+	var identity kit.Identity
+	if err := json.Unmarshal(hello["params"], &identity); err != nil || identity.SessionID != "one" {
+		t.Fatal(identity, err)
+	}
+}
+
+func TestBrokerResidentHeldDialPublishesLatestGenerationOnly(t *testing.T) {
+	o, m, p, buses := residentFixture(t)
+	originalDial := o.dial
+	entered, release := make(chan struct{}), make(chan struct{})
+	o.dial = func(ctx context.Context, network, address string) (net.Conn, error) {
+		close(entered)
+		select {
+		case <-release:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+		return originalDial(ctx, network, address)
+	}
+	loaded(t, o, m, p, "one")
+	readyCatalog(t, m, p, "one")
+	<-entered
+	nativeEvent(t, p, m, "thread/name/updated", map[string]any{"threadId": "one", "threadName": "latest"})
+	close(release)
+	bus := receiveBus(t, buses)
+	hello := acceptHello(t, bus)
+	var identity kit.Identity
+	if err := json.Unmarshal(hello["params"], &identity); err != nil || identity.SessionID != "one" || identity.Name != "latest" {
+		t.Fatal(identity, err)
+	}
+}
+
+func TestBrokerSupersessionIsTerminalAndJoinsReconnectWork(t *testing.T) {
+	o, m, p, buses := residentFixture(t)
+	waiting, _ := gateResidentRetries(o)
+	loaded(t, o, m, p, "one")
+	readyCatalog(t, m, p, "one")
+	bus := receiveBus(t, buses)
+	acceptHello(t, bus)
+	completeIdleResidentDelivery(t, bus, p)
+	if err := bus.Write(frame("session.superseded", 3, map[string]any{})); err != nil {
+		t.Fatal(err)
+	}
+	if result := receiveNative(t, bus); string(result["id"]) != "3" || result["error"] != nil {
+		t.Fatal(result)
+	}
+	o.End()
+	select {
+	case <-waiting:
+		t.Fatal("superseded resident entered reconnect backoff")
+	default:
+	}
+	if _, err := o.action(context.Background(), "list", json.RawMessage(`{}`), json.RawMessage(`{"threadId":"one"}`)); err == nil {
+		t.Fatal("superseded resident accepted action")
 	}
 }
 func TestBrokerInitialNameOnlyCorrelatedTUISelection(t *testing.T) {

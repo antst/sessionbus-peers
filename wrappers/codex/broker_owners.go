@@ -8,14 +8,18 @@ import (
 	"errors"
 	"net"
 	"sync"
+	"time"
 
 	"github.com/antst/sessionbus-peers/wrappers/host"
 	kit "github.com/antst/sessionbus/bus/sdk/go"
 	"github.com/antst/sessionbus/bus/sdk/go/protocol"
 )
 
+const brokerReconnectInterval = 2 * time.Second
+
 type brokerOwners struct {
 	ctx          context.Context
+	cancel       context.CancelFunc
 	mu           sync.Mutex
 	mux          *brokerMux
 	groups       []string
@@ -26,6 +30,8 @@ type brokerOwners struct {
 	nameSelected bool
 	ended        bool
 	dial         func(context.Context, string, string) (net.Conn, error)
+	retry        func(context.Context) bool
+	work         sync.WaitGroup
 }
 type brokerResident struct {
 	owner          *brokerOwners
@@ -42,10 +48,12 @@ type brokerResident struct {
 	connection     *kit.Connection
 	caller         *kit.Caller
 	changed        chan struct{}
+	handlers       sync.WaitGroup
 }
 
 func newBrokerOwners(ctx context.Context, groups []string, socket string) *brokerOwners {
-	return &brokerOwners{ctx: ctx, groups: append([]string{}, groups...), socket: socket, owners: map[string]*brokerResident{}, startup: map[string]string{}, dial: (&net.Dialer{}).DialContext}
+	ownerContext, cancel := context.WithCancel(ctx)
+	return &brokerOwners{ctx: ownerContext, cancel: cancel, groups: append([]string{}, groups...), socket: socket, owners: map[string]*brokerResident{}, startup: map[string]string{}, dial: (&net.Dialer{}).DialContext, retry: waitBrokerReconnect}
 }
 func (o *brokerOwners) setMux(m *brokerMux) { o.mu.Lock(); o.mux = m; o.mu.Unlock() }
 func (o *brokerOwners) observe(method string, params, result json.RawMessage) error {
@@ -80,6 +88,7 @@ func (o *brokerOwners) observe(method string, params, result json.RawMessage) er
 		ctx, cancel := context.WithCancel(o.ctx)
 		r := &brokerResident{owner: o, ctx: ctx, cancel: cancel, identity: identity, generation: 1, changed: make(chan struct{}, 1)}
 		o.owners[identity.SessionID] = r
+		o.work.Add(1)
 		go r.publish()
 		if o.startup[identity.SessionID] == "ready" {
 			r.checkToolsLocked()
@@ -152,7 +161,9 @@ func (r *brokerResident) checkToolsLocked() {
 	id := r.identity.SessionID
 	r.mu.Unlock()
 	mux := r.owner.mux
+	r.owner.work.Add(1)
 	go func() {
+		defer r.owner.work.Done()
 		valid := false
 		if mux != nil {
 			cursor := ""
@@ -209,43 +220,79 @@ func (r *brokerResident) wake() {
 }
 func (r *brokerResident) end() {
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	if r.closed {
+		r.mu.Unlock()
 		return
 	}
 	r.closed = true
 	r.admitted = false
 	r.cancel()
-	if r.connection != nil {
-		_ = r.connection.Close()
+	c := r.connection
+	r.connection = nil
+	r.caller = nil
+	r.mu.Unlock()
+	if c != nil {
+		_ = c.Close()
 	}
 }
 func (o *brokerOwners) End() {
 	o.mu.Lock()
-	defer o.mu.Unlock()
-	if o.ended {
-		return
+	if !o.ended {
+		o.ended = true
+		o.cancel()
+		for _, r := range o.owners {
+			r.end()
+		}
 	}
-	o.ended = true
-	for _, r := range o.owners {
-		r.end()
+	o.mu.Unlock()
+	o.work.Wait()
+}
+
+func waitBrokerReconnect(ctx context.Context) bool {
+	timer := time.NewTimer(brokerReconnectInterval)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		return true
+	case <-ctx.Done():
+		return false
 	}
 }
+
+func (r *brokerResident) clearConnection(c *kit.Connection) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.connection == c {
+		r.connection = nil
+		r.caller = nil
+		r.admitted = false
+	}
+}
+
 func (r *brokerResident) publish() {
-	defer r.end()
+	defer func() {
+		r.end()
+		r.handlers.Wait()
+		r.owner.work.Done()
+	}()
 	var c *kit.Connection
 	for {
 		r.mu.Lock()
-		tools, admitted, identity, generation := r.tools, r.admitted, r.identity, r.generation
+		tools, admitted := r.tools, r.admitted
 		r.mu.Unlock()
 		if tools && !admitted {
 			if c == nil {
 				fd, err := r.owner.dial(r.ctx, "unix", r.owner.socket)
 				if err != nil {
-					return
+					if !r.owner.retry(r.ctx) {
+						return
+					}
+					continue
 				}
 				published := make(chan struct{})
-				c = kit.NewConnection(fd, func(_ context.Context, request *kit.Request) { <-published; r.handle(request) })
+				var attempt *kit.Connection
+				attempt = kit.NewConnection(fd, func(_ context.Context, request *kit.Request) { <-published; r.handle(attempt, request) })
+				c = attempt
 				r.mu.Lock()
 				if r.closed {
 					r.mu.Unlock()
@@ -256,11 +303,26 @@ func (r *brokerResident) publish() {
 				r.connection = c
 				r.caller = kit.NewCaller(func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 					var out json.RawMessage
-					err := c.Call(ctx, method, params, &out)
+					err := attempt.Call(ctx, method, params, &out)
 					return out, err
 				})
 				r.mu.Unlock()
 				close(published)
+			}
+			for {
+				select {
+				case <-r.changed:
+					continue
+				default:
+				}
+				break
+			}
+			r.mu.Lock()
+			tools, admitted = r.tools, r.admitted
+			identity, generation := r.identity, r.generation
+			r.mu.Unlock()
+			if !tools || admitted {
+				continue
 			}
 			var hello json.RawMessage
 			err := c.CallObserved(r.ctx, "session.hello", identity, &hello, func() error {
@@ -272,7 +334,16 @@ func (r *brokerResident) publish() {
 				return nil
 			})
 			if err != nil {
-				return
+				r.clearConnection(c)
+				_ = c.Close()
+				c = nil
+				if brokerInvalidHello(err) {
+					return
+				}
+				if !r.owner.retry(r.ctx) {
+					return
+				}
+				continue
 			}
 			r.mu.Lock()
 			same := r.generation == generation
@@ -289,35 +360,49 @@ func (r *brokerResident) publish() {
 		case <-r.ctx.Done():
 			return
 		case <-connectionDone:
-			return
+			r.clearConnection(c)
+			c = nil
+			if !r.owner.retry(r.ctx) {
+				return
+			}
 		case <-r.changed:
 		}
 	}
 }
-func (r *brokerResident) handle(request *kit.Request) {
+
+func brokerInvalidHello(err error) bool {
+	var failure *kit.ProtocolError
+	return errors.As(err, &failure) && failure.Code == protocol.InvalidHello
+}
+
+func (r *brokerResident) handle(source *kit.Connection, request *kit.Request) {
 	r.mu.Lock()
 	c, admitted := r.connection, r.admitted && !r.closed
-	r.mu.Unlock()
-	if c == nil {
+	if c == nil || c != source || r.closed {
+		r.mu.Unlock()
+		_ = source.Close()
 		return
 	}
 	if request.Method == "session.superseded" {
-		r.mu.Lock()
 		r.admitted = false
 		r.tools = false
 		r.generation++
+		r.handlers.Add(1)
 		r.mu.Unlock()
-		go func() { _ = c.Result(request, struct{}{}); r.end() }()
+		go func() { defer r.handlers.Done(); _ = c.Result(request, struct{}{}); r.end() }()
 		return
 	}
+	r.handlers.Add(1)
+	r.mu.Unlock()
 	go func() {
+		defer r.handlers.Done()
 		var err error
 		if request.Method != "message.deliver" {
 			err = c.Error(request, -32600, nil)
 		} else if !admitted {
 			err = c.Result(request, kit.DeliveryReceipt{Disposition: "rejected", Reason: "unpublished_before_submission"})
 		} else if p, ok := request.Params.(*protocol.DeliveryRequest); ok {
-			receipt, deliveryErr := r.deliver(r.ctx, *p)
+			receipt, deliveryErr := r.deliver(c.Context(), *p)
 			if deliveryErr != nil {
 				err = c.Error(request, -32603, "uncertain_native_admission")
 			} else {
@@ -394,7 +479,7 @@ func (o *brokerOwners) action(ctx context.Context, action string, args, meta jso
 		return nil, errors.New("native tool thread is not loaded on this broker")
 	}
 	r.mu.Lock()
-	admitted, caller := r.admitted && r.tools && !r.closed, r.caller
+	admitted, caller, connection := r.admitted && r.tools && !r.closed, r.caller, r.connection
 	r.mu.Unlock()
 	if !admitted || caller == nil {
 		return nil, errors.New("native Sessionbus tool is not ready")
@@ -406,7 +491,16 @@ func (o *brokerOwners) action(ctx context.Context, action string, args, meta jso
 	if err := r.ctx.Err(); err != nil {
 		return nil, err
 	}
-	return caller.Action(callCtx, action, args)
+	result, err := caller.Action(callCtx, action, args)
+	if err != nil {
+		r.mu.Lock()
+		lost := r.connection != connection || r.admitted == false || connection == nil || connection.Context().Err() != nil
+		r.mu.Unlock()
+		if lost {
+			return nil, &kit.ProtocolError{Code: protocol.NotConnected, Message: "not_connected"}
+		}
+	}
+	return result, err
 }
 
 // selectThread runs only for a correlated successful TUI response. Naming runs
@@ -426,7 +520,9 @@ func (o *brokerOwners) selectThread(method string, result json.RawMessage) error
 	}
 	o.nameSelected = true
 	mux, id, name := o.mux, selected.Thread.ID, o.initialName
+	o.work.Add(1)
 	go func() {
+		defer o.work.Done()
 		if err := mux.call(o.ctx, "thread/name/set", map[string]string{"threadId": id, "name": name}, &struct{}{}); err != nil {
 			mux.fail(err)
 		}
