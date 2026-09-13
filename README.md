@@ -46,9 +46,12 @@ Grok/Qwen install their native plugin globally; Claude/Codex retain their
 documented managed-launch activation. OpenCode and Kilo register tiny server/TUI hooks
 that stay inert in ordinary launches, plus one globally discoverable skill.
 
-Downloads are verified against `SHA256SUMS`. The default is the **development
-prerelease** published from tested builds of merged `develop` pushes. Pin an actual release tag by
-setting the variable on **sh**:
+Downloads are verified against `SHA256SUMS`. The default is GitHub's **latest
+stable release**; rerunning the installer selects the newest stable version
+without editing the command. `SESSIONBUS_VERSION=latest` explicitly selects the
+same behavior. Use `SESSIONBUS_VERSION=development` for the rolling prerelease
+published from tested builds of merged `develop` pushes. Pin an actual release
+tag by setting the variable on **sh**:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/antst/sessionbus-peers/develop/scripts/install-codex.sh | SESSIONBUS_VERSION=vX.Y.Z sh
