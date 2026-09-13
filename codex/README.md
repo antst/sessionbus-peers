@@ -167,3 +167,12 @@ This runs native `plugin remove codex@sessionbus-peers` and removes only the
 owned package, marketplace files and matching public symlink. The native
 marketplace registration may remain; remove that registration with the native
 marketplace command if desired. Other plugins and native history remain intact.
+
+## Daemon outages
+
+Interactive presence reconnects automatically after a daemon outage while the
+native session remains alive. Calls made during the outage fail; interrupted
+calls and deliveries are not replayed. Reconnection republishes the latest
+native identity and title. Native session end, supersession and owner shutdown
+remain terminal. Daemon-managed Worker lanes do not reconnect after losing
+their launch connection.

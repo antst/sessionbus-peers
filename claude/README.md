@@ -102,8 +102,13 @@ the next report that carries its title.
 
 `written` means local native socket write completion only, not native admission
 or model consumption. A failure after possible submission remains uncertain.
-There are no retries, reconnects, queues, polling or alternative delivery paths.
-Unexpected bus loss ends this resident integration. Cancelled public waits
+Interactive presence reconnects automatically after a daemon outage while the
+native session remains alive. Calls made during the outage fail; interrupted
+calls and deliveries are not replayed. Reconnection republishes the latest
+native identity and title. Native session end, supersession and owner shutdown
+remain terminal. Daemon-managed Worker lanes do not reconnect after losing
+their launch connection.
+Cancelled public waits
 leave results readable through their lane/run references; cancellation does not interrupt a
 native turn or retract a message.
 

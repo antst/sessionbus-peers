@@ -54,8 +54,12 @@ prompt to publish presence or wait/retry an unavailable integration.
 
 A `written` delivery means only that the local write completed. It does not
 prove native retention, admission or consumption. Preserve rejected reasons
-and errors exactly at their stated boundary. Unexpected connection loss ends
-this integration instance; report the failure rather than attempting repair.
+and errors exactly at their stated boundary. Interactive presence reconnects automatically after a daemon outage while the
+native session remains alive. Calls made during the outage fail; interrupted
+calls and deliveries are not replayed. Reconnection republishes the latest
+native identity and title. Native session end, supersession and owner shutdown
+remain terminal. Daemon-managed Worker lanes do not reconnect after losing
+their launch connection. Report failures without replaying uncertain work.
 
 `start` returns a `{session_id, run_id}` reference. `run`, `status` and `wait`
 read without consuming. Keep both IDs and all outcome/reason fields intact.

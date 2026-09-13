@@ -31,8 +31,12 @@ policy. An `injected` receipt means native actor admission, never model
 consumption. Interactive idle interjects may wake the native actor. A lane's
 `queued_for_next_turn` means bounded, unsent memory retained only by the live
 worker for a later explicit run. Never resend acknowledged or uncertain native
-work after a terminal, cancellation or transport loss. Connection loss ends
-this integration instance; there is no reconnect/replay layer.
+work after a terminal, cancellation or transport loss. Interactive presence reconnects automatically after a daemon outage while the
+native session remains alive. Calls made during the outage fail; interrupted
+calls and deliveries are not replayed. Reconnection republishes the latest
+native identity and title. Native session end, supersession and owner shutdown
+remain terminal. Daemon-managed Worker lanes do not reconnect after losing
+their launch connection.
 
 `start` returns a `{session_id, run_id}` reference. `run`, `status` and `wait`
 read without consuming. Keep both IDs and all outcome/reason fields intact.
