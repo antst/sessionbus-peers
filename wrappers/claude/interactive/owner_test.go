@@ -394,6 +394,27 @@ func TestSupersessionIsTerminalAndJoinsPublisher(t *testing.T) {
 	}
 }
 
+func TestSupersessionHeldAckIsCanceledAndJoinedByEnd(t *testing.T) {
+	o, wires := testOwner(t)
+	w := published(t, o, wires)
+	o.mu.Lock()
+	resident := o.resident
+	o.mu.Unlock()
+	w.request(t, "session.superseded", map[string]any{})
+	<-resident.ctx.Done()
+	done := make(chan struct{})
+	go func() {
+		o.End()
+		close(done)
+	}()
+	<-done
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if !o.ended || o.resident != nil || o.connection != nil || o.caller != nil {
+		t.Fatal("held supersession ACK retained Claude owner work")
+	}
+}
+
 func TestInvalidHelloIsTerminalAndDoesNotRetry(t *testing.T) {
 	o, wires := testOwner(t)
 	waiting, _ := gateRetries(o)

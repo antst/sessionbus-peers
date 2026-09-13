@@ -219,14 +219,29 @@ func (r *brokerResident) wake() {
 	}
 }
 func (r *brokerResident) end() {
+	r.retire(true)
+}
+
+// retireFromPublisher closes an owner which ended without a native terminal.
+// A supersession handler marks the resident closed before acknowledging the
+// terminal request and retains the connection until that owned handler (or
+// an explicit owner End) releases it.
+func (r *brokerResident) retireFromPublisher() {
+	r.retire(false)
+}
+
+func (r *brokerResident) retire(closeAlreadyRetired bool) {
 	r.mu.Lock()
-	if r.closed {
+	if r.closed && !closeAlreadyRetired {
 		r.mu.Unlock()
 		return
 	}
-	r.closed = true
+	if !r.closed {
+		r.closed = true
+		r.admitted = false
+		r.cancel()
+	}
 	r.admitted = false
-	r.cancel()
 	c := r.connection
 	r.connection = nil
 	r.caller = nil
@@ -271,7 +286,7 @@ func (r *brokerResident) clearConnection(c *kit.Connection) {
 
 func (r *brokerResident) publish() {
 	defer func() {
-		r.end()
+		r.retireFromPublisher()
 		r.handlers.Wait()
 		r.owner.work.Done()
 	}()
@@ -384,9 +399,11 @@ func (r *brokerResident) handle(source *kit.Connection, request *kit.Request) {
 		return
 	}
 	if request.Method == "session.superseded" {
+		r.closed = true
 		r.admitted = false
 		r.tools = false
 		r.generation++
+		r.cancel()
 		r.handlers.Add(1)
 		r.mu.Unlock()
 		go func() { defer r.handlers.Done(); _ = c.Result(request, struct{}{}); r.end() }()

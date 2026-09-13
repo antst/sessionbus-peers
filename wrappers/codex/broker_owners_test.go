@@ -7,6 +7,7 @@ import (
 	"net"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -20,6 +21,22 @@ type signaledBrokerWriteConn struct {
 	once     sync.Once
 	entered  chan struct{}
 	released chan struct{}
+}
+
+type gatedBrokerWriteConn struct {
+	net.Conn
+	enabled atomic.Bool
+	held    atomic.Bool
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (c *gatedBrokerWriteConn) Write(body []byte) (int, error) {
+	if c.enabled.Load() && c.held.CompareAndSwap(false, true) {
+		close(c.entered)
+		<-c.release
+	}
+	return c.Conn.Write(body)
 }
 
 func (c *signaledBrokerWriteConn) Write(body []byte) (int, error) {
@@ -421,6 +438,66 @@ func TestBrokerSupersessionIsTerminalAndJoinsReconnectWork(t *testing.T) {
 	}
 	if _, err := o.action(context.Background(), "list", json.RawMessage(`{}`), json.RawMessage(`{"threadId":"one"}`)); err == nil {
 		t.Fatal("superseded resident accepted action")
+	}
+}
+
+func TestBrokerSupersessionRetiresBeforeHeldAckAndLateCatalog(t *testing.T) {
+	o, m, p, buses := residentFixture(t)
+	originalDial := o.dial
+	held := &gatedBrokerWriteConn{entered: make(chan struct{}), release: make(chan struct{})}
+	o.dial = func(ctx context.Context, network, address string) (net.Conn, error) {
+		fd, err := originalDial(ctx, network, address)
+		if err != nil {
+			return nil, err
+		}
+		held.Conn = fd
+		return held, nil
+	}
+	loaded(t, o, m, p, "one")
+	readyCatalog(t, m, p, "one")
+	bus := receiveBus(t, buses)
+	acceptHello(t, bus)
+
+	// Keep a valid catalog result in flight while the public daemon withdraws
+	// this exact resident. It must not republish the resident while the terminal
+	// ACK write is held.
+	nativeEvent(t, p, m, "mcpServer/startupStatus/updated", map[string]string{"threadId": "one", "name": laneServer, "status": "starting"})
+	nativeEvent(t, p, m, "mcpServer/startupStatus/updated", map[string]string{"threadId": "one", "name": laneServer, "status": "ready"})
+	catalog := receiveNative(t, p)
+	if string(catalog["method"]) != `"mcpServerStatus/list"` {
+		t.Fatal(catalog)
+	}
+	o.mu.Lock()
+	resident := o.owners["one"]
+	o.mu.Unlock()
+	held.enabled.Store(true)
+	if err := bus.Write(frame("session.superseded", 3, map[string]any{})); err != nil {
+		t.Fatal(err)
+	}
+	<-held.entered
+	select {
+	case <-resident.ctx.Done():
+	default:
+		t.Fatal("superseded resident remained live while ACK was held")
+	}
+	resident.mu.Lock()
+	if !resident.closed || resident.admitted || resident.tools {
+		t.Fatalf("superseded resident remained publishable: closed=%v admitted=%v tools=%v", resident.closed, resident.admitted, resident.tools)
+	}
+	resident.mu.Unlock()
+	if err := p.Write(brokerFrame{"jsonrpc": brokerRaw("2.0"), "id": catalog["id"], "result": brokerRaw(map[string]any{"data": []any{map[string]any{"name": laneServer, "pluginId": PluginID, "runtimeStatus": "connected", "tools": map[string]any{"sessionbus": map[string]any{}}}}})}); err != nil {
+		t.Fatal(err)
+	}
+	nativeEvent(t, p, m, "mcpServer/startupStatus/updated", map[string]string{"threadId": "one", "name": laneServer, "status": "ready"})
+	close(held.release)
+	if result := receiveNative(t, bus); string(result["id"]) != "3" || result["error"] != nil {
+		t.Fatal(result)
+	}
+	o.End()
+	resident.mu.Lock()
+	defer resident.mu.Unlock()
+	if resident.tools || resident.admitted || resident.connection != nil || resident.caller != nil {
+		t.Fatal("late catalog result revived superseded resident")
 	}
 }
 func TestBrokerInitialNameOnlyCorrelatedTUISelection(t *testing.T) {
