@@ -51,7 +51,9 @@ stable release**; rerunning the installer selects the newest stable version
 without editing the command. `SESSIONBUS_VERSION=latest` explicitly selects the
 same behavior. Use `SESSIONBUS_VERSION=development` for the rolling prerelease
 published from tested builds of merged `develop` pushes. Pin an actual release
-tag by setting the variable on **sh**:
+tag by setting the variable on **sh**. Before the first stable release is
+published, use `SESSIONBUS_VERSION=development`; the default does not fall back
+to a prerelease:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/antst/sessionbus-peers/develop/scripts/install-codex.sh | SESSIONBUS_VERSION=vX.Y.Z sh
