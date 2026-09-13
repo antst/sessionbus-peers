@@ -83,7 +83,13 @@ func runOMPNativeOwnerHelper() error {
 	if err != nil {
 		return err
 	}
-	if err = os.WriteFile(os.Getenv(ompNativeOwnerCaptureEnv), body, 0o600); err != nil {
+	// The parent uses final-path existence as its startup barrier before Close.
+	// Publish complete JSON atomically so it cannot kill us between create/write.
+	capturePath := os.Getenv(ompNativeOwnerCaptureEnv)
+	if err = os.WriteFile(capturePath+".pending", body, 0o600); err != nil {
+		return err
+	}
+	if err = os.Rename(capturePath+".pending", capturePath); err != nil {
 		return err
 	}
 	if launch.Topology == ownerTopologyLane {
