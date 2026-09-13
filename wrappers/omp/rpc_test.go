@@ -941,7 +941,8 @@ func TestNativeRPCEndInputQueuesBehindAcceptedResponseWrite(t *testing.T) {
 func TestNativeRPCUICancellationDuringUnsettledWriteRetires(t *testing.T) {
 	rpc, peer, held, release := newHeldNativeRPCTest(t, nativeRPCLimits{})
 	held.enabled.Store(true)
-	ctx, cancel := context.WithCancel(nativeRPCTestContext(t))
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
 	result := make(chan error, 1)
 	go func() { result <- rpc.CancelUI(ctx, "dialog") }()
 	request := peer.read(t)
