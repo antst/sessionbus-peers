@@ -594,7 +594,8 @@ func TestOMPWorkerInterruptsSubmittedDeliveryBeforePreflight(t *testing.T) {
 	}
 	serveErr := <-served
 	servedJoined = true
-	if serveErr != nil && serveErr.Error() != "sessionbus connection closed" {
+	// The owned shutdown callback calls Worker.Shutdown, which now cancels Serve.
+	if !errors.Is(serveErr, context.Canceled) {
 		t.Fatalf("Worker Serve = %v", serveErr)
 	}
 	turn.mu.Lock()
