@@ -855,6 +855,10 @@ func newHeldNativeRPCTest(t *testing.T, limits nativeRPCLimits) (*nativeRPC, *na
 	}
 	peer := &nativeRPCTestPeer{commands: bufio.NewReader(commands), events: events}
 	readyNativeRPCTest(t, rpc, peer)
+	// Ready may return before negotiation's Write callback. Settle that write
+	// before callers arm enabled, or the hold can capture negotiation instead
+	// of the operation whose admission the test intends to observe.
+	waitNativeRPCStats(t, rpc, nativeRPCStats{})
 	var once sync.Once
 	release := func() { once.Do(func() { close(held.release) }) }
 	t.Cleanup(func() {
