@@ -129,6 +129,27 @@ function validateEcho(result, sessionID, extra = {}) {
   return result;
 }
 
+// Same closed field union as the shared MCP declaration. Action-specific
+// required fields and combinations remain enforced by the public kit.
+function argumentSchema() {
+  const properties = {};
+  for (const field of ["session_id", "host", "message", "target", "group", "product", "name", "resume_session_id", "notify_target", "input", "run_id"]) {
+    properties[field] = { type: "string" };
+  }
+  for (const field of ["targets", "extra_groups"]) {
+    properties[field] = { type: "array", items: { type: "string" } };
+  }
+  for (const field of ["persistent", "notify", "forget"]) properties[field] = { type: "boolean" };
+  for (const field of ["auto_close_ms", "timeout_ms"]) properties[field] = { type: "integer" };
+  properties.idle_message = { type: "string", enum: ["stage", "run"] };
+  const open = {};
+  for (const field of ["cwd", "permission_mode", "model", "reasoning_effort"]) open[field] = { type: "string" };
+  open.arguments = { type: "array", items: { type: "string" } };
+  properties.open = { type: "object", additionalProperties: false, properties: open };
+  return { type: "object", additionalProperties: false, properties,
+    description: "Use only the fields listed for the selected action in the tool description. send has no summary field; put the complete content in message." };
+}
+
 function toolParameters() {
   return {
     type: "object",
@@ -136,7 +157,7 @@ function toolParameters() {
     required: ["action", "arguments"],
     properties: {
       action: { type: "string", enum: [...actions] },
-      arguments: { type: "object" },
+      arguments: argumentSchema(),
     },
   };
 }

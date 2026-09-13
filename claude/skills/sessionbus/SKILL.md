@@ -28,6 +28,21 @@ returned native/daemon ID as the send target. Keep bus-provided source identity
 separate from labels inside message text. Never use Claude's native session
 listing, selectors, teams or another transport to repair a failed bus call.
 
+To send a message, use only the Sessionbus send fields:
+
+```json
+{"action":"send","arguments":{"target":"RETURNED_SESSION_ID","message":"Your complete message"}}
+```
+
+`send` accepts `message` and exactly one of `target`, `targets`, or `group`;
+`host` is optional only with `group`. There is no `summary` field. This tool
+has its own schema; do not copy arguments from Claude's native `SendMessage`
+or an older messaging integration. Put all intended content in `message`.
+An error such as `MessageSendRequest: "summary" is not allowed` is local
+validation before dispatch; that rejected request sent no message. Correct
+its arguments explicitly. Do not infer the same from a transport or receipt
+error, which may follow delivery.
+
 Claude's native policy can deny the public tool; the exact launcher allow
 rule is not a bypass. Preserve a denial or omitted tool as reported, without
 changing permissions or calling the hidden report handler.

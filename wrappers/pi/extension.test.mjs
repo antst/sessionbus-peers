@@ -404,3 +404,13 @@ test("default managed factory survives real module reevaluation after launch scr
   const second = await import("./extension.mjs?managed-reload=second");
   assert.strictEqual(second.default, first.default);
 });
+
+
+test("native tool arguments match the shared closed MCP field declaration", () => {
+  const native = nativeFixture();
+  createPiExtension({ launch: launch("lane") })(native.pi);
+  const declaration = JSON.parse(fs.readFileSync(new URL("../opencodefamily/plugin/sessionbus-tool.json", import.meta.url), "utf8"));
+  assert.deepEqual(native.pi.tool.parameters.properties.arguments, declaration.inputSchema.properties.arguments);
+  assert.equal(native.pi.tool.parameters.properties.arguments.additionalProperties, false);
+  assert.equal(Object.hasOwn(native.pi.tool.parameters.properties.arguments.properties, "summary"), false);
+});
