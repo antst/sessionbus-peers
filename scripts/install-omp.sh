@@ -9,12 +9,21 @@ case "$(uname -s)" in Linux) platform=linux;; Darwin) platform=darwin;; *) echo 
 case "$(uname -m)" in x86_64|amd64) arch=amd64;; aarch64|arm64) arch=arm64;; *) echo 'Supported architectures: amd64 and arm64' >&2; exit 1;; esac
 for cmd in curl tar awk mktemp; do command -v "$cmd" >/dev/null || { echo "Required command: $cmd" >&2; exit 1; }; done
 asset="$role-peer-$platform-$arch.tar.gz"
-if [ "$version" = latest ]; then
- base=https://github.com/antst/sessionbus-peers/releases/latest/download
+if [ -n "${SESSIONBUS_DOWNLOAD_ROOT:-}" ]; then
+ base=$SESSIONBUS_DOWNLOAD_ROOT
+elif [ "$version" = latest ]; then
+ release=$(curl -ILsS --retry 2 --connect-timeout 10 --max-time 30 -o /dev/null -w '%{http_code} %{url_effective}' https://github.com/antst/sessionbus-peers/releases/latest)
+ case "$release" in
+  '200 https://github.com/antst/sessionbus-peers/releases/tag/'*)
+   base=https://github.com/antst/sessionbus-peers/releases/latest/download;;
+  '200 https://github.com/antst/sessionbus-peers/releases')
+   echo 'No stable peer release yet; installing the published development build.' >&2
+   base=https://github.com/antst/sessionbus-peers/releases/download/development;;
+  *) echo "Cannot determine latest peer release ($release)" >&2; exit 1;;
+ esac
 else
  base=https://github.com/antst/sessionbus-peers/releases/download/$version
 fi
-base=${SESSIONBUS_DOWNLOAD_ROOT:-$base}
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' 0
 trap 'exit 1' HUP INT TERM

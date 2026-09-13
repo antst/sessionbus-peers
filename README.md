@@ -32,6 +32,10 @@ curl -fsSL https://raw.githubusercontent.com/antst/sessionbus-peers/develop/scri
 curl -fsSL https://raw.githubusercontent.com/antst/sessionbus-peers/develop/scripts/install-omp.sh | sh
 ```
 
+Pi and OMP are preview integrations in the development prerelease. See the
+[release notes](docs/releases/development.md) for included fixes and remaining
+acceptance work.
+
 Each command installs only that peer and its plugin into your normal user
 installation under `~/.local`; it does not install the native vendor product,
 daemon or hub. Use your normal login shell with `~/.local/bin` on PATH. Linux
@@ -46,14 +50,16 @@ Grok/Qwen install their native plugin globally; Claude/Codex retain their
 documented managed-launch activation. OpenCode and Kilo register tiny server/TUI hooks
 that stay inert in ordinary launches, plus one globally discoverable skill.
 
-Downloads are verified against `SHA256SUMS`. The default is GitHub's **latest
-stable release**; rerunning the installer selects the newest stable version
-without editing the command. `SESSIONBUS_VERSION=latest` explicitly selects the
-same behavior. Use `SESSIONBUS_VERSION=development` for the rolling prerelease
-published from tested builds of merged `develop` pushes. Pin an actual release
-tag by setting the variable on **sh**. Before the first stable release is
-published, use `SESSIONBUS_VERSION=development`; the default does not fall back
-to a prerelease:
+Downloads are verified against `SHA256SUMS`. By default, installers select
+GitHub's **latest stable release**, or the published **development prerelease**
+while no stable release exists. Rerunning the same command updates the product;
+no version edit is needed. `SESSIONBUS_VERSION=latest` explicitly selects this
+behavior. `SESSIONBUS_VERSION=development` always selects the rolling prerelease
+from tested builds of merged `develop` pushes. A failed release lookup or asset
+verification stops installation; only a confirmed missing stable release selects
+development. Mirrors and explicit release tags skip this lookup.
+
+Pin an actual release tag by setting the variable on **sh**:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/antst/sessionbus-peers/develop/scripts/install-codex.sh | SESSIONBUS_VERSION=vX.Y.Z sh
