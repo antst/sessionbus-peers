@@ -6,13 +6,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net"
 	"os"
 	"path/filepath"
 	"sync"
 
 	"github.com/antst/sessionbus-peers/wrappers/host"
 	kit "github.com/antst/sessionbus/bus/sdk/go"
+	"github.com/antst/sessionbus/bus/sdk/go/protocol"
 )
 
 type PeerBackend struct {
@@ -21,7 +21,7 @@ type PeerBackend struct {
 	leader, cwd, socket, initialName string
 	ctx                              context.Context
 	cancel                           context.CancelFunc
-	conn                             *kit.Connection
+	peer                             *kit.Peer
 	caller                           *kit.Caller
 	observer                         *acpClient
 	process                          *nativeProcess
@@ -91,12 +91,14 @@ func (b *PeerBackend) run() {
 	defer func() {
 		b.mu.Lock()
 		b.ending = true
-		c, o, process := b.conn, b.observer, b.process
+		peer, o, process := b.peer, b.observer, b.process
 		b.mu.Unlock()
 		b.cancel()
-		if c != nil {
-			_ = c.Close()
+		if peer != nil {
+			peer.Shutdown()
+			<-peer.Closed()
 		}
+		b.work.Wait()
 		stopPeerClient(o, process)
 	}()
 	err := b.runOwner()
@@ -166,25 +168,43 @@ func (b *PeerBackend) runOwner() error {
 			return errors.New("native initial title does not match requested name")
 		}
 	}
-	fd, err := (&net.Dialer{}).DialContext(b.ctx, "unix", b.socket)
+	if actual := kit.Socket(); actual != b.socket {
+		return fmt.Errorf("Sessionbus socket changed before Grok peer startup: %q != %q", actual, b.socket)
+	}
+	b.mu.Lock()
+	b.identity.Name = row.Title
+	b.identity.Info = map[string]any{"cwd": row.Cwd}
+	b.cwd = row.Cwd
+	identity := b.identity
+	b.mu.Unlock()
+	peer, err := kit.ConnectPeer(identity, b.deliverOwned)
 	if err != nil {
 		return err
 	}
-	var c *kit.Connection
-	assigned := make(chan struct{})
-	c = kit.NewConnection(fd, func(ctx context.Context, r *kit.Request) { <-assigned; b.handle(ctx, c, r) })
 	b.mu.Lock()
-	b.conn = c
+	b.peer = peer
 	ending = b.ending
 	b.mu.Unlock()
-	close(assigned)
 	if ending {
-		_ = c.Close()
+		peer.Shutdown()
+		<-peer.Closed()
 		return context.Canceled
 	}
-	if err = b.publish(c, row); err != nil {
+	select {
+	case <-peer.Ready():
+	case <-peer.Closed():
+		if err = peer.Err(); err == nil {
+			err = errors.New("Sessionbus owner connection ended before admission")
+		}
 		return err
+	case <-observer.done:
+		return errors.New("native actor ended before publication")
+	case <-b.ctx.Done():
+		return b.ctx.Err()
 	}
+	b.mu.Lock()
+	b.admitted = true
+	b.mu.Unlock()
 	close(b.ready)
 	for {
 		select {
@@ -193,19 +213,25 @@ func (b *PeerBackend) runOwner() error {
 			if err != nil {
 				return err
 			}
-			if err = b.publish(c, row); err != nil {
+			if err = b.publish(peer, row); err != nil {
 				return err
 			}
 		case <-observer.done:
 			return errors.New("Grok native observer ended")
-		case <-c.Done():
-			return errors.New("Sessionbus owner connection ended")
+		case <-peer.Closed():
+			if err = peer.Err(); err != nil {
+				return err
+			}
+			if err = b.ctx.Err(); err != nil {
+				return err
+			}
+			return errors.New("Sessionbus peer ended without a terminal reason")
 		case <-b.ctx.Done():
 			return b.ctx.Err()
 		}
 	}
 }
-func (b *PeerBackend) publish(c *kit.Connection, row peerSession) error {
+func (b *PeerBackend) publish(peer *kit.Peer, row peerSession) error {
 	b.mu.Lock()
 	if b.ending {
 		b.mu.Unlock()
@@ -219,17 +245,18 @@ func (b *PeerBackend) publish(c *kit.Connection, row peerSession) error {
 		return nil
 	}
 	b.mu.Unlock()
-	var result json.RawMessage
-	return c.CallObserved(b.ctx, "session.hello", next, &result, func() error {
-		b.mu.Lock()
-		defer b.mu.Unlock()
-		if !b.ending {
-			b.identity = next
-			b.cwd = row.Cwd
-			b.admitted = true
-		}
-		return nil
-	})
+	err := peer.Rehello(b.ctx, next.Name, next.Info)
+	var failure *kit.ProtocolError
+	if err != nil && (!errors.As(err, &failure) || failure.Code != protocol.NotConnected) {
+		return err
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if !b.ending && b.peer == peer {
+		b.identity = next
+		b.cwd = row.Cwd
+	}
+	return nil
 }
 func (b *PeerBackend) waitReady(ctx context.Context) error {
 	select {
@@ -253,11 +280,12 @@ func (b *PeerBackend) Call(ctx context.Context, method string, params any) (json
 		return nil, err
 	}
 	b.mu.Lock()
-	c := b.conn
+	peer := b.peer
 	b.mu.Unlock()
-	var result json.RawMessage
-	err := c.Call(ctx, method, params, &result)
-	return result, err
+	if peer == nil {
+		return nil, errors.New("Grok peer is unavailable")
+	}
+	return peer.Call(ctx, method, params)
 }
 func (b *PeerBackend) Caller() *kit.Caller                                  { return b.caller }
 func (b *PeerBackend) Prepare(ctx context.Context, _ json.RawMessage) error { return b.waitReady(ctx) }
@@ -268,68 +296,39 @@ func (b *PeerBackend) End() { b.Shutdown() }
 func (b *PeerBackend) Shutdown() {
 	b.mu.Lock()
 	b.ending = true
-	c, o := b.conn, b.observer
+	peer, o := b.peer, b.observer
 	b.mu.Unlock()
 	b.cancel()
-	if c != nil {
-		_ = c.Close()
+	if peer != nil {
+		peer.Shutdown()
 	}
 	if o != nil {
 		o.close()
 	}
 	b.initialized.Do(func() { close(b.done) })
 	<-b.done
-	b.work.Wait()
 }
-func (b *PeerBackend) handle(ctx context.Context, c *kit.Connection, r *kit.Request) {
+func (b *PeerBackend) deliverOwned(ctx context.Context, identity kit.PeerIdentity, request kit.DeliveryRequest) (kit.DeliveryReceipt, error) {
 	b.mu.Lock()
 	if b.ending {
 		b.mu.Unlock()
-		return
+		return kit.DeliveryReceipt{Disposition: "rejected", Reason: "closing"}, nil
 	}
 	select {
 	case b.slots <- struct{}{}:
 	default:
 		b.mu.Unlock()
-		_ = c.Close()
-		return
+		return kit.DeliveryReceipt{}, &kit.ProtocolError{Code: protocol.Internal, Data: json.RawMessage(`"uncertain_native_admission"`)}
 	}
 	b.work.Add(1)
 	b.mu.Unlock()
-	go func() {
-		defer b.work.Done()
-		defer func() { <-b.slots }()
-		var err error
-		switch r.Method {
-		case "session.superseded":
-			b.mu.Lock()
-			b.ending = true
-			b.admitted = false
-			b.mu.Unlock()
-			err = c.Result(r, struct{}{})
-			b.cancel()
-		case "message.deliver":
-			request, ok := r.Params.(*kit.DeliveryRequest)
-			if !ok {
-				_ = c.Close()
-				return
-			}
-			b.mu.Lock()
-			id := b.identity
-			b.mu.Unlock()
-			receipt, e := b.deliver(ctx, id, *request)
-			if e != nil {
-				err = c.Error(r, -32603, "uncertain_native_admission")
-			} else {
-				err = c.Result(r, receipt)
-			}
-		default:
-			err = c.Error(r, -32601, nil)
-		}
-		if err != nil {
-			_ = c.Close()
-		}
-	}()
+	defer b.work.Done()
+	defer func() { <-b.slots }()
+	receipt, err := b.deliver(ctx, identity, request)
+	if err != nil {
+		return kit.DeliveryReceipt{}, &kit.ProtocolError{Code: protocol.Internal, Data: json.RawMessage(`"uncertain_native_admission"`)}
+	}
+	return receipt, nil
 }
 func (b *PeerBackend) deliver(ctx context.Context, identity kit.PeerIdentity, request kit.DeliveryRequest) (kit.DeliveryReceipt, error) {
 	if err := b.waitReady(ctx); err != nil {
