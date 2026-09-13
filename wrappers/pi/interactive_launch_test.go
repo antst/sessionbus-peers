@@ -20,6 +20,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/antst/sessionbus-peers/internal/testsocket"
 	"github.com/antst/sessionbus-peers/wrappers/host"
 	"github.com/antst/sessionbus-peers/wrappers/pifamily"
 	kit "github.com/antst/sessionbus/bus/sdk/go"
@@ -102,6 +103,9 @@ func TestPiInteractiveNativeChild(t *testing.T) {
 	}
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, syscall.SIGTERM, syscall.SIGHUP)
+	if mode == "initial-absence" {
+		writeCapture()
+	}
 	var ready map[string]string
 	if native.Call(context.Background(), "owner.ready", interactiveReadyRequest{
 		Topology: interactiveTopology, Directory: descriptor.Directory, SessionID: "native-session", Name: "ready title",
@@ -243,18 +247,63 @@ func servePiInteractiveHello(t *testing.T, listener net.Listener, cancel context
 
 func piInteractiveLaunchPlan(t *testing.T, listener net.Listener, capture, mode string) host.ExecPlan {
 	t.Helper()
+	return piInteractiveLaunchPlanAt(t, listener.Addr().String(), capture, mode)
+}
+
+func piInteractiveLaunchPlanAt(t *testing.T, socket, capture, mode string) host.ExecPlan {
+	t.Helper()
 	t.Setenv(piInteractiveChildEnv, mode)
 	t.Setenv("PI_INTERACTIVE_TEST_CAPTURE", capture)
 	return host.ExecPlan{
 		Path: "/native/pi",
 		Args: []string{"--model", "fixture/model"},
 		Env: append(os.Environ(),
-			host.SocketEnv+"="+listener.Addr().String(),
+			host.SocketEnv+"="+socket,
 			host.GroupsEnv+`=["team"]`,
 			host.NameEnv+"=wrapper title",
 			host.SessionIDEnv+"=stale",
 			host.TokenEnv+"=stale",
 		),
+	}
+}
+
+func TestRunPiInteractiveWaitsForInitiallyAbsentDaemonWithoutRestartingNative(t *testing.T) {
+	installPiInteractiveCommandFixture(t)
+	originalInterval := piInteractiveReconnectInterval
+	piInteractiveReconnectInterval = 10 * time.Millisecond
+	t.Cleanup(func() { piInteractiveReconnectInterval = originalInterval })
+	root := testsocket.Directory(t)
+	socket := filepath.Join(root, "absent.sock")
+	ctx, cancel := context.WithCancel(context.Background())
+	capturePath := filepath.Join(t.TempDir(), "native.json")
+	plan := piInteractiveLaunchPlanAt(t, socket, capturePath, "initial-absence")
+	result := make(chan error, 1)
+	go func() { result <- runInteractiveResolved(ctx, plan, "/native/pi", "/plugin/pi/extension.mjs") }()
+	initial := readPiChildCapture(t, capturePath)
+	if initial.PID <= 0 || initial.Parent != os.Getpid() || syscall.Kill(initial.PID, 0) != nil {
+		t.Fatalf("initial native generation = %+v", initial)
+	}
+	select {
+	case err := <-result:
+		t.Fatalf("launcher ended while daemon was absent: %v", err)
+	case <-time.After(30 * time.Millisecond):
+	}
+	listener := interactiveBusListenerAt(t, socket)
+	conn := interactiveAccept(t, listener)
+	hello := interactiveHello(t, conn, bufio.NewScanner(conn))
+	if hello.SessionID != "native-session" || hello.Name != "native title" || hello.Info["cwd"] != "/native/work" {
+		t.Fatalf("delayed hello = %+v", hello)
+	}
+	cancel()
+	if err := <-result; err != nil {
+		t.Fatal(err)
+	}
+	final := readPiChildCapture(t, capturePath)
+	if final.PID != initial.PID || final.Parent != initial.Parent || final.Descriptor != initial.Descriptor || final.Signal != "terminated" {
+		t.Fatalf("native generation changed across absent daemon: initial=%+v final=%+v", initial, final)
+	}
+	if _, err := os.Stat(final.Descriptor.Directory); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("private directory remains: %v", err)
 	}
 }
 
@@ -281,6 +330,54 @@ func TestRunPiInteractiveOwnsBridgeIdentityAndGracefulSignalCleanup(t *testing.T
 		t.Fatalf("native capture = %+v", capture)
 	}
 	if _, err := os.Stat(capture.Descriptor.Directory); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("private directory remains: %v", err)
+	}
+}
+
+func TestRunPiInteractiveReconnectsPublicIdentityWithoutRestartingNative(t *testing.T) {
+	installPiInteractiveCommandFixture(t)
+	originalInterval := piInteractiveReconnectInterval
+	piInteractiveReconnectInterval = 10 * time.Millisecond
+	t.Cleanup(func() { piInteractiveReconnectInterval = originalInterval })
+	listener := interactiveBusListener(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	capturePath := filepath.Join(t.TempDir(), "native.json")
+	plan := piInteractiveLaunchPlan(t, listener, capturePath, "signal")
+	result := make(chan error, 1)
+	go func() { result <- runInteractiveResolved(ctx, plan, "/native/pi", "/plugin/pi/extension.mjs") }()
+
+	first := interactiveAccept(t, listener)
+	firstHello := interactiveHello(t, first, bufio.NewScanner(first))
+	if firstHello.SessionID != "native-session" || firstHello.Name != "native title" || firstHello.Info["cwd"] != "/native/work" {
+		t.Fatalf("first hello = %+v", firstHello)
+	}
+	initial := readPiChildCapture(t, capturePath)
+	if initial.PID <= 0 || initial.Parent != os.Getpid() || syscall.Kill(initial.PID, 0) != nil {
+		t.Fatalf("initial native generation = %+v", initial)
+	}
+	if err := first.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	second := interactiveAccept(t, listener)
+	secondHello := interactiveHello(t, second, bufio.NewScanner(second))
+	if !reflect.DeepEqual(secondHello, firstHello) {
+		t.Fatalf("reconnected hello = %+v, want %+v", secondHello, firstHello)
+	}
+	if syscall.Kill(initial.PID, 0) != nil {
+		t.Fatalf("native generation %d ended across public reconnect", initial.PID)
+	}
+
+	cancel()
+	if err := <-result; err != nil {
+		t.Fatal(err)
+	}
+	_ = second.Close()
+	final := readPiChildCapture(t, capturePath)
+	if final.PID != initial.PID || final.Parent != initial.Parent || final.Descriptor != initial.Descriptor || final.Signal != "terminated" {
+		t.Fatalf("native generation changed across reconnect: initial=%+v final=%+v", initial, final)
+	}
+	if _, err := os.Stat(final.Descriptor.Directory); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("private directory remains: %v", err)
 	}
 }

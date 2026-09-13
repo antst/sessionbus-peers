@@ -4,6 +4,7 @@ package pi
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -29,6 +30,33 @@ type interactiveNativeFixture struct {
 	cwd     string
 	replies []bool
 	appends []interactiveAppendRequest
+}
+
+type heldSupersededAckConn struct {
+	net.Conn
+	entered chan struct{}
+	release chan struct{}
+	closed  chan struct{}
+	once    sync.Once
+	close   sync.Once
+}
+
+func (c *heldSupersededAckConn) Write(body []byte) (int, error) {
+	frame, err := protocol.DecodeFrame(bytes.TrimSpace(body))
+	if err == nil && !frame.Request && frame.ID == 81 {
+		c.once.Do(func() { close(c.entered) })
+		select {
+		case <-c.release:
+		case <-c.closed:
+			return 0, net.ErrClosed
+		}
+	}
+	return c.Conn.Write(body)
+}
+
+func (c *heldSupersededAckConn) Close() error {
+	c.close.Do(func() { close(c.closed) })
+	return c.Conn.Close()
 }
 
 func (f *interactiveNativeFixture) set(id, name, cwd string) {
@@ -113,6 +141,11 @@ func interactiveOwnerPair(t *testing.T, socket, directory, initialName string, g
 func interactiveBusListener(t *testing.T) net.Listener {
 	t.Helper()
 	path := filepath.Join(testsocket.Directory(t), "bus.sock")
+	return interactiveBusListenerAt(t, path)
+}
+
+func interactiveBusListenerAt(t *testing.T, path string) net.Listener {
+	t.Helper()
 	listener, err := net.Listen("unix", path)
 	if err != nil {
 		t.Fatal(err)
@@ -158,6 +191,17 @@ func interactiveWrite(t *testing.T, conn net.Conn, body []byte) {
 
 func interactiveHello(t *testing.T, conn net.Conn, scanner *bufio.Scanner) kit.PeerIdentity {
 	t.Helper()
+	hello, frame := interactiveHelloRequest(t, scanner)
+	body, err := protocol.ResultBytes(frame.ID, frame.Method, struct{}{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	interactiveWrite(t, conn, body)
+	return hello
+}
+
+func interactiveHelloRequest(t *testing.T, scanner *bufio.Scanner) (kit.PeerIdentity, protocol.Frame) {
+	t.Helper()
 	frame := interactiveFrame(t, scanner)
 	if !frame.Request || frame.Method != "session.hello" {
 		t.Fatalf("hello frame = %+v", frame)
@@ -170,12 +214,7 @@ func interactiveHello(t *testing.T, conn net.Conn, scanner *bufio.Scanner) kit.P
 	if !ok {
 		t.Fatalf("hello params = %T", params)
 	}
-	body, err := protocol.ResultBytes(frame.ID, frame.Method, struct{}{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	interactiveWrite(t, conn, body)
-	return *hello
+	return *hello, frame
 }
 
 func interactiveReady(t *testing.T, native *pifamily.Bridge, listener net.Listener, request interactiveReadyRequest) (kit.PeerIdentity, net.Conn, *bufio.Scanner) {
@@ -203,6 +242,94 @@ func interactiveReady(t *testing.T, native *pifamily.Bridge, listener net.Listen
 		t.Fatal("owner.ready did not finish")
 	}
 	return hello, conn, scanner
+}
+
+func interactiveReadyCall(native *pifamily.Bridge, request interactiveReadyRequest) <-chan error {
+	done := make(chan error, 1)
+	go func() {
+		var result struct {
+			SessionID string `json:"session_id"`
+		}
+		err := native.Call(context.Background(), "owner.ready", request, &result)
+		if err == nil && result.SessionID != request.SessionID {
+			err = errors.New("owner.ready changed session identity")
+		}
+		done <- err
+	}()
+	return done
+}
+
+func interactiveToolCall(native *pifamily.Bridge, sessionID, callID string) <-chan error {
+	done := make(chan error, 1)
+	go func() {
+		var result json.RawMessage
+		done <- native.Call(context.Background(), "tool.call", interactiveToolRequest{SessionID: sessionID, CallID: callID, Action: "list", Arguments: json.RawMessage(`{}`)}, &result)
+	}()
+	return done
+}
+
+func awaitInteractiveSignal(t *testing.T, signal <-chan struct{}, label string) {
+	t.Helper()
+	select {
+	case <-signal:
+	case <-time.After(5 * time.Second):
+		t.Fatalf("timed out waiting for %s", label)
+	}
+}
+
+func awaitInteractiveError(t *testing.T, result <-chan error, label string) error {
+	t.Helper()
+	select {
+	case err := <-result:
+		return err
+	case <-time.After(5 * time.Second):
+		t.Fatalf("timed out waiting for %s", label)
+		return context.DeadlineExceeded
+	}
+}
+
+func awaitInteractiveFrame(t *testing.T, frames <-chan protocol.Frame, label string) protocol.Frame {
+	t.Helper()
+	select {
+	case frame, ok := <-frames:
+		if !ok {
+			t.Fatalf("connection ended while waiting for %s", label)
+		}
+		return frame
+	case <-time.After(5 * time.Second):
+		t.Fatalf("timed out waiting for %s", label)
+		return protocol.Frame{}
+	}
+}
+
+func awaitInteractiveDisconnected(t *testing.T, owner *interactiveOwner) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		owner.mu.Lock()
+		disconnected := owner.public != nil && owner.conn == nil && owner.connecting == nil
+		owner.mu.Unlock()
+		if disconnected {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatal("Pi public owner did not enter disconnected state")
+}
+
+func awaitInteractiveConnected(t *testing.T, owner *interactiveOwner, conn net.Conn) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		owner.mu.Lock()
+		connected := owner.conn != nil && owner.connecting == nil
+		owner.mu.Unlock()
+		if connected {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatalf("Pi public owner did not admit replacement connection %v", conn.RemoteAddr())
 }
 
 func TestInteractiveOwnerPublishesRebindsAndRoutesExactToolIdentity(t *testing.T) {
@@ -262,6 +389,386 @@ func TestInteractiveOwnerPublishesRebindsAndRoutesExactToolIdentity(t *testing.T
 	hello, _, _ = interactiveReady(t, native, listener, interactiveReadyRequest{interactiveTopology, owner.directory, "native-two", ""})
 	if hello.SessionID != "native-two" || hello.Name != "wrapper fallback" || hello.Info["cwd"] != "/work/two" {
 		t.Fatalf("replacement hello = %+v", hello)
+	}
+}
+
+func TestInteractiveOwnerReconnectsLatestIdentityWithoutReplayAndSessionEndStopsOldLifetime(t *testing.T) {
+	root := testsocket.Directory(t)
+	socket := filepath.Join(root, "bus.sock")
+	originalDial, originalInterval := piInteractivePublicDial, piInteractiveReconnectInterval
+	attempted := make(chan struct{}, 64)
+	piInteractivePublicDial = func(ctx context.Context, network, address string) (net.Conn, error) {
+		attempted <- struct{}{}
+		return originalDial(ctx, network, address)
+	}
+	piInteractiveReconnectInterval = 10 * time.Millisecond
+	t.Cleanup(func() {
+		piInteractivePublicDial, piInteractiveReconnectInterval = originalDial, originalInterval
+	})
+	nativeState := &interactiveNativeFixture{}
+	owner, native := interactiveOwnerPair(t, socket, root, "fallback", []string{"team"}, nativeState)
+	nativeState.set("native-one", "before outage", "/work/one")
+	readyDone := interactiveReadyCall(native, interactiveReadyRequest{interactiveTopology, owner.directory, "native-one", "event title"})
+	awaitInteractiveSignal(t, attempted, "initial public dial")
+	select {
+	case <-owner.Ready():
+		t.Fatal("owner became ready while Sessionbus was absent")
+	case <-owner.Done():
+		t.Fatalf("owner ended while Sessionbus was absent: %v", owner.Err())
+	default:
+	}
+
+	firstListener := interactiveBusListenerAt(t, socket)
+	first := interactiveAccept(t, firstListener)
+	firstScanner := bufio.NewScanner(first)
+	firstHello := interactiveHello(t, first, firstScanner)
+	if firstHello.SessionID != "native-one" || firstHello.Name != "before outage" || firstHello.Info["cwd"] != "/work/one" {
+		t.Fatalf("first hello = %+v", firstHello)
+	}
+	if err := awaitInteractiveError(t, readyDone, "first owner.ready"); err != nil {
+		t.Fatal(err)
+	}
+	awaitInteractiveSignal(t, owner.Ready(), "first owner admission")
+	owner.mu.Lock()
+	oldPublic := owner.public
+	owner.mu.Unlock()
+	lostCall := interactiveToolCall(native, "native-one", "lost-call")
+	lostFrame := interactiveFrame(t, firstScanner)
+	if !lostFrame.Request || lostFrame.Method != "session.list" {
+		t.Fatalf("lost public call = %+v", lostFrame)
+	}
+
+	if err := first.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := firstListener.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := awaitInteractiveError(t, lostCall, "lost public call"); err == nil {
+		t.Fatal("in-flight public call survived its lost connection")
+	}
+	awaitInteractiveDisconnected(t, owner)
+	nativeState.set("native-one", "after outage", "/work/two")
+	if err := awaitInteractiveError(t, interactiveReadyCall(native, interactiveReadyRequest{interactiveTopology, owner.directory, "native-one", "after outage"}), "outage identity update"); err != nil {
+		t.Fatal(err)
+	}
+	toolDuringOutage := interactiveToolCall(native, "native-one", "offline-call")
+	if err := awaitInteractiveError(t, toolDuringOutage, "outage tool call"); err == nil || !strings.Contains(err.Error(), "not_connected") {
+		t.Fatalf("outage tool call = %v", err)
+	}
+
+	secondListener := interactiveBusListenerAt(t, socket)
+	second := interactiveAccept(t, secondListener)
+	secondScanner := bufio.NewScanner(second)
+	secondHello, secondHelloFrame := interactiveHelloRequest(t, secondScanner)
+	if secondHello.SessionID != "native-one" || secondHello.Name != "after outage" || secondHello.Info["cwd"] != "/work/two" || !reflect.DeepEqual(secondHello.Groups, firstHello.Groups) {
+		t.Fatalf("replacement hello = %+v", secondHello)
+	}
+	nativeState.set("native-one", "during hello", "/work/three")
+	if err := awaitInteractiveError(t, interactiveReadyCall(native, interactiveReadyRequest{interactiveTopology, owner.directory, "native-one", "during hello"}), "held-hello identity update"); err != nil {
+		t.Fatal(err)
+	}
+	body, err := protocol.ResultBytes(secondHelloFrame.ID, secondHelloFrame.Method, struct{}{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	interactiveWrite(t, second, body)
+	latestHello := interactiveHello(t, second, secondScanner)
+	if latestHello.SessionID != "native-one" || latestHello.Name != "during hello" || latestHello.Info["cwd"] != "/work/three" || !reflect.DeepEqual(latestHello.Groups, firstHello.Groups) {
+		t.Fatalf("latest rehello = %+v", latestHello)
+	}
+	awaitInteractiveConnected(t, owner, second)
+	frames := make(chan protocol.Frame, 2)
+	go func() {
+		for secondScanner.Scan() {
+			frame, decodeErr := protocol.DecodeFrame(secondScanner.Bytes())
+			if decodeErr == nil {
+				frames <- frame
+			}
+		}
+		close(frames)
+	}()
+	select {
+	case frame := <-frames:
+		t.Fatalf("outage call replayed after reconnect: %+v", frame)
+	case <-time.After(20 * time.Millisecond):
+	}
+
+	toolAfterReconnect := interactiveToolCall(native, "native-one", "online-call")
+	frame := awaitInteractiveFrame(t, frames, "post-reconnect public call")
+	if !frame.Request || frame.Method != "session.list" {
+		t.Fatalf("post-reconnect public frame = %+v", frame)
+	}
+	listed := kit.SessionListResult{
+		SelfInfo: &kit.SessionSelfInfo{SessionID: "native-one", Product: Product, Groups: []string{"team"}},
+		Sessions: []kit.SessionSummary{},
+	}
+	body, err = protocol.ResultBytes(frame.ID, frame.Method, listed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	interactiveWrite(t, second, body)
+	if err = awaitInteractiveError(t, toolAfterReconnect, "post-reconnect tool call"); err != nil {
+		t.Fatal(err)
+	}
+
+	var ended map[string]string
+	if err = native.Call(context.Background(), "session_end", interactiveEndRequest{interactiveTopology, "native-one", "new"}, &ended); err != nil || ended["session_id"] != "native-one" {
+		t.Fatalf("session_end = %#v, %v", ended, err)
+	}
+	owner.mu.Lock()
+	if owner.public != nil || owner.conn != nil || owner.connecting != nil || owner.sessionID != "" {
+		t.Fatalf("ended public lifetime retained state: public=%p conn=%p connecting=%p session=%q", owner.public, owner.conn, owner.connecting, owner.sessionID)
+	}
+	owner.mu.Unlock()
+	if _, err = owner.callPublic(context.Background(), "native-one", oldPublic, "session.list", kit.SessionListRequest{}); err == nil || !strings.Contains(err.Error(), "current session") {
+		t.Fatalf("ended lifetime call = %v", err)
+	}
+
+	nativeState.set("native-two", "replacement", "/work/four")
+	replacementDone := interactiveReadyCall(native, interactiveReadyRequest{interactiveTopology, owner.directory, "native-two", "replacement"})
+	third := interactiveAccept(t, secondListener)
+	thirdHello := interactiveHello(t, third, bufio.NewScanner(third))
+	if thirdHello.SessionID != "native-two" || thirdHello.Name != "replacement" || thirdHello.Info["cwd"] != "/work/four" {
+		t.Fatalf("new-session hello = %+v", thirdHello)
+	}
+	if err = awaitInteractiveError(t, replacementDone, "replacement owner.ready"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestInteractiveOwnerSupersededIsTerminal(t *testing.T) {
+	listener := interactiveBusListener(t)
+	nativeState := &interactiveNativeFixture{}
+	owner, native := interactiveOwnerPair(t, listener.Addr().String(), t.TempDir(), "", []string{"team"}, nativeState)
+	nativeState.set("native-one", "title", "/work")
+	_, bus, scanner := interactiveReady(t, native, listener, interactiveReadyRequest{interactiveTopology, owner.directory, "native-one", "title"})
+	body, err := protocol.RequestBytes(81, "session.superseded", struct{}{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	interactiveWrite(t, bus, body)
+	frame := interactiveFrame(t, scanner)
+	if frame.Request || frame.ID != 81 || frame.Error != nil {
+		t.Fatalf("superseded response = %+v", frame)
+	}
+	awaitInteractiveSignal(t, owner.Done(), "superseded owner termination")
+	if err = owner.Err(); err == nil || !strings.Contains(err.Error(), "superseded") {
+		t.Fatalf("superseded owner error = %v", err)
+	}
+}
+
+func TestInteractiveOwnerSupersededOwnsTerminationBeforeHeldAck(t *testing.T) {
+	listener := interactiveBusListener(t)
+	originalDial, originalInterval := piInteractivePublicDial, piInteractiveReconnectInterval
+	ackEntered, ackRelease := make(chan struct{}), make(chan struct{})
+	var releaseOnce sync.Once
+	releaseAck := func() { releaseOnce.Do(func() { close(ackRelease) }) }
+	dials := make(chan struct{}, 8)
+	piInteractivePublicDial = func(ctx context.Context, network, address string) (net.Conn, error) {
+		conn, err := originalDial(ctx, network, address)
+		if err != nil {
+			return nil, err
+		}
+		dials <- struct{}{}
+		return &heldSupersededAckConn{Conn: conn, entered: ackEntered, release: ackRelease, closed: make(chan struct{})}, nil
+	}
+	piInteractiveReconnectInterval = 10 * time.Millisecond
+	t.Cleanup(func() {
+		releaseAck()
+		piInteractivePublicDial, piInteractiveReconnectInterval = originalDial, originalInterval
+	})
+	nativeState := &interactiveNativeFixture{}
+	owner, native := interactiveOwnerPair(t, listener.Addr().String(), t.TempDir(), "", []string{"team"}, nativeState)
+	nativeState.set("native-one", "title", "/work")
+	_, bus, scanner := interactiveReady(t, native, listener, interactiveReadyRequest{interactiveTopology, owner.directory, "native-one", "title"})
+	awaitInteractiveSignal(t, dials, "first public dial")
+	body, err := protocol.RequestBytes(81, "session.superseded", struct{}{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	interactiveWrite(t, bus, body)
+	awaitInteractiveSignal(t, ackEntered, "held supersession acknowledgement")
+	owner.mu.Lock()
+	terminal := owner.ending
+	ownerErr := owner.err
+	owner.mu.Unlock()
+	if !terminal || ownerErr == nil || !strings.Contains(ownerErr.Error(), "superseded") {
+		t.Fatalf("supersession did not synchronously own termination: ending=%t err=%v", terminal, ownerErr)
+	}
+	nativeState.set("native-two", "replacement", "/replacement")
+	if err = awaitInteractiveError(t, interactiveReadyCall(native, interactiveReadyRequest{interactiveTopology, owner.directory, "native-two", "replacement"}), "late replacement"); err == nil {
+		t.Fatal("replacement owner.ready crossed held supersession acknowledgement")
+	}
+	select {
+	case <-dials:
+		t.Fatal("superseded public identity attempted reconnect before its acknowledgement")
+	case <-time.After(30 * time.Millisecond):
+	}
+	releaseAck()
+	frame := interactiveFrame(t, scanner)
+	if frame.Request || frame.ID != 81 || frame.Error != nil {
+		t.Fatalf("superseded response = %+v", frame)
+	}
+	awaitInteractiveSignal(t, owner.Done(), "superseded owner termination")
+}
+
+func TestInteractiveOwnerCloseJoinsHeldSupersededAck(t *testing.T) {
+	listener := interactiveBusListener(t)
+	originalDial := piInteractivePublicDial
+	ackEntered, ackRelease := make(chan struct{}), make(chan struct{})
+	var releaseOnce sync.Once
+	releaseAck := func() { releaseOnce.Do(func() { close(ackRelease) }) }
+	piInteractivePublicDial = func(ctx context.Context, network, address string) (net.Conn, error) {
+		conn, err := originalDial(ctx, network, address)
+		if err != nil {
+			return nil, err
+		}
+		return &heldSupersededAckConn{Conn: conn, entered: ackEntered, release: ackRelease, closed: make(chan struct{})}, nil
+	}
+	t.Cleanup(func() {
+		releaseAck()
+		piInteractivePublicDial = originalDial
+	})
+	nativeState := &interactiveNativeFixture{}
+	owner, native := interactiveOwnerPair(t, listener.Addr().String(), t.TempDir(), "", []string{"team"}, nativeState)
+	nativeState.set("native-one", "title", "/work")
+	_, bus, _ := interactiveReady(t, native, listener, interactiveReadyRequest{interactiveTopology, owner.directory, "native-one", "title"})
+	body, err := protocol.RequestBytes(81, "session.superseded", struct{}{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	interactiveWrite(t, bus, body)
+	awaitInteractiveSignal(t, ackEntered, "held supersession acknowledgement")
+	closed := make(chan error, 1)
+	go func() { closed <- owner.Close() }()
+	select {
+	case err = <-closed:
+		if err == nil || !strings.Contains(err.Error(), "superseded") {
+			t.Fatalf("Close error omitted supersession: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Close did not unblock and join held supersession acknowledgement")
+	}
+}
+
+func TestInteractiveOwnerIgnoresSupersededBeforeHelloAdmission(t *testing.T) {
+	root := testsocket.Directory(t)
+	socket := filepath.Join(root, "bus.sock")
+	originalInterval := piInteractiveReconnectInterval
+	piInteractiveReconnectInterval = 10 * time.Millisecond
+	t.Cleanup(func() { piInteractiveReconnectInterval = originalInterval })
+	listener := interactiveBusListenerAt(t, socket)
+	nativeState := &interactiveNativeFixture{}
+	owner, native := interactiveOwnerPair(t, socket, root, "", []string{"team"}, nativeState)
+	nativeState.set("native-one", "title", "/work")
+	readyDone := interactiveReadyCall(native, interactiveReadyRequest{interactiveTopology, owner.directory, "native-one", "title"})
+	stale := interactiveAccept(t, listener)
+	staleScanner := bufio.NewScanner(stale)
+	hello, _ := interactiveHelloRequest(t, staleScanner)
+	if hello.SessionID != "native-one" {
+		t.Fatalf("unadmitted hello = %+v", hello)
+	}
+	body, err := protocol.RequestBytes(81, "session.superseded", struct{}{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	interactiveWrite(t, stale, body)
+	select {
+	case <-owner.Done():
+		t.Fatalf("stale pre-admission superseded retired owner: %v", owner.Err())
+	case <-time.After(20 * time.Millisecond):
+	}
+	current := interactiveAccept(t, listener)
+	currentHello := interactiveHello(t, current, bufio.NewScanner(current))
+	if currentHello.SessionID != "native-one" || currentHello.Name != "title" || currentHello.Info["cwd"] != "/work" {
+		t.Fatalf("admitted retry hello = %+v", currentHello)
+	}
+	if err = awaitInteractiveError(t, readyDone, "owner.ready after stale superseded"); err != nil {
+		t.Fatal(err)
+	}
+	if owner.Err() != nil {
+		t.Fatalf("stale pre-admission superseded poisoned owner: %v", owner.Err())
+	}
+}
+
+func TestInteractiveOwnerSessionEndWhileDisconnectedStopsReconnect(t *testing.T) {
+	root := testsocket.Directory(t)
+	socket := filepath.Join(root, "bus.sock")
+	originalDial, originalInterval := piInteractivePublicDial, piInteractiveReconnectInterval
+	dials := make(chan struct{}, 64)
+	piInteractivePublicDial = func(ctx context.Context, network, address string) (net.Conn, error) {
+		dials <- struct{}{}
+		return originalDial(ctx, network, address)
+	}
+	piInteractiveReconnectInterval = 10 * time.Millisecond
+	t.Cleanup(func() {
+		piInteractivePublicDial, piInteractiveReconnectInterval = originalDial, originalInterval
+	})
+	listener := interactiveBusListenerAt(t, socket)
+	nativeState := &interactiveNativeFixture{}
+	owner, native := interactiveOwnerPair(t, socket, root, "", []string{"team"}, nativeState)
+	nativeState.set("native-one", "title", "/work")
+	_, bus, _ := interactiveReady(t, native, listener, interactiveReadyRequest{interactiveTopology, owner.directory, "native-one", "title"})
+	if err := bus.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := listener.Close(); err != nil {
+		t.Fatal(err)
+	}
+	awaitInteractiveDisconnected(t, owner)
+	owner.mu.Lock()
+	public := owner.public
+	owner.mu.Unlock()
+	var ended map[string]string
+	if err := native.Call(context.Background(), "session_end", interactiveEndRequest{interactiveTopology, "native-one", "reload"}, &ended); err != nil || ended["session_id"] != "native-one" {
+		t.Fatalf("session_end = %#v, %v", ended, err)
+	}
+	awaitInteractiveSignal(t, public.done, "ended reconnect lifetime")
+	for len(dials) > 0 {
+		<-dials
+	}
+	select {
+	case <-dials:
+		t.Fatal("ended session attempted another public dial")
+	case <-time.After(30 * time.Millisecond):
+	}
+	if owner.Err() != nil {
+		t.Fatalf("disconnected SessionEnd retired native owner: %v", owner.Err())
+	}
+}
+
+func TestInteractiveOwnerCloseJoinsAbsentDaemonReconnect(t *testing.T) {
+	root := testsocket.Directory(t)
+	socket := filepath.Join(root, "absent.sock")
+	originalDial, originalInterval := piInteractivePublicDial, piInteractiveReconnectInterval
+	dials := make(chan struct{}, 64)
+	piInteractivePublicDial = func(ctx context.Context, network, address string) (net.Conn, error) {
+		dials <- struct{}{}
+		return originalDial(ctx, network, address)
+	}
+	piInteractiveReconnectInterval = 10 * time.Millisecond
+	t.Cleanup(func() {
+		piInteractivePublicDial, piInteractiveReconnectInterval = originalDial, originalInterval
+	})
+	nativeState := &interactiveNativeFixture{}
+	owner, native := interactiveOwnerPair(t, socket, root, "", []string{"team"}, nativeState)
+	nativeState.set("native-one", "title", "/work")
+	readyDone := interactiveReadyCall(native, interactiveReadyRequest{interactiveTopology, owner.directory, "native-one", "title"})
+	awaitInteractiveSignal(t, dials, "absent-daemon dial")
+	if err := owner.Close(); err != nil {
+		t.Fatalf("Close during absent-daemon retry = %v", err)
+	}
+	if err := awaitInteractiveError(t, readyDone, "owner.ready cancellation"); err == nil {
+		t.Fatal("owner.ready survived owner Close")
+	}
+	for len(dials) > 0 {
+		<-dials
+	}
+	select {
+	case <-dials:
+		t.Fatal("closed owner attempted another public dial")
+	case <-time.After(30 * time.Millisecond):
 	}
 }
 
@@ -359,7 +866,7 @@ func TestInteractiveOwnerOldGenerationCannotUseSameIDReplacement(t *testing.T) {
 	nativeState.set("native-one", "first", "/work")
 	_, first, _ := interactiveReady(t, native, listener, interactiveReadyRequest{interactiveTopology, owner.directory, "native-one", "first"})
 	owner.mu.Lock()
-	old, generation := owner.conn, owner.generation
+	old := owner.public
 	owner.mu.Unlock()
 	var ended map[string]string
 	if err := native.Call(context.Background(), "session_end", interactiveEndRequest{interactiveTopology, "native-one", "reload"}, &ended); err != nil {
@@ -368,7 +875,7 @@ func TestInteractiveOwnerOldGenerationCannotUseSameIDReplacement(t *testing.T) {
 	_ = first.Close()
 	nativeState.set("native-one", "reloaded", "/work")
 	_, _, _ = interactiveReady(t, native, listener, interactiveReadyRequest{interactiveTopology, owner.directory, "native-one", "reloaded"})
-	if _, err := owner.callPublic(context.Background(), "native-one", old, generation, "session.list", kit.SessionListRequest{}); err == nil || !strings.Contains(err.Error(), "current session") {
+	if _, err := owner.callPublic(context.Background(), "native-one", old, "session.list", kit.SessionListRequest{}); err == nil || !strings.Contains(err.Error(), "current session") {
 		t.Fatalf("old generation call = %v", err)
 	}
 }
