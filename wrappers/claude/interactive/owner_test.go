@@ -6,6 +6,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"net"
 	"sync"
 	"testing"
@@ -67,6 +68,14 @@ func (w *wire) reply(t *testing.T, f protocol.Frame, value any) {
 	}
 	w.write(t, b)
 }
+func (w *wire) fail(t *testing.T, f protocol.Frame, code int) {
+	t.Helper()
+	b, err := protocol.ErrorBytes(f.ID, code, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.write(t, b)
+}
 func (w *wire) write(t *testing.T, b []byte) {
 	t.Helper()
 	w.writes.Lock()
@@ -102,6 +111,24 @@ func testOwner(t *testing.T) (*Owner, <-chan *wire) {
 	}
 	t.Cleanup(o.End)
 	return o, wires
+}
+func gateRetries(o *Owner) (<-chan struct{}, chan<- struct{}) {
+	waiting := make(chan struct{})
+	release := make(chan struct{})
+	o.retry = func(ctx context.Context) bool {
+		select {
+		case waiting <- struct{}{}:
+		case <-ctx.Done():
+			return false
+		}
+		select {
+		case <-release:
+			return true
+		case <-ctx.Done():
+			return false
+		}
+	}
+	return waiting, release
 }
 func report(t *testing.T, o *Owner, event, id, title string) <-chan error {
 	t.Helper()
@@ -208,31 +235,229 @@ func TestLateHelloCannotReviveWithdrawnOwner(t *testing.T) {
 		t.Fatal("withdrawn hello revived or poisoned next clear")
 	}
 }
-func TestSupersessionAndUnexpectedLossAreTerminal(t *testing.T) {
-	for _, kind := range []string{"loss", "superseded"} {
-		t.Run(kind, func(t *testing.T) {
-			o, wires := testOwner(t)
-			w := published(t, o, wires)
-			o.mu.Lock()
-			c := o.connection
-			o.mu.Unlock()
-			if kind == "superseded" {
-				w.request(t, "session.superseded", map[string]any{})
-				_ = w.next(t)
-			} else {
-				_ = w.fd.Close()
-			}
-			<-c.Done()
-			// End is idempotent, but wait for the connection watcher through a real
-			// report: a dead connection can never admit another hello.
-			done, err := o.BeginReport(json.RawMessage(`{"hook_event_name":"Stop","session_id":"id"}`))
-			if err == nil && done != nil {
-				err = <-done
-			}
-			if err == nil {
-				t.Fatal("lost owner accepted report")
-			}
-		})
+func TestUnexpectedLossReconnectsLatestExactIdentity(t *testing.T) {
+	o, wires := testOwner(t)
+	waiting, retry := gateRetries(o)
+	w := published(t, o, wires)
+	o.mu.Lock()
+	first := o.connection
+	o.mu.Unlock()
+	_ = w.fd.Close()
+	<-first.Done()
+	<-waiting
+	_, err := o.Action(context.Background(), "list", json.RawMessage(`{}`))
+	var failure *kit.ProtocolError
+	if !errors.As(err, &failure) || failure.Code != protocol.NotConnected {
+		t.Fatalf("outage action = %v", err)
+	}
+	done := report(t, o, "Stop", "native-id", "renamed while down")
+	retry <- struct{}{}
+	next := <-wires
+	hello := next.next(t)
+	var identity kit.Identity
+	if err := json.Unmarshal(hello.Params, &identity); err != nil {
+		t.Fatal(err)
+	}
+	if identity.SessionID != "native-id" || identity.Name != "renamed while down" || len(identity.Groups) != 1 || identity.Groups[0] != "group" {
+		t.Fatal(identity)
+	}
+	next.reply(t, hello, map[string]any{})
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestStartupDaemonAbsentRecoversWithoutAnotherNativeReport(t *testing.T) {
+	o, err := NewOwner(map[string]string{"SESSIONBUS_GROUPS": `["group"]`})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wires := make(chan *wire, 1)
+	first := true
+	o.dial = func(context.Context, string, string) (net.Conn, error) {
+		if first {
+			first = false
+			return nil, errors.New("daemon absent")
+		}
+		a, b := net.Pipe()
+		wires <- newWire(t, b)
+		return a, nil
+	}
+	waiting, retry := gateRetries(o)
+	t.Cleanup(o.End)
+	done := report(t, o, "Stop", "native-id", "name")
+	<-waiting
+	retry <- struct{}{}
+	w := <-wires
+	w.reply(t, w.next(t), map[string]any{})
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestLostInFlightCallIsNotReplayedAfterReconnect(t *testing.T) {
+	o, wires := testOwner(t)
+	o.deliver = func(Recipient, kit.DeliveryRequest) (kit.DeliveryReceipt, error) {
+		return kit.DeliveryReceipt{Disposition: "written"}, nil
+	}
+	waiting, retry := gateRetries(o)
+	w := published(t, o, wires)
+	returned := make(chan error, 1)
+	go func() { _, err := o.Action(context.Background(), "list", json.RawMessage(`{}`)); returned <- err }()
+	request := w.next(t)
+	if request.Method != "session.list" {
+		t.Fatal(request.Method)
+	}
+	_ = w.fd.Close()
+	if err := <-returned; err == nil {
+		t.Fatal("lost admitted call succeeded")
+	}
+	<-waiting
+	retry <- struct{}{}
+	next := <-wires
+	next.reply(t, next.next(t), map[string]any{})
+	next.request(t, "message.deliver", kit.DeliveryRequest{MessageID: "barrier", From: kit.DeliverySource{SessionID: "source", Product: "fixture", Groups: []string{}}, Body: "body"})
+	barrier := next.next(t)
+	if barrier.Request || barrier.ID != 1 {
+		t.Fatalf("old call replayed before admission barrier: %#v", barrier)
+	}
+	var receipt kit.DeliveryReceipt
+	if err := protocol.UnmarshalResult("message.deliver", barrier.Result, &receipt); err != nil || receipt.Disposition != "written" {
+		t.Fatal(receipt, err)
+	}
+	go func() { _, err := o.Action(context.Background(), "list", json.RawMessage(`{}`)); returned <- err }()
+	fresh := next.next(t)
+	if fresh.Method != "session.list" {
+		t.Fatal(fresh.Method)
+	}
+	next.reply(t, fresh, json.RawMessage(`{"sessions":[]}`))
+	if err := <-returned; err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestOldDeliveryCompletionCannotRetireReplacementConnection(t *testing.T) {
+	o, wires := testOwner(t)
+	waiting, retry := gateRetries(o)
+	entered, release := make(chan struct{}), make(chan struct{})
+	o.deliver = func(_ Recipient, request kit.DeliveryRequest) (kit.DeliveryReceipt, error) {
+		if request.MessageID == "old" {
+			close(entered)
+			<-release
+		}
+		return kit.DeliveryReceipt{Disposition: "written"}, nil
+	}
+	old := published(t, o, wires)
+	old.request(t, "message.deliver", kit.DeliveryRequest{MessageID: "old", From: kit.DeliverySource{SessionID: "source", Product: "fixture", Groups: []string{}}, Body: "body"})
+	<-entered
+	_ = old.fd.Close()
+	<-waiting
+	retry <- struct{}{}
+	next := <-wires
+	next.reply(t, next.next(t), map[string]any{})
+	next.request(t, "message.deliver", kit.DeliveryRequest{MessageID: "new", From: kit.DeliverySource{SessionID: "source", Product: "fixture", Groups: []string{}}, Body: "body"})
+	barrier := next.next(t)
+	var receipt kit.DeliveryReceipt
+	if err := protocol.UnmarshalResult("message.deliver", barrier.Result, &receipt); err != nil || receipt.Disposition != "written" {
+		t.Fatal(receipt, err)
+	}
+	close(release)
+	o.handlers.Wait()
+	returned := make(chan error, 1)
+	go func() { _, err := o.Action(context.Background(), "list", json.RawMessage(`{}`)); returned <- err }()
+	fresh := next.next(t)
+	if fresh.Method != "session.list" {
+		t.Fatal(fresh.Method)
+	}
+	next.reply(t, fresh, json.RawMessage(`{"sessions":[]}`))
+	if err := <-returned; err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSupersessionIsTerminalAndJoinsPublisher(t *testing.T) {
+	o, wires := testOwner(t)
+	waiting, _ := gateRetries(o)
+	w := published(t, o, wires)
+	w.request(t, "session.superseded", map[string]any{})
+	if ack := w.next(t); ack.Error != nil {
+		t.Fatal(ack.Error)
+	}
+	o.End()
+	if _, err := o.BeginReport(json.RawMessage(`{"hook_event_name":"Stop","session_id":"native-id"}`)); err == nil {
+		t.Fatal("superseded owner accepted report")
+	}
+	select {
+	case <-waiting:
+		t.Fatal("superseded owner entered reconnect backoff")
+	default:
+	}
+}
+
+func TestSupersessionHeldAckIsCanceledAndJoinedByEnd(t *testing.T) {
+	o, wires := testOwner(t)
+	w := published(t, o, wires)
+	o.mu.Lock()
+	resident := o.resident
+	o.mu.Unlock()
+	w.request(t, "session.superseded", map[string]any{})
+	<-resident.ctx.Done()
+	done := make(chan struct{})
+	go func() {
+		o.End()
+		close(done)
+	}()
+	<-done
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if !o.ended || o.resident != nil || o.connection != nil || o.caller != nil {
+		t.Fatal("held supersession ACK retained Claude owner work")
+	}
+}
+
+func TestInvalidHelloIsTerminalAndDoesNotRetry(t *testing.T) {
+	o, wires := testOwner(t)
+	waiting, _ := gateRetries(o)
+	done := report(t, o, "Stop", "native-id", "name")
+	w := <-wires
+	w.fail(t, w.next(t), protocol.InvalidHello)
+	var failure *kit.ProtocolError
+	if err := <-done; !errors.As(err, &failure) || failure.Code != protocol.InvalidHello {
+		t.Fatalf("hello error = %v", err)
+	}
+	o.End()
+	if _, err := o.BeginReport(json.RawMessage(`{"hook_event_name":"Stop","session_id":"native-id"}`)); err == nil {
+		t.Fatal("invalid hello did not end owner")
+	}
+	select {
+	case <-waiting:
+		t.Fatal("invalid hello entered reconnect backoff")
+	default:
+	}
+}
+
+func TestPendingNativeReportObserversAreBounded(t *testing.T) {
+	o, wires := testOwner(t)
+	waits := []<-chan error{report(t, o, "Stop", "native-id", "name")}
+	w := <-wires
+	hello := w.next(t)
+	for len(waits) < protocol.MaxOperations {
+		waits = append(waits, report(t, o, "Stop", "native-id", "name"))
+	}
+	if _, err := o.BeginReport(json.RawMessage(`{"hook_event_name":"Stop","session_id":"native-id","session_title":"name"}`)); err == nil {
+		t.Fatal("unbounded report observers accepted")
+	}
+	w.reply(t, hello, map[string]any{})
+	for _, done := range waits {
+		if err := <-done; err != nil {
+			t.Fatal(err)
+		}
+	}
+	o.mu.Lock()
+	pending := o.pendingReports
+	o.mu.Unlock()
+	if pending != 0 {
+		t.Fatal("report observers retained", pending)
 	}
 }
 

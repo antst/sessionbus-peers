@@ -84,3 +84,12 @@ contains no session/result metadata and is never reused by another launch.
 
 Installed acceptance and retained historical evidence are recorded separately
 in `docs/designs/grok-0.5.0`; intermediate builds are not full acceptance.
+
+## Daemon outages
+
+Interactive presence reconnects automatically after a daemon outage while the
+native session remains alive. Calls made during the outage fail; interrupted
+calls and deliveries are not replayed. Reconnection republishes the latest
+native identity and title. Native session end, supersession and owner shutdown
+remain terminal. Daemon-managed Worker lanes do not reconnect after losing
+their launch connection.

@@ -6,6 +6,11 @@
 > commit recorded by the split archive manifest. Host evidence paths are
 > immutable external artifacts, not repository paths.
 
+Current integration: see [Pi/OMP design](../designs/pi-omp-0.5.0/DESIGN.md) and
+[acceptance status](../designs/pi-omp-0.5.0/ACCEPTANCE.md) for native 18.1.17.
+The facts and `UNVERIFIED` questions below describe the older source snapshot;
+they are preserved as historical inputs, not the current release checklist.
+
 - Oh My Pi (OMP) was pinned and exercised as version `18.0.11`; its RPC child runs on Bun. [OMP 18.0.11; source: `ff81565:internal/products/pifamily/quirks.go:12-20`, `ff81565:internal/products/pifamily/quirks.go:71-77`]
 - OMP requires equals-style launch controls: `omp --extension=<managed-plugin> --mode=rpc ...`; resume remains the separate pair `--session <id>`. [OMP 18.0.11; source: `ff81565:internal/products/pifamily/quirks.go:34-40`, `ff81565:internal/products/pifamily/quirks.go:71-77`, `ff81565:internal/products/pifamily/quirks.go:102-119`]
 - The exact tested fresh argv is `--extension=/managed/sessionbus.mjs --mode=rpc --model deepseek/deepseek-v4-flash --tools read`; the exact tested resume argv is `--extension=/managed/sessionbus.mjs --mode=rpc --session omp-native --tools read`. [OMP 18.0.11; source: `ff81565:internal/products/pifamily/rpc_lane_test.go:419-445`, `ff81565:internal/products/pifamily/rpc_lane_test.go:729-770`]

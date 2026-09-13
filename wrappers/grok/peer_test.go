@@ -13,16 +13,19 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"sync"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/antst/sessionbus-peers/internal/testsocket"
 	"github.com/antst/sessionbus-peers/wrappers/host"
 	"github.com/antst/sessionbus-peers/wrappers/mcp"
 	sessionkit "github.com/antst/sessionbus/bus/sdk/go"
+	"github.com/antst/sessionbus/bus/sdk/go/protocol"
 )
 
 type peerDeliveryResult struct {
@@ -101,6 +104,103 @@ func TestNativeTitleEventsRefreshPeerWithoutDelivery(t *testing.T) {
 	check(t, len(listed.Sessions) == 1, "peer absent")
 	check(t, countFrames(records(t, recordPath), "_x.ai/interject") == 0, "title update required delivery")
 }
+
+func TestPeerSurvivesAbsentDaemonAndReconnectsWithoutReplay(t *testing.T) {
+	root := testsocket.Directory(t)
+	socket := filepath.Join(root, "bus")
+	t.Setenv(host.SocketEnv, socket)
+	t.Setenv("GROK_TEST_SESSION_ID", testSessionID)
+	t.Setenv("GROK_TEST_OBSERVER_PID", filepath.Join(root, "observer.pid"))
+	t.Setenv("GROK_TEST_TITLES", "before-outage,after-outage")
+	titleChange := filepath.Join(root, "title-change")
+	t.Setenv("GROK_TEST_ROSTER_CHANGE", titleChange)
+	env := managedPeerEnv(os.Environ(), testSessionID, filepath.Join(root, "leader.sock"))
+	env = setEnvironment(env, host.GroupsEnv, `["peer-group"]`)
+	backend, err := NewPeerBackend(context.Background(), env)
+	must(t, err)
+	backend.Initialized()
+	process := peerBackendProcess(t, backend)
+	processFD := pidfd(t, process.cmd.Process.Pid)
+	defer closeProcessHandle(processFD)
+	select {
+	case <-backend.ready:
+		t.Fatal("Grok peer became ready while Sessionbus was absent")
+	case <-backend.done:
+		t.Fatalf("Grok peer ended while Sessionbus was absent: %v", backend.err)
+	default:
+	}
+	check(t, processRunning(t, processFD), "Grok observer stopped while Sessionbus was absent")
+
+	firstServer, firstHellos := fakeDaemon(t, socket)
+	first := awaitHello(t, firstHellos)
+	check(t, first.SessionID == testSessionID && first.Name == "before-outage" && slices.Equal(first.Groups, []string{"peer-group"}), "first identity=%+v", first)
+	first.ack <- true
+	awaitChannel(t, backend.ready, "Grok peer first admission")
+	first.drop()
+	awaitChannel(t, first.connectionDone, "first Sessionbus connection close")
+	must(t, firstServer.Close())
+
+	awaitNotConnected(t, backend)
+	_, err = backend.Caller().List(context.Background(), sessionkit.SessionListRequest{})
+	var unavailable *sessionkit.ProtocolError
+	check(t, errors.As(err, &unavailable) && unavailable.Code == protocol.NotConnected, "disconnected call=%v", err)
+	select {
+	case <-backend.done:
+		t.Fatalf("Grok peer treated idle Sessionbus loss as terminal: %v", backend.err)
+	default:
+	}
+	check(t, peerBackendProcess(t, backend) == process && processRunning(t, processFD), "Grok observer generation changed during Sessionbus outage")
+	must(t, os.WriteFile(titleChange, nil, 0o600))
+	awaitPeerName(t, backend, "after-outage")
+
+	secondServer, secondHellos := fakeDaemon(t, socket)
+	defer secondServer.Close()
+	second := awaitHello(t, secondHellos)
+	check(t, second.SessionID == first.SessionID && second.Name == "after-outage" && slices.Equal(second.Groups, first.Groups) && reflect.DeepEqual(second.Info, first.Info), "reconnected identity mismatch: first=%+v second=%+v", first, second)
+	second.ack <- true
+	awaitChannel(t, second.done, "second hello response")
+	select {
+	case method := <-second.requests:
+		t.Fatalf("disconnected call replayed after reconnect as %q", method)
+	default:
+	}
+	listed := awaitPeerList(t, backend)
+	check(t, len(listed.Sessions) == 1 && listed.Sessions[0].SessionID == testSessionID+"@local", "reconnected roster=%+v", listed)
+	check(t, <-second.requests == "session.list", "post-reconnect method mismatch")
+	check(t, peerBackendProcess(t, backend) == process && processRunning(t, processFD), "Grok observer generation changed after reconnect")
+
+	backend.Shutdown()
+	check(t, !processRunning(t, processFD), "Grok observer survived joined shutdown")
+}
+
+func TestPeerSupersededIsTerminalAndJoinsObserver(t *testing.T) {
+	root := testsocket.Directory(t)
+	socket := filepath.Join(root, "bus")
+	server, hellos := fakeDaemon(t, socket)
+	defer server.Close()
+	t.Setenv(host.SocketEnv, socket)
+	t.Setenv("GROK_TEST_SESSION_ID", testSessionID)
+	t.Setenv("GROK_TEST_OBSERVER_PID", filepath.Join(root, "observer.pid"))
+	backend, err := NewPeerBackend(context.Background(), managedPeerEnv(os.Environ(), testSessionID, filepath.Join(root, "leader.sock")))
+	must(t, err)
+	backend.Initialized()
+	admitted := awaitHello(t, hellos)
+	admitted.ack <- true
+	awaitChannel(t, backend.ready, "Grok peer admission")
+	process := peerBackendProcess(t, backend)
+	processFD := pidfd(t, process.cmd.Process.Pid)
+	defer closeProcessHandle(processFD)
+	admitted.supersede()
+	awaitChannel(t, backend.done, "superseded Grok peer shutdown")
+	backend.mu.Lock()
+	terminal := backend.err
+	backend.mu.Unlock()
+	var failure *sessionkit.ProtocolError
+	check(t, errors.As(terminal, &failure) && failure.Code == protocol.Superseded, "superseded terminal error=%v", terminal)
+	check(t, !processRunning(t, processFD), "superseded Grok observer survived shutdown")
+	backend.Shutdown()
+}
+
 func managedPeerEnv(env []string, id, leader string) []string {
 	env = setEnvironment(env, grokSessionIDEnv, id)
 	env = setEnvironment(env, grokLeaderSocketEnv, leader)
@@ -429,13 +529,17 @@ func TestPeerShutdownKillsItsObserverProcessGroup(t *testing.T) {
 }
 
 type hello struct {
-	SessionID string         `json:"session_id"`
-	Name      string         `json:"name"`
-	Product   string         `json:"product"`
-	Groups    []string       `json:"groups"`
-	Info      map[string]any `json:"info"`
-	ack       chan bool
-	done      chan struct{}
+	SessionID      string         `json:"session_id"`
+	Name           string         `json:"name"`
+	Product        string         `json:"product"`
+	Groups         []string       `json:"groups"`
+	Info           map[string]any `json:"info"`
+	ack            chan bool
+	done           chan struct{}
+	drop           func()
+	supersede      func()
+	connectionDone <-chan struct{}
+	requests       <-chan string
 }
 
 type testSignal struct{ os.Signal }
@@ -448,12 +552,15 @@ func fakeDaemon(t *testing.T, path string) (net.Listener, <-chan hello) {
 	listener, err := net.Listen("unix", path)
 	must(t, err)
 	hellos := make(chan hello, 4)
+	requests := make(chan string, 64)
 	go func() {
 		connection, err := listener.Accept()
 		if err != nil {
 			return
 		}
 		defer connection.Close()
+		connectionDone := make(chan struct{})
+		defer close(connectionDone)
 		scanner := bufio.NewScanner(connection)
 		var write sync.Mutex
 		var admitted hello
@@ -471,6 +578,14 @@ func fakeDaemon(t *testing.T, path string) (net.Listener, <-chan hello) {
 				_ = json.Unmarshal(frame.Params, &value)
 				value.ack = make(chan bool, 1)
 				value.done = make(chan struct{})
+				value.drop = func() { _ = connection.Close() }
+				value.supersede = func() {
+					write.Lock()
+					_ = json.NewEncoder(connection).Encode(map[string]any{"jsonrpc": "2.0", "id": 9001, "method": "session.superseded", "params": map[string]any{}})
+					write.Unlock()
+				}
+				value.connectionDone = connectionDone
+				value.requests = requests
 				hellos <- value
 				go func(id int64, value hello) {
 					defer close(value.done)
@@ -486,6 +601,7 @@ func fakeDaemon(t *testing.T, path string) (net.Listener, <-chan hello) {
 				}(frame.ID, value)
 				continue
 			}
+			requests <- frame.Method
 			if frame.Method == "session.list" {
 				write.Lock()
 				row := sessionkit.SessionSummary{SessionID: admitted.SessionID + "@local", Kind: "peer", Product: admitted.Product, Name: admitted.Name + "@local", Groups: admitted.Groups, Connected: true, Info: admitted.Info}
@@ -501,6 +617,89 @@ func fakeDaemon(t *testing.T, path string) (net.Listener, <-chan hello) {
 		}
 	}()
 	return listener, hellos
+}
+
+func awaitHello(t *testing.T, hellos <-chan hello) hello {
+	t.Helper()
+	select {
+	case value := <-hellos:
+		return value
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for Sessionbus hello")
+		return hello{}
+	}
+}
+
+func awaitChannel(t *testing.T, done <-chan struct{}, label string) {
+	t.Helper()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatalf("timed out waiting for %s", label)
+	}
+}
+
+func peerBackendProcess(t *testing.T, backend *PeerBackend) *nativeProcess {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		backend.mu.Lock()
+		process := backend.process
+		backend.mu.Unlock()
+		if process != nil && process.cmd != nil && process.cmd.Process != nil {
+			return process
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatal("timed out waiting for Grok observer process")
+	return nil
+}
+
+func awaitPeerName(t *testing.T, backend *PeerBackend, expected string) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		backend.mu.Lock()
+		name := backend.identity.Name
+		backend.mu.Unlock()
+		if name == expected {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatalf("Grok peer did not retain native title %q", expected)
+}
+
+func awaitNotConnected(t *testing.T, backend *PeerBackend) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		_, err := backend.Call(context.Background(), "session.list", sessionkit.SessionListRequest{})
+		var failure *sessionkit.ProtocolError
+		if errors.As(err, &failure) && failure.Code == protocol.NotConnected {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatal("Grok peer did not report disconnected transport")
+}
+
+func awaitPeerList(t *testing.T, backend *PeerBackend) sessionkit.SessionListResult {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		result, err := backend.Caller().List(context.Background(), sessionkit.SessionListRequest{})
+		if err == nil {
+			return result
+		}
+		var failure *sessionkit.ProtocolError
+		if !errors.As(err, &failure) || failure.Code != protocol.NotConnected {
+			t.Fatalf("post-reconnect list failed: %v", err)
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatal("Grok peer did not reconnect")
+	return sessionkit.SessionListResult{}
 }
 
 func deliverPeer(backend *PeerBackend, ctx context.Context, request sessionkit.DeliveryRequest) <-chan peerDeliveryResult {

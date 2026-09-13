@@ -28,6 +28,21 @@ returned native/daemon ID as the send target. Keep bus-provided source identity
 separate from labels inside message text. Never use Claude's native session
 listing, selectors, teams or another transport to repair a failed bus call.
 
+To send a message, use only the Sessionbus send fields:
+
+```json
+{"action":"send","arguments":{"target":"RETURNED_SESSION_ID","message":"Your complete message"}}
+```
+
+`send` accepts `message` and exactly one of `target`, `targets`, or `group`;
+`host` is optional only with `group`. There is no `summary` field. This tool
+has its own schema; do not copy arguments from Claude's native `SendMessage`
+or an older messaging integration. Put all intended content in `message`.
+An error such as `MessageSendRequest: "summary" is not allowed` is local
+validation before dispatch; that rejected request sent no message. Correct
+its arguments explicitly. Do not infer the same from a transport or receipt
+error, which may follow delivery.
+
 Claude's native policy can deny the public tool; the exact launcher allow
 rule is not a bypass. Preserve a denial or omitted tool as reported, without
 changing permissions or calling the hidden report handler.
@@ -39,8 +54,12 @@ prompt to publish presence or wait/retry an unavailable integration.
 
 A `written` delivery means only that the local write completed. It does not
 prove native retention, admission or consumption. Preserve rejected reasons
-and errors exactly at their stated boundary. Unexpected connection loss ends
-this integration instance; report the failure rather than attempting repair.
+and errors exactly at their stated boundary. Interactive presence reconnects automatically after a daemon outage while the
+native session remains alive. Calls made during the outage fail; interrupted
+calls and deliveries are not replayed. Reconnection republishes the latest
+native identity and title. Native session end, supersession and owner shutdown
+remain terminal. Daemon-managed Worker lanes do not reconnect after losing
+their launch connection. Report failures without replaying uncertain work.
 
 `start` returns a `{session_id, run_id}` reference. `run`, `status` and `wait`
 read without consuming. Keep both IDs and all outcome/reason fields intact.

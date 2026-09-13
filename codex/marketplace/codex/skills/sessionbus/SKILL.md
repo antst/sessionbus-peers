@@ -29,6 +29,13 @@ Deliveries distinguish local `written`, native `injected` admission, and
 `queued_for_next_turn` staging. None proves model consumption. Preserve errors
 and uncertain admission; never replay an uncertain send automatically.
 
+Interactive presence reconnects automatically after a daemon outage while the
+native session remains alive. Calls made during the outage fail; interrupted
+calls and deliveries are not replayed. Reconnection republishes the latest
+native identity and title. Native session end, supersession and owner shutdown
+remain terminal. Daemon-managed Worker lanes do not reconnect after losing
+their launch connection.
+
 `start` returns a `{session_id, run_id}` reference. `run`, `status` and `wait`
 read without consuming. Keep both IDs and all outcome/reason fields intact.
 Inspect the returned record's `state` before calling `ack`:
