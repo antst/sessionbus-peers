@@ -1621,8 +1621,12 @@ func TestOwnerRegistryReleasesLostAttemptDeliveryAccounting(t *testing.T) {
 	})
 	registry.mu.Lock()
 	state := registry.bindings["owner-token"]
+	attempt := state.attempt
 	baseline := state.retainedBytes
 	registry.mu.Unlock()
+	if attempt == nil {
+		t.Fatal("public attempt was not published")
+	}
 	<-state.stageGate
 	body, err := protocol.RequestBytes(91, "message.deliver", kit.DeliveryRequest{
 		MessageID: "lost-delivery", From: kit.DeliverySource{SessionID: "sender", Product: "codex-peer", Groups: []string{}}, Body: "held before native stage",
@@ -1648,6 +1652,11 @@ func TestOwnerRegistryReleasesLostAttemptDeliveryAccounting(t *testing.T) {
 	}
 	if err = public.Close(); err != nil {
 		t.Fatal(err)
+	}
+	select {
+	case <-attempt.conn.Context().Done():
+	case <-ownerTestContext(t).Done():
+		t.Fatal("public attempt did not observe daemon loss")
 	}
 	state.stageGate <- struct{}{}
 	select {
