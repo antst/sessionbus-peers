@@ -18,6 +18,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/antst/sessionbus-peers/internal/testsocket"
 )
 
 func bridgeTestContext(t *testing.T) context.Context {
@@ -29,7 +31,7 @@ func bridgeTestContext(t *testing.T) context.Context {
 
 func bridgeUnixPair(t *testing.T) (net.Conn, net.Conn) {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "bridge.sock")
+	path := filepath.Join(testsocket.Directory(t), "bridge.sock")
 	listener, err := net.Listen("unix", path)
 	if err != nil {
 		t.Fatal(err)
@@ -126,6 +128,21 @@ func TestBridgeFullDuplexNestedCall(t *testing.T) {
 	waitBridgeStats(t, native, BridgeStats{})
 }
 
+// The first Done evaluation waits for the request write. The second is the
+// correlated response wait, where cancellation can preserve the connection.
+type bridgeResponseWaitContext struct {
+	context.Context
+	doneCalls    atomic.Int32
+	responseWait chan struct{}
+}
+
+func (ctx *bridgeResponseWaitContext) Done() <-chan struct{} {
+	if ctx.doneCalls.Add(1) == 2 {
+		close(ctx.responseWait)
+	}
+	return ctx.Context.Done()
+}
+
 func TestBridgeCancellationDrainsResponseAndKeepsConnectionHealthy(t *testing.T) {
 	started := make(chan struct{})
 	finished := make(chan struct{})
@@ -143,10 +160,17 @@ func TestBridgeCancellationDrainsResponseAndKeepsConnectionHealthy(t *testing.T)
 		}
 	}
 	_, native := newBridgePair(t, hostHandler, nil, BridgeLimits{})
-	callCtx, cancel := context.WithCancel(bridgeTestContext(t))
+	baseCtx, cancel := context.WithCancel(bridgeTestContext(t))
+	defer cancel()
+	callCtx := &bridgeResponseWaitContext{Context: baseCtx, responseWait: make(chan struct{})}
 	callErr := make(chan error, 1)
 	go func() { callErr <- native.Call(callCtx, "hold", map[string]any{}, nil) }()
 	<-started
+	select {
+	case <-callCtx.responseWait:
+	case <-baseCtx.Done():
+		t.Fatal("bridge never reached the response wait")
+	}
 	cancel()
 	if err := <-callErr; !errors.Is(err, context.Canceled) {
 		t.Fatalf("cancelled call error = %v", err)
@@ -373,7 +397,7 @@ func TestBridgeInteroperatesWithNativeModule(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(t.TempDir(), "interop.sock")
+	path := filepath.Join(testsocket.Directory(t), "interop.sock")
 	listener, err := net.Listen("unix", path)
 	if err != nil {
 		t.Fatal(err)

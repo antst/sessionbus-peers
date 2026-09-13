@@ -9,6 +9,8 @@ import (
 	"testing"
 
 	"golang.org/x/sys/unix"
+
+	"github.com/antst/sessionbus-peers/internal/testsocket"
 )
 
 type ompExecutableFixture struct {
@@ -17,7 +19,7 @@ type ompExecutableFixture struct {
 
 func newOMPExecutableFixture(t *testing.T) ompExecutableFixture {
 	t.Helper()
-	directory := t.TempDir()
+	directory := testsocket.Directory(t)
 	root := filepath.Join(directory, "lib", "node_modules", "@oh-my-pi", "pi-coding-agent")
 	entry := filepath.Join(root, filepath.FromSlash(nativePackageEntry))
 	if err := os.MkdirAll(filepath.Dir(entry), 0o755); err != nil {

@@ -15,6 +15,8 @@ import (
 	"testing"
 
 	"github.com/antst/sessionbus-peers/wrappers/host"
+
+	"github.com/antst/sessionbus-peers/internal/testsocket"
 )
 
 type fakeInteractiveNativeOwner struct {
@@ -44,7 +46,7 @@ func (owner *fakeInteractiveNativeOwner) Close(context.Context) error {
 }
 
 func TestInteractiveOwnerOptionsPreserveNativeArgumentsAndBindIdentity(t *testing.T) {
-	root := t.TempDir()
+	root := testsocket.Directory(t)
 	plugin := managedPluginFixture(t, root)
 	extension := filepath.Join(plugin, "omp", "extension.mjs")
 	native := NativeExecutable{
@@ -78,7 +80,7 @@ func TestInteractiveOwnerOptionsPreserveNativeArgumentsAndBindIdentity(t *testin
 }
 
 func TestInteractivePlanSocketPolicyPassesRealOwnerOptionsBoundary(t *testing.T) {
-	root := t.TempDir()
+	root := testsocket.Directory(t)
 	t.Setenv(host.SocketEnv, "")
 	t.Setenv("XDG_RUNTIME_DIR", filepath.Join(root, "runtime"))
 	plugin := managedPluginFixture(t, root)
@@ -124,7 +126,7 @@ func TestInteractivePlanSocketPolicyPassesRealOwnerOptionsBoundary(t *testing.T)
 }
 
 func TestInteractiveOwnerOptionsRejectMismatchedPlanAndStaleOwnership(t *testing.T) {
-	root := t.TempDir()
+	root := testsocket.Directory(t)
 	plugin := managedPluginFixture(t, root)
 	extension := filepath.Join(plugin, "omp", "extension.mjs")
 	native := NativeExecutable{RuntimePath: "/runtime/bun", EntryPath: "/package/dist/cli.js"}

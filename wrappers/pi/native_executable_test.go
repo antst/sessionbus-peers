@@ -9,11 +9,13 @@ import (
 	"testing"
 
 	"golang.org/x/sys/unix"
+
+	"github.com/antst/sessionbus-peers/internal/testsocket"
 )
 
 func piExecutableFixture(t *testing.T) (string, string) {
 	t.Helper()
-	root := filepath.Join(t.TempDir(), "node_modules", "@earendil-works", "pi-coding-agent")
+	root := filepath.Join(testsocket.Directory(t), "node_modules", "@earendil-works", "pi-coding-agent")
 	entry := filepath.Join(root, filepath.FromSlash(nativePackageEntry))
 	if err := os.MkdirAll(filepath.Dir(entry), 0o755); err != nil {
 		t.Fatal(err)
@@ -25,7 +27,7 @@ func piExecutableFixture(t *testing.T) (string, string) {
 	if err := os.WriteFile(filepath.Join(root, "package.json"), []byte(manifest), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	front := filepath.Join(t.TempDir(), "pi")
+	front := filepath.Join(testsocket.Directory(t), "pi")
 	if err := os.Symlink(entry, front); err != nil {
 		t.Fatal(err)
 	}
@@ -80,7 +82,7 @@ func TestResolveNativeExecutableRejectsPackageDrift(t *testing.T) {
 
 func TestResolveNativeExecutableBadOverrideDoesNotFallBack(t *testing.T) {
 	_, front := piExecutableFixture(t)
-	bad := filepath.Join(t.TempDir(), "pi")
+	bad := filepath.Join(testsocket.Directory(t), "pi")
 	if err := os.WriteFile(bad, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}

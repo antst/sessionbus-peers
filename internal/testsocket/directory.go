@@ -31,5 +31,9 @@ func Directory(t testing.TB) string {
 			t.Errorf("remove socket directory: %v", err)
 		}
 	})
-	return directory
+	physical, err := filepath.EvalSymlinks(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return physical
 }

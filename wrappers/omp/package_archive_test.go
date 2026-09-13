@@ -11,6 +11,8 @@ import (
 	"runtime"
 	"sort"
 	"testing"
+
+	"github.com/antst/sessionbus-peers/internal/testsocket"
 )
 
 func TestOMPArchiveInstallsOnlyTheManagedLaunchPayload(t *testing.T) {
@@ -18,7 +20,7 @@ func TestOMPArchiveInstallsOnlyTheManagedLaunchPayload(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	out, extracted := t.TempDir(), t.TempDir()
+	out, extracted := testsocket.Directory(t), testsocket.Directory(t)
 	build := exec.Command("sh", "scripts/package-product", "omp", out)
 	build.Dir = repo
 	if output, err := build.CombinedOutput(); err != nil {
@@ -47,7 +49,7 @@ func TestOMPArchiveInstallsOnlyTheManagedLaunchPayload(t *testing.T) {
 		t.Fatalf("archive role = %q (%v)", body, err)
 	}
 
-	home, tools := t.TempDir(), t.TempDir()
+	home, tools := testsocket.Directory(t), testsocket.Directory(t)
 	if err := os.WriteFile(filepath.Join(tools, "omp"), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}

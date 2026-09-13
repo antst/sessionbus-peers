@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/antst/sessionbus-peers/internal/testsocket"
 )
 
 func managedPluginFixture(t *testing.T, root string) string {
@@ -25,13 +27,13 @@ func managedPluginFixture(t *testing.T, root string) string {
 }
 
 func TestResolveManagedExtensionFromInstalledPeer(t *testing.T) {
-	root := t.TempDir()
+	root := testsocket.Directory(t)
 	plugin := managedPluginFixture(t, root)
 	peer := filepath.Join(root, "pi-peer")
 	if err := os.WriteFile(peer, []byte("fixture"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	front := filepath.Join(t.TempDir(), "pi-peer")
+	front := filepath.Join(testsocket.Directory(t), "pi-peer")
 	if err := os.Symlink(peer, front); err != nil {
 		t.Fatal(err)
 	}
@@ -46,7 +48,7 @@ func TestResolveManagedExtensionFromInstalledPeer(t *testing.T) {
 }
 
 func TestResolveManagedExtensionRejectsUnrelatedExecutable(t *testing.T) {
-	root := t.TempDir()
+	root := testsocket.Directory(t)
 	managedPluginFixture(t, root)
 	peer := filepath.Join(root, "other")
 	if err := os.WriteFile(peer, []byte("fixture"), 0o755); err != nil {
@@ -60,7 +62,7 @@ func TestResolveManagedExtensionRejectsUnrelatedExecutable(t *testing.T) {
 func TestValidateManagedPluginRejectsMissingSymlinkAndOversizedFiles(t *testing.T) {
 	for _, mode := range []string{"missing", "symlink", "oversized"} {
 		t.Run(mode, func(t *testing.T) {
-			plugin := managedPluginFixture(t, t.TempDir())
+			plugin := managedPluginFixture(t, testsocket.Directory(t))
 			target := filepath.Join(plugin, "pi", "native.mjs")
 			switch mode {
 			case "missing":
@@ -87,7 +89,7 @@ func TestValidateManagedPluginRejectsMissingSymlinkAndOversizedFiles(t *testing.
 }
 
 func TestInstallPluginValidatesOnlyExplicitLocalPayload(t *testing.T) {
-	plugin := managedPluginFixture(t, t.TempDir())
+	plugin := managedPluginFixture(t, testsocket.Directory(t))
 	if err := InstallPlugin([]string{"--plugin-dir", plugin}); err != nil {
 		t.Fatal(err)
 	}

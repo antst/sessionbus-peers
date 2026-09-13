@@ -898,12 +898,6 @@ func (bridge *Bridge) acceptCancel(object map[string]json.RawMessage) error {
 	return nil
 }
 
-func (bridge *Bridge) removePending(id string) {
-	bridge.mu.Lock()
-	delete(bridge.pending, id)
-	bridge.mu.Unlock()
-}
-
 func (bridge *Bridge) abandonPending(id string, pending *bridgePending) (bridgeCallResult, bool) {
 	bridge.mu.Lock()
 	if bridge.pending[id] == pending {

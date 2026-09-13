@@ -22,6 +22,8 @@ import (
 	"github.com/antst/sessionbus-peers/wrappers/host"
 	"github.com/antst/sessionbus-peers/wrappers/pifamily"
 	sessionkit "github.com/antst/sessionbus/bus/sdk/go"
+
+	"github.com/antst/sessionbus-peers/internal/testsocket"
 )
 
 const piNativeHelperEnv = "PI_SESSIONBUS_TEST_NATIVE"
@@ -305,7 +307,7 @@ func newPiTestWrapper(t *testing.T, mode string) (*Wrapper, string) {
 	previous := piCommand
 	piCommand = piHelperCommand
 	t.Cleanup(func() { piCommand = previous })
-	directory := t.TempDir()
+	directory := testsocket.Directory(t)
 	extension := filepath.Join(directory, "extension.mjs")
 	if err := os.WriteFile(extension, []byte("export default () => {}\n"), 0o600); err != nil {
 		t.Fatal(err)

@@ -17,6 +17,8 @@ import (
 	"time"
 
 	"github.com/antst/sessionbus-peers/wrappers/host"
+
+	"github.com/antst/sessionbus-peers/internal/testsocket"
 )
 
 const (
@@ -83,7 +85,7 @@ func TestOMPInteractiveProcessPreservesTopology(t *testing.T) {
 	previous := ompCommand
 	ompCommand = ompProcessHelperCommand
 	t.Cleanup(func() { ompCommand = previous })
-	directory := t.TempDir()
+	directory := testsocket.Directory(t)
 	process, err := startOMPProcess(filepath.Join(directory, "daemon.sock"), "provisional", ownerTopologyInteractive, NativeExecutable{
 		RuntimePath: filepath.Join(directory, "runtime"), EntryPath: filepath.Join(directory, "entry.js"),
 	}, directory, []string{"--extension", "/owned/extension.mjs", "--", "prompt"})
@@ -137,7 +139,7 @@ func TestOMPOwnedProcessUsesDirectRuntimeAndPrivateDescriptor(t *testing.T) {
 	previous := ompCommand
 	ompCommand = ompProcessHelperCommand
 	t.Cleanup(func() { ompCommand = previous })
-	directory := t.TempDir()
+	directory := testsocket.Directory(t)
 	native := NativeExecutable{
 		RuntimePath: filepath.Join(directory, "runtime"),
 		EntryPath:   filepath.Join(directory, "package", "dist", "cli.js"),
@@ -194,7 +196,7 @@ func TestOMPProcessForceJoinsAndCleans(t *testing.T) {
 	previous := ompCommand
 	ompCommand = ompProcessHelperCommand
 	t.Cleanup(func() { ompCommand = previous })
-	directory := t.TempDir()
+	directory := testsocket.Directory(t)
 	native := NativeExecutable{
 		RuntimePath: filepath.Join(directory, "runtime"),
 		EntryPath:   filepath.Join(directory, "entry.js"),
@@ -232,9 +234,9 @@ func TestOMPProcessForceJoinsAndCleans(t *testing.T) {
 }
 
 func TestOMPProcessRejectsRelativeNativePaths(t *testing.T) {
-	_, err := startOMPProcess(filepath.Join(t.TempDir(), "daemon.sock"), "provisional", ownerTopologyLane, NativeExecutable{
+	_, err := startOMPProcess(filepath.Join(testsocket.Directory(t), "daemon.sock"), "provisional", ownerTopologyLane, NativeExecutable{
 		RuntimePath: "bun", EntryPath: "/entry.js",
-	}, t.TempDir(), nil)
+	}, testsocket.Directory(t), nil)
 	if err == nil {
 		t.Fatal("relative OMP runtime was accepted")
 	}
@@ -245,7 +247,7 @@ func TestOMPProcessAcceptCancellationJoinsAndOwnsResources(t *testing.T) {
 	previous := ompCommand
 	ompCommand = ompProcessHelperCommand
 	t.Cleanup(func() { ompCommand = previous })
-	directory := t.TempDir()
+	directory := testsocket.Directory(t)
 	process, err := startOMPProcess(filepath.Join(directory, "daemon.sock"), "provisional", ownerTopologyLane, NativeExecutable{
 		RuntimePath: filepath.Join(directory, "runtime"), EntryPath: filepath.Join(directory, "entry.js"),
 	}, directory, nil)
@@ -278,7 +280,7 @@ func TestOMPProcessAcceptCancellationJoinsAndOwnsResources(t *testing.T) {
 }
 
 func TestOMPAcceptClosesConnectionWhenCancellationWinsHandoff(t *testing.T) {
-	directory := t.TempDir()
+	directory := testsocket.Directory(t)
 	socket := filepath.Join(directory, "bridge.sock")
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: socket, Net: "unix"})
 	if err != nil {
