@@ -207,7 +207,7 @@ async function start(extension, native, owner) {
 }
 
 test("captureLaunch validates and scrubs private physical metadata", async (t) => {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "omp-extension-"));
+  const directory = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "omp-extension-")));
   fs.chmodSync(directory, 0o700);
   const socket = path.join(directory, "bridge.sock");
   const server = net.createServer();
@@ -542,7 +542,7 @@ test("failed Task child reports its end without retiring the healthy primary", a
 });
 
 test("actual Unix bridge reports a failed Task child end while the primary remains healthy", async (t) => {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "omp-extension-child-end-"));
+  const directory = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "omp-extension-child-end-")));
   fs.chmodSync(directory, 0o700);
   const socketPath = path.join(directory, "bridge.sock");
   const server = net.createServer();
@@ -711,7 +711,7 @@ test("unexpected passive bridge end aborts and shuts down the primary", async ()
 });
 
 test("actual Unix bridge supports owner.ready callback into native.describe", async (t) => {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "omp-extension-wire-"));
+  const directory = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "omp-extension-wire-")));
   fs.chmodSync(directory, 0o700);
   const socketPath = path.join(directory, "bridge.sock");
   const server = net.createServer();

@@ -134,7 +134,7 @@ function fakeConnection({ topology, queue = [] } = {}) {
 }
 
 test("launch capture scrubs and binds a private physical socket", async (t) => {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "pi-extension-"));
+  const directory = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "pi-extension-")));
   fs.chmodSync(directory, 0o700);
   const socket = path.join(directory, "bridge.sock");
   const server = net.createServer();
@@ -291,7 +291,7 @@ test("an idle owner connection ending retires the native session", async () => {
 });
 
 test("actual Unix bridge supports handshake, nested drain, tool call, and joined quit", async (t) => {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "pi-extension-wire-"));
+  const directory = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "pi-extension-wire-")));
   fs.chmodSync(directory, 0o700);
   const socket = path.join(directory, "bridge.sock");
   const queue = [{ session_id: "wire-native", message_id: "wire-message", body: "wire body" }];
@@ -347,7 +347,7 @@ test("actual Unix bridge supports handshake, nested drain, tool call, and joined
 });
 
 test("actual idle Unix EOF retires native ownership", { timeout: 1000 }, async (t) => {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "pi-extension-eof-"));
+  const directory = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "pi-extension-eof-")));
   fs.chmodSync(directory, 0o700);
   const socket = path.join(directory, "bridge.sock");
   let host;
@@ -383,7 +383,7 @@ test("actual idle Unix EOF retires native ownership", { timeout: 1000 }, async (
 });
 
 test("default managed factory survives real module reevaluation after launch scrub", async (t) => {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "pi-extension-reload-"));
+  const directory = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "pi-extension-reload-")));
   fs.chmodSync(directory, 0o700);
   const socket = path.join(directory, "bridge.sock");
   const server = net.createServer();
