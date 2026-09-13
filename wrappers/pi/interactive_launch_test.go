@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net"
 	"os"
 	"os/exec"
@@ -68,6 +69,13 @@ func TestPiInteractiveNativeChild(t *testing.T) {
 	}
 	if mode == "connect-exit" {
 		writeCapture()
+		// Connecting does not prove the parent has accepted the descriptor.
+		// Exit only after the held listener owns it, before its handoff.
+		_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+		var accepted [1]byte
+		if _, readErr := io.ReadFull(conn, accepted[:]); readErr != nil || accepted[0] != 1 {
+			os.Exit(98)
+		}
 		_ = conn.Close()
 		os.Exit(38)
 	}
@@ -159,6 +167,10 @@ func (c *observedPiConn) Close() error {
 func (l *heldPiAcceptListener) Accept() (net.Conn, error) {
 	conn, err := l.Listener.Accept()
 	if err != nil {
+		return nil, err
+	}
+	if _, err = conn.Write([]byte{1}); err != nil {
+		_ = conn.Close()
 		return nil, err
 	}
 	close(l.accepted)
@@ -310,6 +322,9 @@ func TestRunPiInteractiveClosesAcceptedConnectionWhenChildAlreadyExited(t *testi
 	installPiInteractiveCommandFixture(t)
 	originalListen := piInteractiveListen
 	accepted, release, closed := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	var releaseOnce sync.Once
+	releaseAccept := func() { releaseOnce.Do(func() { close(release) }) }
+	defer releaseAccept()
 	piInteractiveListen = func(network, address string) (net.Listener, error) {
 		listener, err := originalListen(network, address)
 		if err != nil {
@@ -325,7 +340,13 @@ func TestRunPiInteractiveClosesAcceptedConnectionWhenChildAlreadyExited(t *testi
 	go func() {
 		result <- runInteractiveResolved(context.Background(), plan, "/native/pi", "/plugin/pi/extension.mjs")
 	}()
-	<-accepted
+	select {
+	case <-accepted:
+	case err := <-result:
+		t.Fatalf("launcher ended before held accept: %v", err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("native connection was not accepted")
+	}
 	capture := readPiChildCapture(t, capturePath)
 	deadline := time.Now().Add(5 * time.Second)
 	for syscall.Kill(capture.PID, 0) == nil && time.Now().Before(deadline) {
@@ -334,7 +355,7 @@ func TestRunPiInteractiveClosesAcceptedConnectionWhenChildAlreadyExited(t *testi
 	if syscall.Kill(capture.PID, 0) == nil {
 		t.Fatal("native child did not exit before accept handoff")
 	}
-	close(release)
+	releaseAccept()
 	var exit *exec.ExitError
 	if err := <-result; !errors.As(err, &exit) || exit.ExitCode() != 38 {
 		t.Fatalf("native exit = %v", err)
