@@ -8,9 +8,11 @@ This development/beta build publishes all eight peer archives for Linux and macO
 
 - Claude interactive messages restore the structured envelope used by its compact sender display, instead of displaying native peer-origin prose as an ordinary user message. Native model-input guidance remains Claude's own.
 - Codex lane results retain every final-answer item from the exact persisted native turn in item order. Multiple items are separated by one blank line; commentary, tool messages, and other turns remain excluded.
+- The unified tool exposes parent tracing through `spawn.trace` and the `trace` action. Tracing defaults to `off`, produces at most one ordinary parent copy for a settled Sessionbus send, and adds no durable policy, history, or replay. It requires the forthcoming trace-aware Sessionbus daemon and every involved hub; these peer declarations alone do not enable it.
 - Codex, Claude, Grok, Qwen, Pi, and OMP interactive owners reconnect after public daemon loss or initial absence while preserving the native session. Old calls and deliveries are not replayed. Supersession and native exit remain terminal. OMP Task child peers reconnect independently; lane Workers retain their single connection lifetime.
 - Shared MCP and Pi/OMP native tool declarations expose the protocol's closed argument fields. In particular, send accepts message and target/targets, not summary. The SDK retains action-specific validation.
 - Worker startup and service honor cancellation through the updated Go SDK. A Worker connection remains a single lifetime and does not reconnect.
+- OMP graceful shutdown drains its owned native RPC output and report work before the owner finishes. A separate startup race between bridge construction and registry assignment still awaits its signed correction and is not included in this development description yet.
 - Installers select latest stable, falling back to the published development prerelease only while no stable release exists. Explicit versions and mirrors remain supported; checksums are verified before installation.
 - Pi and OMP include managed native identity, interactive launch, lane Run, staged delivery, and joined process/private bridge ownership.
 
@@ -21,3 +23,7 @@ Pi and OMP remain preview integrations. Installed evidence establishes Pi normal
 The newly integrated reconnect and schema fixes have deterministic and process-fixture coverage, but fresh installed-product validation is still in progress. Pi admitted interrupt/healthy recovery and OMP staged delivery/Forget remain selected work before removing their preview designation; they do not block a stable peers release that explicitly retains that designation. An OMP native extension writing arbitrary stdout can also invalidate the RPC connection.
 
 This prerelease is available now for testing; publication does not mark the remaining stable acceptance work complete. No interrupted action is retried automatically. Native vendor products, credentials, and the Sessionbus daemon must already be installed separately.
+
+The next release is described provisionally in [v0.5.1](v0.5.1.md). Those notes
+describe current source and pending integration; they do not announce a release
+or an installed build.
