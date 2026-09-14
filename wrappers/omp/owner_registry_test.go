@@ -353,6 +353,7 @@ func TestOwnerRegistryKeepsLanePrimaryAndChildCallersDistinct(t *testing.T) {
 	if err := <-childReady; err != nil {
 		t.Fatal(err)
 	}
+	ownerWaitPublished(t, registry, "child-token")
 	if hello.Product != Product || hello.SessionID != "child-session" || hello.Name != "child" ||
 		!slices.Equal(hello.Groups, []string{"shared"}) || hello.Info["cwd"] != "/work/child" {
 		t.Fatalf("child identity = %+v", hello)
@@ -365,7 +366,13 @@ func TestOwnerRegistryKeepsLanePrimaryAndChildCallersDistinct(t *testing.T) {
 			Action: "list", Arguments: json.RawMessage(`{}`),
 		}, nil)
 	}()
+	if err := childConn.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
 	frame := ownerFrame(t, childScanner)
+	if err := childConn.SetReadDeadline(time.Time{}); err != nil {
+		t.Fatal(err)
+	}
 	if !frame.Request || frame.Method != "session.list" {
 		t.Fatalf("child public tool frame = %+v", frame)
 	}
