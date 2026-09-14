@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"os"
@@ -331,6 +332,27 @@ func TestRunPiInteractiveOwnsBridgeIdentityAndGracefulSignalCleanup(t *testing.T
 	}
 	if _, err := os.Stat(capture.Descriptor.Directory); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("private directory remains: %v", err)
+	}
+}
+
+func TestPiInteractiveBridgeResultOnlyNormalizesJoinedGracefulQuit(t *testing.T) {
+	closed := fmt.Errorf("%w: peer closed the connection", pifamily.ErrBridgeClosed)
+	protocolErr := fmt.Errorf("%w: malformed frame", pifamily.ErrBridgeProtocol)
+	childErr := errors.New("native child failed")
+	graceful := &interactiveOwner{everReady: true, lastEndReason: "quit"}
+	nonGraceful := &interactiveOwner{everReady: true, lastEndReason: "reload"}
+
+	if err := piInteractiveJoinedBridgeResult(graceful, nil, closed); err != nil {
+		t.Fatalf("joined graceful quit retained expected bridge EOF: %v", err)
+	}
+	if err := piInteractiveJoinedBridgeResult(nonGraceful, nil, closed); !errors.Is(err, pifamily.ErrBridgeClosed) {
+		t.Fatalf("non-graceful bridge loss was hidden: %v", err)
+	}
+	if err := piInteractiveJoinedBridgeResult(graceful, nil, protocolErr); !errors.Is(err, pifamily.ErrBridgeProtocol) {
+		t.Fatalf("graceful child hid bridge protocol failure: %v", err)
+	}
+	if err := piInteractiveJoinedBridgeResult(graceful, childErr, closed); !errors.Is(err, childErr) || !errors.Is(err, pifamily.ErrBridgeClosed) {
+		t.Fatalf("failed child or its bridge loss was hidden: %v", err)
 	}
 }
 
