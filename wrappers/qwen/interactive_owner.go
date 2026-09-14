@@ -11,10 +11,12 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"github.com/antst/sessionbus-peers/wrappers/host"
 	"github.com/antst/sessionbus-peers/wrappers/mcp"
 	kit "github.com/antst/sessionbus/bus/sdk/go"
+	"github.com/antst/sessionbus/bus/sdk/go/protocol"
 	"golang.org/x/sys/unix"
 )
 
@@ -48,6 +50,13 @@ type interactiveOwner struct {
 	work        sync.WaitGroup
 	slots       chan struct{}
 	appendGate  chan struct{}
+	identity    kit.PeerIdentity
+	revision    uint64
+	admitted    bool
+	changed     chan struct{}
+	readyOnce   sync.Once
+	dial        func(context.Context, string, string) (net.Conn, error)
+	retry       func(context.Context) bool
 }
 
 func newInteractiveOwner(ctx context.Context, env []string, parentPID int) (*interactiveOwner, error) {
@@ -92,6 +101,18 @@ func newInteractiveOwner(ctx context.Context, env []string, parentPID int) (*int
 	}
 	lifetime, cancel := context.WithCancel(ctx)
 	b := &interactiveOwner{ctx: lifetime, cancel: cancel, launch: launch, parent: parent, home: home, id: id, ready: make(chan struct{}), done: make(chan struct{}), slots: make(chan struct{}, 32), appendGate: make(chan struct{}, 1)}
+	b.changed = make(chan struct{}, 1)
+	b.dial = (&net.Dialer{}).DialContext
+	b.retry = func(ctx context.Context) bool {
+		timer := time.NewTimer(2 * time.Second)
+		defer timer.Stop()
+		select {
+		case <-ctx.Done():
+			return false
+		case <-timer.C:
+			return true
+		}
+	}
 	b.appendGate <- struct{}{}
 	return b, nil
 }
@@ -196,7 +217,13 @@ func (b *interactiveOwner) observe() (retErr error) {
 		}
 	}()
 	lastTitle := ""
-	var busDone <-chan struct{}
+	var busDone chan struct{}
+	defer func() {
+		if busDone != nil {
+			b.cancel()
+			<-busDone
+		}
+	}()
 	for {
 		if err = b.ctx.Err(); err != nil {
 			return err
@@ -247,33 +274,64 @@ func (b *interactiveOwner) observe() (retErr error) {
 				}
 				renamed = true
 			} else if !published && (b.launch.Name == "" || title.observed && title.value == b.launch.Name) {
-				if err = b.connect(session, title.value); err != nil {
-					return err
-				}
+				b.desire(session, title.value)
 				published = true
 				lastTitle = title.value
-				busDone = b.conn.Done()
-				close(b.ready)
+				busDone = make(chan struct{})
+				go func() { defer close(busDone); b.reconnect() }()
 			} else if published && title.observed && title.value != lastTitle {
-				if err = b.hello(session, title.value); err != nil {
-					return err
-				}
+				b.desire(session, title.value)
 				lastTitle = title.value
 			}
 		}
 		select {
 		case <-b.ctx.Done():
 			return b.ctx.Err()
-		case <-busDone:
-			return errors.New("Sessionbus owner connection ended")
 		case session = <-events.initial:
 		case <-watch.changed:
 		}
 	}
 }
 
-func (b *interactiveOwner) connect(session initialNativeSession, title string) error {
-	fd, err := (&net.Dialer{}).DialContext(b.ctx, "unix", b.launch.Socket)
+// Native observation owns desired identity; the single transport loop owns
+// connection attempts. Neither an outage nor a retry repeats native admission.
+func (b *interactiveOwner) desire(session initialNativeSession, title string) {
+	b.mu.Lock()
+	b.identity = kit.PeerIdentity{Protocol: 1, Product: Product, SessionID: b.id, Name: title, Groups: b.launch.Groups, Info: map[string]any{"cwd": session.CWD}}
+	b.revision++
+	b.admitted = false
+	b.mu.Unlock()
+	select {
+	case b.changed <- struct{}{}:
+	default:
+	}
+}
+
+func (b *interactiveOwner) reconnect() {
+	for b.ctx.Err() == nil {
+		err := b.connect()
+		if b.ctx.Err() != nil {
+			return
+		}
+		// A daemon refusal is not transport loss. In particular, supersession
+		// and invalid identity must never turn into a same-owner retry loop.
+		var refusal *kit.ProtocolError
+		if errors.As(err, &refusal) {
+			b.mu.Lock()
+			b.err = err
+			b.ending = true
+			b.mu.Unlock()
+			b.cancel()
+			return
+		}
+		if !b.retry(b.ctx) {
+			return
+		}
+	}
+}
+
+func (b *interactiveOwner) connect() error {
+	fd, err := b.dial(b.ctx, "unix", b.launch.Socket)
 	if err != nil {
 		return err
 	}
@@ -281,28 +339,68 @@ func (b *interactiveOwner) connect(session initialNativeSession, title string) e
 	var c *kit.Connection
 	c = kit.NewConnection(fd, func(ctx context.Context, r *kit.Request) { <-assigned; b.handle(ctx, c, r) })
 	b.mu.Lock()
-	b.conn = c
-	ending := b.ending
+	ending := b.ending || b.ctx.Err() != nil
+	if !ending {
+		b.conn = c
+		b.admitted = false
+	}
 	b.mu.Unlock()
 	close(assigned)
+	defer func() {
+		b.mu.Lock()
+		if b.conn == c {
+			b.conn = nil
+			b.admitted = false
+		}
+		b.mu.Unlock()
+		_ = c.Close()
+	}()
 	if ending {
-		c.Close()
 		return context.Canceled
 	}
-	return b.hello(session, title)
-}
-func (b *interactiveOwner) hello(session initialNativeSession, title string) error {
-	identity := kit.PeerIdentity{Protocol: 1, Product: Product, SessionID: b.id, Name: title, Groups: b.launch.Groups, Info: map[string]any{"cwd": session.CWD}}
-	var result json.RawMessage
-	return b.conn.Call(b.ctx, "session.hello", identity, &result)
+	var acknowledged uint64
+	for {
+		b.mu.Lock()
+		identity, revision := b.identity, b.revision
+		b.mu.Unlock()
+		if acknowledged != revision {
+			err = c.CallObserved(b.ctx, "session.hello", identity, &struct{}{}, func() error {
+				b.mu.Lock()
+				defer b.mu.Unlock()
+				if b.ending || b.ctx.Err() != nil || b.conn != c {
+					return context.Canceled
+				}
+				if b.revision == revision {
+					b.admitted = true
+					b.readyOnce.Do(func() { close(b.ready) })
+				}
+				return nil
+			})
+			if err != nil {
+				return err
+			}
+			acknowledged = revision
+			continue // A title observed during hello needs its own acknowledgment.
+		}
+		select {
+		case <-b.ctx.Done():
+			return b.ctx.Err()
+		case <-c.Done():
+			return errors.New("Sessionbus owner connection ended")
+		case <-b.changed:
+		}
+	}
 }
 func (b *interactiveOwner) Call(ctx context.Context, method string, params any) (json.RawMessage, error) {
 	if err := b.waitReady(ctx); err != nil {
 		return nil, err
 	}
 	b.mu.Lock()
-	c := b.conn
+	c, admitted := b.conn, b.admitted && !b.ending && b.ctx.Err() == nil
 	b.mu.Unlock()
+	if c == nil || !admitted {
+		return nil, &kit.ProtocolError{Code: protocol.NotConnected, Message: "not_connected"}
+	}
 	var result json.RawMessage
 	err := c.Call(ctx, method, params, &result)
 	return result, err
@@ -319,9 +417,9 @@ func (b *interactiveOwner) waitReady(ctx context.Context) error {
 		return err
 	}
 	b.mu.Lock()
-	c, ending := b.conn, b.ending
+	ending := b.ending
 	b.mu.Unlock()
-	if ending || c == nil {
+	if ending {
 		return b.failure()
 	}
 	return nil
@@ -355,15 +453,24 @@ func (b *interactiveOwner) End() {
 }
 func (b *interactiveOwner) handle(ctx context.Context, c *kit.Connection, r *kit.Request) {
 	b.mu.Lock()
-	if b.ending {
+	if b.ending || b.ctx.Err() != nil || b.conn != c {
 		b.mu.Unlock()
 		return
+	}
+	admitted := b.admitted
+	superseded := r.Method == "session.superseded"
+	if superseded {
+		b.ending = true
+		b.err = &kit.ProtocolError{Code: protocol.Superseded, Message: "superseded"}
 	}
 	select {
 	case b.slots <- struct{}{}:
 	default:
 		b.mu.Unlock()
 		c.Close()
+		if superseded {
+			b.cancel()
+		}
 		return
 	}
 	b.work.Add(1)
@@ -377,6 +484,10 @@ func (b *interactiveOwner) handle(ctx context.Context, c *kit.Connection, r *kit
 			err = c.Result(r, struct{}{})
 			b.cancel()
 		case "message.deliver":
+			if !admitted {
+				err = c.Result(r, kit.DeliveryReceipt{Disposition: "rejected", Reason: "not connected"})
+				break
+			}
 			request, ok := r.Params.(*kit.DeliveryRequest)
 			if !ok {
 				c.Close()
@@ -398,6 +509,11 @@ func (b *interactiveOwner) handle(ctx context.Context, c *kit.Connection, r *kit
 			c.Close()
 		}
 	}()
+	if superseded {
+		// Freeze the terminal decision before EOF can schedule another attempt;
+		// acknowledgment is best effort and cannot hold owner shutdown open.
+		b.cancel()
+	}
 }
 
 func (b *interactiveOwner) append(ctx context.Context, text string) error {
@@ -465,6 +581,10 @@ func ServeInteractiveMCP(ctx context.Context, input io.ReadCloser, output io.Wri
 	if err != nil {
 		return err
 	}
+	return serveInteractiveOwner(ctx, b, input, output)
+}
+
+func serveInteractiveOwner(ctx context.Context, b *interactiveOwner, input io.ReadCloser, output io.Writer) error {
 	defer b.End()
 	stop := context.AfterFunc(b.ctx, func() {
 		input.Close()
@@ -473,7 +593,7 @@ func ServeInteractiveMCP(ctx context.Context, input io.ReadCloser, output io.Wri
 		}
 	})
 	defer stop()
-	err = mcp.ServeSessionbus(b, input, output, mcp.ReportHandler{})
+	err := mcp.ServeSessionbus(b, input, output, mcp.ReportHandler{})
 	b.End()
 	if ctx.Err() != nil {
 		return ctx.Err()
