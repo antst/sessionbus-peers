@@ -192,6 +192,11 @@ func runOMPNativeOwnerHelper() error {
 	if helper.scenario == "hold_shutdown" {
 		select {}
 	}
+	if helper.scenario != "end_before_shutdown_response" {
+		if err = waitOMPNativeOwnerBridgeHandlers(bridge); err != nil {
+			return err
+		}
+	}
 	if helper.scenario == "malformed_shutdown" || helper.scenario == "delayed_malformed_shutdown" {
 		_, _ = fmt.Fprintln(os.Stdout, "{")
 	}
@@ -211,6 +216,23 @@ func runOMPNativeOwnerHelper() error {
 	}
 	if err = bridge.Close(); err != nil && !errors.Is(err, pifamily.ErrBridgeClosed) {
 		return err
+	}
+	return nil
+}
+
+func waitOMPNativeOwnerBridgeHandlers(bridge *pifamily.Bridge) error {
+	deadline := time.NewTimer(5 * time.Second)
+	defer deadline.Stop()
+	ticker := time.NewTicker(time.Millisecond)
+	defer ticker.Stop()
+	for bridge.Stats().ActiveCalls != 0 {
+		select {
+		case <-bridge.Done():
+			return bridge.Err()
+		case <-deadline.C:
+			return errors.New("native owner bridge handler did not finish")
+		case <-ticker.C:
+		}
 	}
 	return nil
 }
