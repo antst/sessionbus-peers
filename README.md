@@ -113,7 +113,7 @@ native prompts, and native results are outside this initial scope.
 Tracing adds no history, durable policy, replay, catch-up, or separate event
 transport. It requires the trace-aware Sessionbus daemon, every involved hub,
 and updated peer tools. Upgrade all of them before requesting tracing across
-hosts. See the prospective [v0.5.1 notes](docs/releases/v0.5.1.md) and the
+hosts. See the [v0.5.1 notes](docs/releases/v0.5.1.md) and the
 [Sessionbus communication-trace contract](https://github.com/antst/sessionbus/blob/main/docs/designs/COMMUNICATION-TRACE.md)
 for the complete authority and delivery rules.
 

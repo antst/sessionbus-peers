@@ -12,7 +12,7 @@ This development/beta build publishes all eight peer archives for Linux and macO
 - Codex, Claude, Grok, Qwen, Pi, and OMP interactive owners reconnect after public daemon loss or initial absence while preserving the native session. Old calls and deliveries are not replayed. Supersession and native exit remain terminal. OMP Task child peers reconnect independently; lane Workers retain their single connection lifetime.
 - Shared MCP and Pi/OMP native tool declarations expose the protocol's closed argument fields. In particular, send accepts message and target/targets, not summary. The SDK retains action-specific validation.
 - Worker startup and service honor cancellation through the updated Go SDK. A Worker connection remains a single lifetime and does not reconnect.
-- OMP graceful shutdown drains its owned native RPC output and report work before the owner finishes. A separate startup race between bridge construction and registry assignment still awaits its signed correction and is not included in this development description yet.
+- OMP graceful shutdown drains its owned native RPC output and report work before the owner finishes. Startup requests wait until the registry owns the native bridge; cancellation releases and joins the wait.
 - Installers select latest stable, falling back to the published development prerelease only while no stable release exists. Explicit versions and mirrors remain supported; checksums are verified before installation.
 - Pi and OMP include managed native identity, interactive launch, lane Run, staged delivery, and joined process/private bridge ownership.
 
@@ -24,6 +24,5 @@ The newly integrated reconnect and schema fixes have deterministic and process-f
 
 This prerelease is available now for testing; publication does not mark the remaining stable acceptance work complete. No interrupted action is retried automatically. Native vendor products, credentials, and the Sessionbus daemon must already be installed separately.
 
-The next release is described provisionally in [v0.5.1](v0.5.1.md). Those notes
-describe current source and pending integration; they do not announce a release
-or an installed build.
+The [v0.5.1 notes](v0.5.1.md) describe the coordinated tracing release and its
+daemon compatibility requirements.
