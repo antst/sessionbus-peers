@@ -13,8 +13,9 @@ Install the binary and native plugin in one step:
 curl -fsSL https://raw.githubusercontent.com/antst/sessionbus-peers/develop/scripts/install-codex.sh | sh
 ```
 
-The default is the development prerelease. Set `SESSIONBUS_VERSION` on `sh`
-to select a published release tag. The installer verifies its archive checksum
+The default is the latest stable release, falling back to development only
+while no stable release exists. Set `SESSIONBUS_VERSION` on `sh` to select a
+published release tag explicitly. The installer verifies its archive checksum
 and uses the permanent native installation below.
 
 Codex and the Sessionbus service must already be available in the real login
@@ -176,3 +177,9 @@ calls and deliveries are not replayed. Reconnection republishes the latest
 native identity and title. Native session end, supersession and owner shutdown
 remain terminal. Daemon-managed Worker lanes do not reconnect after losing
 their launch connection.
+
+When orchestrating another product, use the tool identifier and argument envelope
+from the orchestrator's installed declaration. Use the selected lane product's
+`describe` response and skill/README for its open fields, native permissions,
+receipts and lifecycle. See the [shared delivery guidance](../README.md#delivery-and-presence)
+for receipt uncertainty and the limits of presence flags.

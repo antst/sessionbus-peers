@@ -15,8 +15,9 @@ must already be installed):
 curl -fsSL https://raw.githubusercontent.com/antst/sessionbus-peers/develop/scripts/install-claude.sh | sh
 ```
 
-The default is the development prerelease. Set `SESSIONBUS_VERSION` on `sh`
-to select a published release tag. The installer verifies its archive checksum
+The default is the latest stable release, falling back to development only
+while no stable release exists. Set `SESSIONBUS_VERSION` on `sh` to select a
+published release tag explicitly. The installer verifies its archive checksum
 and uses the same permanent layout documented below.
 
 Use the archive for your operating system and architecture. Development builds
@@ -143,6 +144,11 @@ a message received while idle uses the same native query path and one shared
 run. Exact native replay returns `injected`; its terminal is separately readable
 through the shared worker's cursor. No Claude scheduler or output cache is added.
 
+Public `running:true` is not a promise of immediate native input consumption.
+Tool-boundary injection has been verified; a turn without a tool boundary may
+finish before replay. Use the returned receipt to distinguish active injection,
+next-turn staging and uncertainty, rather than inferring admission from presence.
+
 Spawn/resume policies are independent. `persistent:false` (fresh default) retires
 the lane when its authenticated owner leaves; `true` survives owner exit.
 `auto_close_ms` defaults to 60000 after a native completed, failed or interrupted
@@ -205,3 +211,9 @@ is retained under `docs/designs/claude-0.5.0/node-reference` as a behavioral
 reference. It is not included in this installed archive. Existing native facts
 remain version-qualified evidence; the Go translation requires its own actual
 installed acceptance. Source tests alone do not establish that acceptance.
+
+When orchestrating another product, use the tool identifier and argument envelope
+from the orchestrator's installed declaration. Use the selected lane product's
+`describe` response and skill/README for its open fields, native permissions,
+receipts and lifecycle. See the [shared delivery guidance](../README.md#delivery-and-presence)
+for receipt uncertainty and the limits of presence flags.

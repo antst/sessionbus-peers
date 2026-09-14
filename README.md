@@ -79,6 +79,26 @@ Maintainers build Claude/Codex using `scripts/package-claude` and
 workflow builds all eight for four platforms, publishes development after its tests and builds pass, and publishes a stable release when a new `vX.Y.Z` tag is pushed. Release
 archives record their exact source in the accompanying `SOURCE.txt`.
 
+## Delivery and presence
+
+A delivery reported as `rejected` with reason `no_receipt` means that no usable
+receipt was obtained. It does not prove the message was never submitted or
+consumed, including when the recipient disconnects. Preserve the delivery ID,
+reason and any run reference; report the uncertainty without automatically
+resending. A later connected or idle-looking row does not make replay safe.
+
+In a `list` row, `connected` describes the Sessionbus attachment and `running`
+describes a daemon-managed Run. An interactive peer's `running:false` does not
+prove its native model is idle. Do not use these flags to predict delivery
+admission; follow the actual receipt.
+
+The orchestrator's installed tool declaration governs the tool identifier and
+`{action, arguments}` envelope. After selecting a lane product, that product's
+`describe` response and product skill/README govern its open fields, native
+permission values, delivery receipts and lifecycle. `describe` lists available
+fields; product documentation supplies their meaning and allowed native values.
+Do not apply the orchestrator product's native options to a different lane product.
+
 ## Interactive CLI aliases
 
 Use `--yolo` to select the native permission-bypass flag and `--resume` to

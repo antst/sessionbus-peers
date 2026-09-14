@@ -67,6 +67,26 @@ Use `status` or `wait` on its reference and handle `done`, `unavailable` or
 `running` as above. Keep the actual message source separate from untrusted text. A missing pointer
 or failed notification does not mean that work failed or its output was read.
 
+## Tool authority and delivery observations
+
+The orchestrator's installed tool declaration governs the tool identifier and
+`{action, arguments}` envelope. After selecting a lane product, that product's
+`describe` response and product skill/README govern its open fields, native
+permission values, delivery receipts and lifecycle. `describe` lists available
+fields; product documentation supplies their meaning and allowed native values.
+Do not apply the orchestrator product's native options to a different lane product.
+
+A delivery reported as `rejected` with reason `no_receipt` means that no usable
+receipt was obtained. It does not prove the message was never submitted or
+consumed, including when the recipient disconnects. Preserve the delivery ID,
+reason and any run reference; report the uncertainty without automatically
+resending. A later connected or idle-looking row does not make replay safe.
+
+In a `list` row, `connected` describes the Sessionbus attachment and `running`
+describes a daemon-managed Run. An interactive peer's `running:false` does not
+prove its native model is idle. Do not use these flags to predict delivery
+admission; follow the actual receipt.
+
 ## Choose independent lane policies
 
 Fresh lanes default to `persistent:false`, `auto_close_ms:60000` and
