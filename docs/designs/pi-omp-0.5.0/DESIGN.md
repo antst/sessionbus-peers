@@ -1,6 +1,11 @@
 # Pi and OMP integration
 
-Status: implementation in progress. Native prerequisites are installed and
+Status: preview integrations, which may ship with a stable peers release while
+retaining the qualifications in [ACCEPTANCE.md](ACCEPTANCE.md). The acceptance
+scope below describes work before removing preview status, not a requirement
+to repeat completed native observations before every release.
+
+Native prerequisites are installed and
 version/help checked. Pi's first permanent build passed zero-input Worker
 Open/Close and persisted interactive resume/quit. Its first installed normal
 Run/list/result/close also passed. With the UI-admission correction installed,
@@ -477,8 +482,13 @@ extension loading, tool schema, delivery append, context replacement and joined
 cleanup. Then single, source-bound model rows cover tool self identity,
 completion/results, interrupt and next healthy Run, resume, staged delivery and
 interactive context. Error and local-only paths are required acceptance cases.
+The current [acceptance record](ACCEPTANCE.md) distinguishes installed coverage,
+accepted deterministic cases and deferred preview work. In particular, installed
+dialog and Task child observations remain deferred while OMP is preview.
 Existing product regression and final archive/installation correspondence are
-required before merge. Darwin native acceptance must be reported separately.
+required for stable publication. CI release metadata and ordinary installer
+verification establish archive correspondence. Darwin native acceptance must
+be reported separately.
 
 Historical `ff81565` tests and fixes remain regression inputs; fabricated
 `agent_settled.messages`, earlier-answer collection and superseded permission

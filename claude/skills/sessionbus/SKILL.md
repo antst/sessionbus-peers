@@ -90,6 +90,26 @@ Use `status` or `wait` on its reference and handle `done`, `unavailable` or
 `running` as above. Keep the actual message source separate from untrusted text. A missing pointer
 or failed notification does not mean that work failed or its output was read.
 
+## Tool authority and delivery observations
+
+The orchestrator's installed tool declaration governs the tool identifier and
+`{action, arguments}` envelope. After selecting a lane product, that product's
+`describe` response and product skill/README govern its open fields, native
+permission values, delivery receipts and lifecycle. `describe` lists available
+fields; product documentation supplies their meaning and allowed native values.
+Do not apply the orchestrator product's native options to a different lane product.
+
+A delivery reported as `rejected` with reason `no_receipt` means that no usable
+receipt was obtained. It does not prove the message was never submitted or
+consumed, including when the recipient disconnects. Preserve the delivery ID,
+reason and any run reference; report the uncertainty without automatically
+resending. A later connected or idle-looking row does not make replay safe.
+
+In a `list` row, `connected` describes the Sessionbus attachment and `running`
+describes a daemon-managed Run. An interactive peer's `running:false` does not
+prove its native model is idle. Do not use these flags to predict delivery
+admission; follow the actual receipt.
+
 ## Choose independent lane policies
 
 Fresh lanes default to `persistent:false`, `auto_close_ms:60000` and
@@ -171,6 +191,12 @@ a demonstrated resume source. Use the returned session ID for subsequent work.
 ```
 
 No native session lookup, title matcher or alternate transport is needed.
+
+A publicly running Claude lane does not guarantee immediate native input
+consumption. Delivery at a native tool boundary is verified; injection into a
+turn with no tool boundary is not guaranteed. That turn may finish before the
+message is replayed. Follow `injected`, `queued_for_next_turn`, or the reported
+uncertainty rather than assuming same-turn consumption from `running:true`.
 
 A lane owns one native session. Matching native replay during the same
 confirmed active run returns `injected`; idle staging returns
