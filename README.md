@@ -117,6 +117,12 @@ hosts. See the prospective [v0.5.1 notes](docs/releases/v0.5.1.md) and the
 [Sessionbus communication-trace contract](https://github.com/antst/sessionbus/blob/main/docs/designs/COMMUNICATION-TRACE.md)
 for the complete authority and delivery rules.
 
+The tracing relationship ends with the parent's live lifetime, even for a
+persistent child. Reconnecting with an old parent ID does not recover that
+relationship or replay copies. Older daemons reject the new `trace` action or
+spawn field; a trace-aware daemon returns `unsupported_trace` when an involved
+federation link cannot enforce the requested tracing controls.
+
 ## Interactive CLI aliases
 
 Use `--yolo` to select the native permission-bypass flag and `--resume` to
