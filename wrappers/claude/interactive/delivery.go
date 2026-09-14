@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 
+	"github.com/antst/sessionbus-peers/wrappers/host"
 	kit "github.com/antst/sessionbus/bus/sdk/go"
 )
 
@@ -27,11 +28,17 @@ func DeliverNative(captured Recipient, request kit.DeliveryRequest, dial Dial) (
 	if captured.Socket == "" {
 		return rejected("native_socket_missing_before_submission")
 	}
+	// Claude's compact peer renderer recognizes this envelope inside the native
+	// user frame. A bare body instead displays its expanded peer-origin prose.
+	body, err := host.RenderNativeMessage(request)
+	if err != nil {
+		return kit.DeliveryReceipt{}, err
+	}
 	from := request.From.Name
 	if from == "" {
 		from = request.From.SessionID
 	}
-	frame, err := json.Marshal(map[string]any{"msgV": 1, "msg_id": request.MessageID, "type": "user", "priority": "next", "from": from, "session_id": captured.SessionID, "message": map[string]string{"role": "user", "content": request.Body}})
+	frame, err := json.Marshal(map[string]any{"msgV": 1, "msg_id": request.MessageID, "type": "user", "priority": "next", "from": from, "session_id": captured.SessionID, "message": map[string]string{"role": "user", "content": body}})
 	if err != nil {
 		return kit.DeliveryReceipt{}, err
 	}

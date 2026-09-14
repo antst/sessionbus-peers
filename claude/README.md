@@ -102,6 +102,10 @@ the next report that carries its title.
 
 `written` means local native socket write completion only, not native admission
 or model consumption. A failure after possible submission remains uncertain.
+Interactive deliveries include a structured cross-session envelope so Claude
+renders the sender and message using its compact peer display. Claude's own
+peer-origin guidance can still be present in model input; the integration does
+not add that prose or change the message's peer attribution.
 Interactive presence reconnects automatically after a daemon outage while the
 native session remains alive. Calls made during the outage fail; interrupted
 calls and deliveries are not replayed. Reconnection republishes the latest

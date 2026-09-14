@@ -10,10 +10,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/antst/sessionbus-peers/internal/testsocket"
 	"github.com/antst/sessionbus-peers/wrappers/host"
@@ -209,20 +209,24 @@ func TestAbnormalRunCarriesNothingIntoReopen(t *testing.T) {
 		t.Fatal(err)
 	}
 	<-worker.Closed()
-	for range 1000 {
+	// Worker shutdown and retireRun independently await Run.Done; Closed does
+	// not join the latter. Wait for its postcondition, not a scheduler yield count.
+	deadline := time.NewTimer(5 * time.Second)
+	defer deadline.Stop()
+	poll := time.NewTicker(time.Millisecond)
+	defer poll.Stop()
+	for {
 		p.mu.Lock()
 		carried := p.run
 		p.mu.Unlock()
 		if carried == nil {
 			break
 		}
-		runtime.Gosched()
-	}
-	p.mu.Lock()
-	carried := p.run
-	p.mu.Unlock()
-	if carried != nil {
-		t.Fatalf("completed Run survived the abnormal app-server exit: %p", carried)
+		select {
+		case <-poll.C:
+		case <-deadline.C:
+			t.Fatalf("completed Run survived the abnormal app-server exit: %p", carried)
+		}
 	}
 }
 
