@@ -1,10 +1,8 @@
 {
   "mcpServers": {
     "sessionbus": {
-      "command": "claude-peer",
-      "args": [
-        "mcp"
-      ]
+      "command": "${CLAUDE_PLUGIN_ROOT}/bin/sessionbus-mcp",
+      "args": []
     }
   }
 }

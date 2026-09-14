@@ -3,16 +3,13 @@
 package main
 
 import (
-	"context"
+	"github.com/antst/sessionbus-peers/wrappers/claude/interactive"
 	"testing"
-
-	"github.com/antst/sessionbus-peers/wrappers/host"
 )
 
-func TestLaneModeRejectsArguments(t *testing.T) {
-	t.Setenv(host.TokenEnv, "token")
-	err := run(context.Background(), []string{"mcp"})
-	if err == nil || err.Error() != "lane mode accepts no arguments" {
-		t.Fatalf("run = %v", err)
+func TestTokenModeNeverFallsThroughToInteractive(t *testing.T) {
+	_, _, err := interactive.LaunchPlan(nil, map[string]string{"SESSIONBUS_LAUNCH_TOKEN": "token"}, "/cwd", "/plugin", 1000)
+	if err == nil {
+		t.Fatal("token launch accepted as interactive")
 	}
 }

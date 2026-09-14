@@ -131,6 +131,9 @@ func TestAppClientCanceledCallDrainsResponse(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- client.call(ctx, "method", struct{}{}, &struct{}{}) }()
 	request := readAppRequest(t, serverSide)
+	// Peer decode does not establish that the writing goroutine returned.
+	// This regression covers cancellation after completed submission.
+	completeNativeWrite(client)
 	cancel()
 	if err := <-done; !errors.Is(err, context.Canceled) {
 		t.Fatalf("error = %v", err)

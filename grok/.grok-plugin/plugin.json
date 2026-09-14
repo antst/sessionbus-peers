@@ -1,5 +1,5 @@
 {
   "name": "sessionbus",
-  "version": "0.4.0",
-  "description": "Discover grouped Sessionbus peers, and orchestrate Codex, Claude, Grok, and Qwen lanes from Grok."
+  "version": "0.5.0",
+  "description": "Discover and message Sessionbus peers and operate product lanes from managed Grok."
 }

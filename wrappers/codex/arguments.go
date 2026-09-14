@@ -16,50 +16,13 @@ import (
 	sessionkit "github.com/antst/sessionbus/bus/sdk/go"
 )
 
-var processRules = []host.ArgumentRule{
-	{Name: "-c", TakesValue: true, Conflict: configConflict},
-	{Name: "--config", TakesValue: true, Conflict: configConflict},
-	{Name: "--enable", TakesValue: true},
-	{Name: "--disable", TakesValue: true},
-	{Name: "--search"},
-}
-
 var peerDaemonCommand = exec.CommandContext
 
+// These are native App Server arguments, validated by Codex itself.
 func processArguments(arguments []string) ([]string, error) {
-	return host.BuildArguments(arguments, processRules)
+	return append([]string(nil), arguments...), nil
 }
-
-func configConflict(value string) string {
-	key, _, _ := strings.Cut(strings.TrimSpace(value), "=")
-	key = strings.Map(func(character rune) rune {
-		if character == ' ' || character == '\t' || character == '\'' || character == '"' {
-			return -1
-		}
-		return character
-	}, key)
-	for prefix, field := range map[string]string{
-		"cwd": "cwd", "model": "model", "model_reasoning_effort": "reasoning_effort",
-		"approval_policy": "permission_mode", "sandbox": "permission_mode", "sandbox_mode": "permission_mode",
-		"thread_id": "session_id", "thread_name": "name", "mcp_servers.sessionbus": "mcp",
-	} {
-		if key == prefix || strings.HasPrefix(key, prefix+".") {
-			return field
-		}
-	}
-	return ""
-}
-
-func permission(value string) (string, string, error) {
-	switch value {
-	case "", "default":
-		return "never", "", nil
-	case "bypassPermissions":
-		return "never", "danger-full-access", nil
-	default:
-		return "", "", errors.New("unsupported value permission_mode=" + value)
-	}
-}
+func permission(value string) (string, string, error) { return value, "", nil }
 
 func namePart(name string) (string, error) {
 	index := strings.LastIndexByte(name, '@')

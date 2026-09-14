@@ -12,6 +12,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/antst/sessionbus-peers/internal/testsocket"
 )
 
 func TestLaneModeUsesTokenPresence(t *testing.T) {
@@ -90,7 +92,7 @@ func TestBuildArgumentsTable(t *testing.T) {
 func TestChildOwnershipTable(t *testing.T) {
 	for _, ownerDies := range []bool{false, true} {
 		t.Run(map[bool]string{false: "ordered close", true: "stray child holds lock"}[ownerDies], func(t *testing.T) {
-			socket := filepath.Join(t.TempDir(), "bus.sock")
+			socket := filepath.Join(testsocket.Directory(t), "bus.sock")
 			lock, err := AcquireSessionLock(socket, "example", "session")
 			must(t, err)
 			endpoint, err := ListenPrivate(socket, "session")
@@ -145,7 +147,7 @@ func TestOwnedChildHelper(t *testing.T) {
 }
 
 func TestChildCloseIgnoresStoppedProcessNoise(t *testing.T) {
-	socket := filepath.Join(t.TempDir(), "bus.sock")
+	socket := filepath.Join(testsocket.Directory(t), "bus.sock")
 	lock, err := AcquireSessionLock(socket, "example", "session")
 	must(t, err)
 	endpoint, err := ListenPrivate(socket, "session")
@@ -168,7 +170,7 @@ func TestChildCloseIgnoresStoppedProcessNoise(t *testing.T) {
 }
 
 func TestChildOutputDrainsAfterExit(t *testing.T) {
-	socket := filepath.Join(t.TempDir(), "bus.sock")
+	socket := filepath.Join(testsocket.Directory(t), "bus.sock")
 	lock, err := AcquireSessionLock(socket, "example", "session")
 	must(t, err)
 	endpoint, err := ListenPrivate(socket, "session")

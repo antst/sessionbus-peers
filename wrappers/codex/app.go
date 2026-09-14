@@ -32,9 +32,20 @@ type streamTransport struct {
 	decoder *json.Decoder
 }
 
-func (s *streamTransport) Read(value any) error  { return s.decoder.Decode(value) }
-func (s *streamTransport) Write(value any) error { return json.NewEncoder(s.input).Encode(value) }
-func (s *streamTransport) Close() error          { return s.input.Close() }
+func (s *streamTransport) Read(value any) error { return s.decoder.Decode(value) }
+func (s *streamTransport) Write(value any) error {
+	body, err := json.Marshal(value)
+	if err != nil {
+		return err
+	}
+	body = append(body, '\n')
+	n, err := s.input.Write(body)
+	if err == nil && n != len(body) {
+		err = io.ErrShortWrite
+	}
+	return err
+}
+func (s *streamTransport) Close() error { return s.input.Close() }
 
 type appFrame struct {
 	ID     json.RawMessage `json:"id"`
@@ -44,23 +55,50 @@ type appFrame struct {
 	Error  *appError       `json:"error"`
 }
 
+const nativeRequestLimit = 256
+
+var errNativeRequestLimit = errors.New("Codex App Server request capacity exhausted")
+
+type appPending struct {
+	reply   chan appReply
+	observe func(json.RawMessage) error
+}
+type appServing struct {
+	context context.Context
+	cancel  context.CancelFunc
+	thread  string
+}
+
+type appRequestHandler func(context.Context, string, json.RawMessage) (any, error)
+
 type appClient struct {
-	transport   appTransport
-	mu, writeMu sync.Mutex
-	next        int64
-	pending     map[int64]chan appReply
-	failed      error
-	done        chan struct{}
-	notify      func(string, json.RawMessage)
-	onFailure   func(error)
+	transport appTransport
+	mu        sync.Mutex
+	writeGate chan struct{}
+	next      int64
+	pending   map[int64]appPending
+	failed    error
+	done      chan struct{}
+	notify    func(string, json.RawMessage)
+	onFailure func(error)
+	context   context.Context
+	cancel    context.CancelFunc
+	request   appRequestHandler
+	serving   map[string]*appServing
+	handlers  sync.WaitGroup
 }
 
-func newAppClient(input io.WriteCloser, output io.ReadCloser, notify func(string, json.RawMessage), failure func(error)) *appClient {
-	return newTransportClient(&streamTransport{input: input, output: output, decoder: json.NewDecoder(output)}, notify, failure)
+func newAppClient(input io.WriteCloser, output io.ReadCloser, notify func(string, json.RawMessage), failure func(error), handler ...appRequestHandler) *appClient {
+	return newTransportClient(&streamTransport{input: input, output: output, decoder: json.NewDecoder(output)}, notify, failure, handler...)
 }
 
-func newTransportClient(transport appTransport, notify func(string, json.RawMessage), failure func(error)) *appClient {
-	c := &appClient{transport: transport, pending: map[int64]chan appReply{}, done: make(chan struct{}), notify: notify, onFailure: failure}
+func newTransportClient(transport appTransport, notify func(string, json.RawMessage), failure func(error), handler ...appRequestHandler) *appClient {
+	ctx, cancel := context.WithCancel(context.Background())
+	c := &appClient{transport: transport, pending: map[int64]appPending{}, done: make(chan struct{}), notify: notify, onFailure: failure, context: ctx, cancel: cancel, writeGate: make(chan struct{}, 1), serving: map[string]*appServing{}}
+	c.writeGate <- struct{}{}
+	if len(handler) > 0 {
+		c.request = handler[0]
+	}
 	go c.read()
 	return c
 }
@@ -77,6 +115,12 @@ func (c *appClient) initialize(ctx context.Context, title string) error {
 }
 
 func (c *appClient) call(ctx context.Context, method string, params, result any) error {
+	return c.callObserved(ctx, method, params, result, nil)
+}
+
+// observe executes in native read order, before a later notification can change
+// admission classification. It must not perform I/O or wait for a public receipt.
+func (c *appClient) callObserved(ctx context.Context, method string, params, result any, observe func(json.RawMessage) error) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -86,29 +130,47 @@ func (c *appClient) call(ctx context.Context, method string, params, result any)
 		c.mu.Unlock()
 		return err
 	}
+	if len(c.pending) >= nativeRequestLimit {
+		c.mu.Unlock()
+		return errNativeRequestLimit
+	}
 	c.next++
 	id, reply := c.next, make(chan appReply, 1)
-	c.pending[id] = reply
+	c.pending[id] = appPending{reply: reply, observe: observe}
 	c.mu.Unlock()
-	if err := c.write(map[string]any{"jsonrpc": "2.0", "id": id, "method": method, "params": params}); err != nil {
+	if _, err := c.writeContext(ctx, map[string]any{"jsonrpc": "2.0", "id": id, "method": method, "params": params}); err != nil {
 		c.remove(id)
 		return err
 	}
+	var response appReply
 	select {
+	case response = <-reply:
 	case <-ctx.Done():
-		return ctx.Err()
-	case response := <-reply:
-		if response.err != nil {
-			return response.err
+		c.mu.Lock()
+		_, unclaimed := c.pending[id]
+		if unclaimed {
+			// Keep only the ID until its response is drained. The reader cannot
+			// retain a cancelled recipient or execute its abandoned observer.
+			c.pending[id] = appPending{}
 		}
-		if result == nil || len(response.result) == 0 {
-			return nil
+		c.mu.Unlock()
+		if unclaimed {
+			return ctx.Err()
 		}
-		if err := json.Unmarshal(response.result, result); err != nil {
-			return fmt.Errorf("decode App Server %s result: %w", method, err)
-		}
+		// The reader (or failure path) already claimed completion under mu.
+		// Its result wins a later cancellation, including observer completion.
+		response = <-reply
+	}
+	if response.err != nil {
+		return response.err
+	}
+	if result == nil || len(response.result) == 0 {
 		return nil
 	}
+	if err := json.Unmarshal(response.result, result); err != nil {
+		return fmt.Errorf("decode App Server %s result: %w", method, err)
+	}
+	return nil
 }
 
 func (c *appClient) notifyMethod(method string, params any) error {
@@ -116,25 +178,85 @@ func (c *appClient) notifyMethod(method string, params any) error {
 }
 
 func (c *appClient) write(value any) error {
-	c.writeMu.Lock()
-	err := c.transport.Write(value)
-	c.writeMu.Unlock()
-	if err != nil {
-		c.fail(err)
-	}
+	_, err := c.writeContext(c.context, value)
 	return err
+}
+func (c *appClient) writeContext(ctx context.Context, value any) (bool, error) {
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	type written struct {
+		attempted bool
+		err       error
+	}
+	select {
+	case <-ctx.Done():
+		return false, ctx.Err()
+	case <-c.writeGate:
+	}
+	defer func() { c.writeGate <- struct{}{} }()
+	c.mu.Lock()
+	failed := c.failed
+	c.mu.Unlock()
+	if failed != nil {
+		return false, failed
+	}
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	done := make(chan written, 1)
+	go func() { done <- written{attempted: true, err: c.transport.Write(value)} }()
+	var result written
+	select {
+	case result = <-done:
+	case <-ctx.Done():
+		select {
+		case result = <-done:
+		default:
+			c.fail(ctx.Err())
+			result = <-done
+			result.err = ctx.Err()
+		}
+	}
+	if result.attempted && result.err != nil {
+		c.fail(result.err)
+	}
+	return result.attempted, result.err
+}
+func (c *appClient) serveRequest(frame appFrame, key string, work *appServing) {
+	defer c.handlers.Done()
+	defer func() { work.cancel(); c.mu.Lock(); delete(c.serving, key); c.mu.Unlock() }()
+	var value any
+	var err error
+	if c.request != nil {
+		value, err = c.request(work.context, frame.Method, frame.Params)
+	} else {
+		err = &appError{Code: -32601, Message: "unsupported client exchange: " + frame.Method}
+	}
+	response := map[string]any{"jsonrpc": "2.0", "id": frame.ID}
+	if err != nil {
+		var native *appError
+		if !errors.As(err, &native) {
+			native = &appError{Code: -32603, Message: err.Error()}
+		}
+		response["error"] = native
+	} else {
+		response["result"] = value
+	}
+	_, _ = c.writeContext(work.context, response)
 }
 
 func (c *appClient) read() {
 	defer close(c.done)
+	defer c.handlers.Wait()
 	if stream, ok := c.transport.(*streamTransport); ok {
 		defer stream.output.Close()
 	}
-	for {
+	for !c.isFailed() {
 		var frame appFrame
 		if err := c.transport.Read(&frame); err != nil {
 			if errors.Is(err, io.EOF) {
-				err = errors.New("Codex App Server exited")
+				err = fmt.Errorf("Codex App Server exited: %w", io.EOF)
 			} else {
 				err = fmt.Errorf("malformed Codex App Server frame: %w", err)
 			}
@@ -143,7 +265,38 @@ func (c *appClient) read() {
 		}
 		if frame.Method != "" {
 			if len(frame.ID) != 0 {
-				go c.write(map[string]any{"jsonrpc": "2.0", "id": frame.ID, "error": appError{Code: -32601, Message: "headless Codex request is unsupported"}})
+				key, err := nativeRequestKey(frame.ID)
+				if err != nil {
+					c.fail(err)
+					return
+				}
+				var scope struct {
+					ThreadID string `json:"threadId"`
+				}
+				_ = json.Unmarshal(frame.Params, &scope)
+				c.mu.Lock()
+				_, duplicate := c.serving[key]
+				if len(c.serving) >= nativeRequestLimit {
+					c.mu.Unlock()
+					c.fail(errNativeRequestLimit)
+					return
+				}
+				if duplicate {
+					c.mu.Unlock()
+					c.fail(errors.New("Codex App Server duplicate request ID"))
+					return
+				}
+				ctx, cancel := context.WithCancel(c.context)
+				work := &appServing{context: ctx, cancel: cancel, thread: scope.ThreadID}
+				c.serving[key] = work
+				c.mu.Unlock()
+				c.handlers.Add(1)
+				go c.serveRequest(frame, key, work)
+			} else if frame.Method == "serverRequest/resolved" {
+				if err := c.resolveRequest(frame.Params); err != nil {
+					c.fail(err)
+					return
+				}
 			} else if c.notify != nil {
 				c.notify(frame.Method, frame.Params)
 			}
@@ -159,17 +312,24 @@ func (c *appClient) read() {
 			return
 		}
 		c.mu.Lock()
-		reply := c.pending[id]
+		reply, known := c.pending[id]
 		delete(c.pending, id)
 		c.mu.Unlock()
-		if reply == nil {
+		if !known {
 			c.fail(errors.New("Codex App Server returned an unknown response id"))
 			return
 		}
+		if reply.reply == nil {
+			continue // A validated late response releases its cancelled drain slot.
+		}
 		if frame.Error != nil {
-			reply <- appReply{err: frame.Error}
+			reply.reply <- appReply{err: frame.Error}
 		} else {
-			reply <- appReply{result: frame.Result}
+			var err error
+			if reply.observe != nil {
+				err = reply.observe(frame.Result)
+			}
+			reply.reply <- appReply{result: frame.Result, err: err}
 		}
 	}
 }
@@ -194,12 +354,18 @@ func (c *appClient) fail(err error) {
 	}
 	c.failed = err
 	pending := c.pending
-	c.pending = map[int64]chan appReply{}
+	c.pending = map[int64]appPending{}
 	c.mu.Unlock()
 	for _, reply := range pending {
-		reply <- appReply{err: err}
+		if reply.reply != nil {
+			reply.reply <- appReply{err: err}
+		}
 	}
+	c.cancel()
 	_ = c.transport.Close()
+	if stream, ok := c.transport.(*streamTransport); ok {
+		_ = stream.output.Close()
+	}
 	if c.onFailure != nil {
 		c.onFailure(err)
 	}
@@ -207,4 +373,37 @@ func (c *appClient) fail(err error) {
 
 func (c *appClient) close() error {
 	return c.transport.Close()
+}
+
+// Native IDs may be strings or integers; preserve their distinct namespaces.
+func nativeRequestKey(raw json.RawMessage) (string, error) {
+	var text string
+	if len(raw) > 0 && raw[0] == '"' && json.Unmarshal(raw, &text) == nil {
+		return "s:" + text, nil
+	}
+	var number int64
+	if string(raw) != "null" && json.Unmarshal(raw, &number) == nil {
+		return fmt.Sprintf("n:%d", number), nil
+	}
+	return "", errors.New("invalid native server request ID")
+}
+func (c *appClient) resolveRequest(raw json.RawMessage) error {
+	var resolved struct {
+		ThreadID  string          `json:"threadId"`
+		RequestID json.RawMessage `json:"requestId"`
+	}
+	if json.Unmarshal(raw, &resolved) != nil || resolved.ThreadID == "" {
+		return errors.New("invalid native request resolution")
+	}
+	key, err := nativeRequestKey(resolved.RequestID)
+	if err != nil {
+		return err
+	}
+	c.mu.Lock()
+	work := c.serving[key]
+	if work != nil && work.thread == resolved.ThreadID {
+		work.cancel()
+	}
+	c.mu.Unlock()
+	return nil
 }

@@ -6,6 +6,19 @@
 > commit recorded by the split archive manifest. Host evidence paths are
 > immutable external artifacts, not repository paths.
 
+> Current rewrite checkpoint (2026-09-10): [Qwen package and lane interface](../../qwen/README.md)
+> and its [single generic skill](../../qwen/skills/sessionbus/SKILL.md) supersede
+> the historical wrapper/skill designs below. The current ACP lane adopts native
+> IDs, uses shared non-consuming run cursors with explicit acknowledgments, and
+> reports written rather than injected for native request/response writes.
+> Close retires the worker without archiving native history. Interactive
+> in-process switching has an accepted initial-session attribution limitation
+> in both directions; see the package README and the
+> [current acceptance ledger](../designs/qwen-0.5.0/ACCEPTANCE.md). Ordinary
+> startup uses a skill-only extension; managed startup supplies its own native
+> MCP configuration. Historical evidence below is
+> retained as evidence of its cited versions, not the current implementation.
+
 Flat fact list for Qwen Code as a Sessionbus product. No prose beyond facts.
 
 Provenance and tag legend:

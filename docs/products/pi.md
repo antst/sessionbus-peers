@@ -6,6 +6,11 @@
 > commit recorded by the split archive manifest. Host evidence paths are
 > immutable external artifacts, not repository paths.
 
+Current integration: see [Pi/OMP design](../designs/pi-omp-0.5.0/DESIGN.md) and
+[acceptance status](../designs/pi-omp-0.5.0/ACCEPTANCE.md) for native 0.85.1.
+The facts and `UNVERIFIED` questions below describe the older source snapshot;
+they are preserved as historical inputs, not the current release checklist.
+
 - Pi was pinned and exercised as version `0.84.4`; its RPC child runs on Node. [Pi 0.84.4; source: `ff81565:internal/products/pifamily/quirks.go:12-20`, `ff81565:internal/products/pifamily/quirks.go:63-70`]
 - Pi's managed process spelling uses separate argv values: `pi --extension <managed-plugin> --mode rpc ...`. [Pi 0.84.4; source: `ff81565:internal/products/pifamily/quirks.go:34-40`, `ff81565:internal/products/pifamily/quirks.go:63-69`, `ff81565:internal/products/pifamily/quirks.go:102-115`]
 - Fresh identity is supplied as `--session-id <id>` and fresh title as `--name <title>`; exact resume is `--session <resume-id>`. [Pi 0.84.4; source: `ff81565:internal/products/pifamily/quirks.go:63-69`, `ff81565:internal/products/pifamily/lane.go:119-133`]

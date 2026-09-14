@@ -15,6 +15,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/antst/sessionbus-peers/internal/testsocket"
 	"github.com/antst/sessionbus-peers/wrappers/host"
 	"github.com/antst/sessionbus-peers/wrappers/mcp"
 	sessionkit "github.com/antst/sessionbus/bus/sdk/go"
@@ -41,7 +42,7 @@ func TestPeerNativeAppDialsOnlyAfterIdentity(t *testing.T) {
 }
 
 func TestPeerPrepareUsesMetadataAndRefreshesTitle(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "bus.sock")
+	path := filepath.Join(testsocket.Directory(t), "bus.sock")
 	listener, err := net.Listen("unix", path)
 	if err != nil {
 		t.Fatal(err)
@@ -57,6 +58,7 @@ func TestPeerPrepareUsesMetadataAndRefreshesTitle(t *testing.T) {
 		t.Fatal(err)
 	}
 	b.app = newAppClient(client, client, nil, func(error) {})
+	t.Cleanup(b.Shutdown)
 	t.Cleanup(func() { _ = app.Close() })
 	titles := make(chan string, 2)
 	titles <- "first title"
@@ -81,6 +83,9 @@ func TestPeerPrepareUsesMetadataAndRefreshesTitle(t *testing.T) {
 		t.Fatalf("hello = %#v", hello)
 	}
 	params := hello["params"].(map[string]any)
+	if params["product"] != "codex-peer" {
+		t.Fatalf("peer product = %#v", params["product"])
+	}
 	if params["session_id"] != "thread-1" || params["name"] != "first title" || !slices.Equal(params["groups"].([]any), []any{"codex-cells"}) {
 		t.Fatalf("identity = %#v", params)
 	}
@@ -101,7 +106,7 @@ func TestPeerPrepareUsesMetadataAndRefreshesTitle(t *testing.T) {
 }
 
 func TestPeerToolCallPublishesNotLoadedThreadWithoutResume(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "bus.sock")
+	path := filepath.Join(testsocket.Directory(t), "bus.sock")
 	listener, err := net.Listen("unix", path)
 	if err != nil {
 		t.Fatal(err)
@@ -162,7 +167,7 @@ func TestPeerToolCallPublishesNotLoadedThreadWithoutResume(t *testing.T) {
 }
 
 func TestPeerPrepareSurfacesRejectedHello(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "bus.sock")
+	path := filepath.Join(testsocket.Directory(t), "bus.sock")
 	listener, err := net.Listen("unix", path)
 	if err != nil {
 		t.Fatal(err)
@@ -206,7 +211,7 @@ func TestPeerPrepareRejectsMissingOrFixedIdentityChange(t *testing.T) {
 }
 
 func TestPeerPrepareRejectsDifferentThread(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "bus.sock")
+	path := filepath.Join(testsocket.Directory(t), "bus.sock")
 	listener, err := net.Listen("unix", path)
 	if err != nil {
 		t.Fatal(err)

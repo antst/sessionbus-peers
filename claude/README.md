@@ -1,66 +1,225 @@
-# sessionbus
+# Claude peer — Go candidate
 
-The Claude Code side of this repository. It gives a Claude orchestrator the same
-daemon-backed Sessionbus lifecycle surface as Codex, Grok, and Qwen: start a
-named Codex, Claude, Grok, or Qwen lane, collect its final answer, message or steer
-it while it runs, resume the same transcript, and archive it.
+`claude-peer` runs your installed Claude with Sessionbus communication. The
+integration is one Go binary and a small native plugin; it requires no Node or
+npm. Claude, its login, permissions, configuration and history remain native.
+Both interactive and lane paths are accepted at the documented scope below,
+including installed Open, delivery, lifecycle and shared-policy checks.
 
-## Contents
+## Install
+
+Install the binary and native plugin in one step (native Claude and Sessionbus
+must already be installed):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/antst/sessionbus-peers/develop/scripts/install-claude.sh | sh
+```
+
+The default is the latest stable release, falling back to development only
+while no stable release exists. Set `SESSIONBUS_VERSION` on `sh` to select a
+published release tag explicitly. The installer verifies its archive checksum
+and uses the same permanent layout documented below.
+
+Use the archive for your operating system and architecture. Development builds
+are produced from the pinned repository with Go 1.24 or newer:
+
+```sh
+./scripts/package-claude "$PWD/dist"
+```
+
+Cross-build on a development host with `GOOS=linux GOARCH=amd64`; the target host
+does not need Go. Transfer the resulting archive to the target host. From the
+directory containing `claude-peer-linux-amd64.tar.gz`, install in your normal
+login shell:
+
+```sh
+mkdir -p "$HOME/.local/libexec/sessionbus/claude" "$HOME/.local/bin"
+tar -xzf claude-peer-linux-amd64.tar.gz -C "$HOME/.local/libexec/sessionbus/claude"
+ln -sfn "$HOME/.local/libexec/sessionbus/claude/claude-peer" "$HOME/.local/bin/claude-peer"
+command -v claude-peer
+claude-peer --version
+```
+
+Use the matching archive filename on macOS. `$HOME/.local/bin` must be on your
+normal login PATH; add it through your shell's normal startup configuration if
+needed, then open a new login shell. No names or groups are installed. The
+Sessionbus user service must already be installed and running through its own
+installation procedure.
+
+If replacing the earlier npm candidate, first run
+`npm uninstall --global @sessionbus/claude` using that installation's actual
+prefix, then install the archive above. npm is required only to remove that
+old npm installation, never by the Go candidate. If the old `claude-peer` is a
+regular Go binary rather than a symlink, move that exact file aside before the
+link command; do not remove unrelated binaries or packages. Reinstall by
+extracting the new archive into the same permanent directory and refreshing
+the same public symlink. Quit integrated sessions before replacing an executing
+binary. The package adds no service or global Claude plugin registration.
+
+The installed layout is:
 
 ```text
-.claude-plugin/plugin.json     plugin manifest
-.mcp.json                      process-attested messaging and lane lifecycle control
-skills/codex-lane/             the Codex lane skill and its references
-skills/claude-lane/            the Claude self-lane skill
-skills/grok-lane/              the Grok lane skill and its references
-skills/qwen-lane/              the Qwen lane skill
-skills/sessionbus/         canonical discovery, messaging, and lane router
-commands/doctor.md             /sessionbus:doctor — read-only preflight
-skills/codex-lane/scripts/     portable POSIX preflight included with the skill
+~/.local/bin/claude-peer -> ~/.local/libexec/sessionbus/claude/claude-peer
+~/.local/libexec/sessionbus/claude/claude-peer
+~/.local/libexec/sessionbus/claude/plugin/.mcp.json
+~/.local/libexec/sessionbus/claude/plugin/bin/sessionbus-mcp -> ../../claude-peer
+~/.local/libexec/sessionbus/claude/plugin/bin/sessionbus-hook -> ../../claude-peer
 ```
 
-Install it from the repository marketplace with:
+The private MCP alias invokes the same binary as the native MCP child. Lane
+startup uses the private hook alias for its initial native identity report. There is
+one compiled artifact, one public command and no Node/npm dependency.
 
-```bash
-claude plugin marketplace add https://github.com/antst/sessionbus-peers.git
-claude plugin install sessionbus@sessionbus
+## Use
+
+```sh
+claude-peer -n NAME -g GROUP
+claude-peer --resume NAME -g GROUP
 ```
 
-Or drop either skill directory into `~/.claude/skills/`. The Sessionbus runtime must be
-installed separately; each skill's references carry its host setup and verification commands.
+The wrapper consumes each `-g VALUE` / `--group VALUE` pair or `--group=VALUE` anywhere
+before native `--`. Repeated
+pairs and comma-separated values accumulate in order; no `-g` means this launch's
+empty groups. `--yolo` translates to Claude's `--dangerously-skip-permissions`.
+All other arguments stay ordered and unchanged after the fixed activation prefix:
+`--allowedTools mcp__plugin_sessionbus_sessionbus__sessionbus --plugin-dir ROOT`.
+Native `-n`, `--resume`, repeated flags and errors remain Claude's own. After
+native `--`, every argument is passed through literally, including `-g` and
+`--yolo`.
 
-A user-scope marketplace installation is loaded by new interactive sessions and non-interactive
-`claude -p` sessions. Existing sessions need `/reload-plugins` or a restart.
+Ordinary `claude` stays ordinary. The wrapper loads the whole plugin only for
+this launch. An unconfigured plain nested `claude` stays ordinary; use an
+explicit `claude-peer` invocation with its own `-g` for an integrated child.
+The one Sessionbus skill describes the actual public `sessionbus` tool. Native
+permissions can deny that tool; the allow rule does not bypass native policy.
 
-## What it deliberately does not do
+Before the first native hook, the MCP owner observes Claude's own record for
+its exact live parent process. Where that native registry is available, the
+peer can publish its session ID before any prompt, then its name when Claude
+writes it. This uses no artificial turn or extra helper process. A cwd-derived
+native label is not treated as a session title.
 
-- **One process-attested MCP server.** Managed Claude peers get structured grouped discovery,
-  messaging, and local or federated lifecycle control for all four lane products. The server
-  remains inactive unless its process descends from the exact live Claude adapter and the host
-  agent corroborates the same UUID, socket, and lifecycle owner. The daemon, not Claude's MCP
-  process or shell, owns background workers.
-- **No hooks.** Nothing runs on SessionStart, UserPromptSubmit, Stop, or SessionEnd.
-- **No subagent.** A subagent boundary would hide a running lane from the orchestrator that needs to
-  message it.
-- **No global settings mutation.** Plugin installation never edits the operator's Claude profile.
-  `claude-peer` disables only a same-named project `.mcp.json` entry and merges the four exact,
-  plugin-qualified Sessionbus tool approvals into its lifecycle-owned settings overlay. Claude
-  lanes receive the same narrow policy. This prevents an arbitrary project from inheriting the
-  installed connector's approval. Bare `claude` and unrelated MCP tools are unchanged; explicit
-  tool removal or denial remains caller-owned.
-- **No binary and no adapter code.** Runtime dependencies are the four product lane adapters;
-  protocol, wake, and portability logic stay in the Go runtime where fixes are
-  centralized.
-- **No policy defaults.** Model, effort, sandbox, approval, web access, config overlays, output
-  schema, and worktree isolation are supplied by the caller or not at all.
+The first usable `UserPromptSubmit`, `Stop`, or `SessionEnd` report permanently
+hands identity control to the existing native hooks. A lagging registry record
+cannot then republish an ended session. Later `/clear` transitions and renames
+follow those hooks. If the registry is unavailable, publication still begins
+from a usable native hook; no launch or first-turn deadline is guaranteed.
+The bus must acknowledge publication before the peer is addressable. Missed
+hook reports are not replayed.
 
-The MCP entry invokes the separately installed Sessionbus runtime from `PATH`; the plugin still
-ships no binary and remains portable across supported hosts.
+`written` means local native socket write completion only, not native admission
+or model consumption. A failure after possible submission remains uncertain.
+Interactive deliveries include a structured cross-session envelope so Claude
+renders the sender and message using its compact peer display. Claude's own
+peer-origin guidance can still be present in model input; the integration does
+not add that prose or change the message's peer attribution.
+Interactive presence reconnects automatically after a daemon outage while the
+native session remains alive. Calls made during the outage fail; interrupted
+calls and deliveries are not replayed. Reconnection republishes the latest
+native identity and title. Native session end, supersession and owner shutdown
+remain terminal. Daemon-managed Worker lanes do not reconnect after losing
+their launch connection.
+Cancelled public waits
+leave results readable through their lane/run references; cancellation does not interrupt a
+native turn or retract a message.
 
-## Contract
+## Lane behavior
 
-All four lane skills target adapter **contract version 2** and require `list`, `doctor --json`,
-and `contract_version` in `lane.ready` and doctor output.
-Their `references/` directories are self-contained operational contracts loaded from Claude's
-plugin cache. The source repository also publishes the human-facing adapter specifications under
-`docs/`.
+The daemon launches this same binary as a token-selected lane worker. Use the
+public Sessionbus tool: `spawn` with `product: "claude-peer"`, `name` and `open`,
+then `run` or `start` with the returned `session_id` and `input`. `status`/`wait`
+read a started turn without consuming it; `ack` consumes the oldest terminal
+after the caller handles its state: use the result for `done`, or record/report
+the reason for `unavailable` (which has no result). Never acknowledge `running`
+or treat an RPC error as a retained record. References contain `session_id` and
+`run_id` and remain usable by another authorized collector while that worker
+lives. `interrupt` requests native interruption; `close`
+ends native stdin and waits for native exit after any active interruption.
+Forced failure still aborts. Resume passes that exact ID as `resume_session_id` to spawn.
+No lane-specific public launcher is installed.
+
+Open waits for native initialize, the initial root ID/title report and the
+required Sessionbus tool. Open itself starts no work. With the default
+`idle_message:"stage"`, an idle message does not start work. A matching
+native replay during the same confirmed active run returns `injected`; idle
+native staging returns `queued_for_next_turn` for a later explicit run. Neither
+receipt promises model consumption. An unclassified run boundary leaves
+admission uncertain; write completion alone earns no receipt. Explicit runs
+return the native terminal result and reason. With explicit `idle_message:"run"`,
+a message received while idle uses the same native query path and one shared
+run. Exact native replay returns `injected`; its terminal is separately readable
+through the shared worker's cursor. No Claude scheduler or output cache is added.
+
+Public `running:true` is not a promise of immediate native input consumption.
+Tool-boundary injection has been verified; a turn without a tool boundary may
+finish before replay. Use the returned receipt to distinguish active injection,
+next-turn staging and uncertainty, rather than inferring admission from presence.
+
+Spawn/resume policies are independent. `persistent:false` (fresh default) retires
+the lane when its authenticated owner leaves; `true` survives owner exit.
+`auto_close_ms` defaults to 60000 after a native completed, failed or interrupted
+terminal; zero disables automatic close. An unavailable record without a native
+terminal does not start a new grace.
+New work cancels the old deadline; collection and staged messages do not extend
+it. Resume preserves persistence and omitted idle-message policy, but omitted
+`auto_close_ms` resets to 60000. Pass zero again to keep automatic close disabled.
+Persistence may be promoted, not silently demoted.
+
+Parent-owned lanes notify their owner by default unless `notify:false` is set.
+Persistent lanes need an explicit `notify_target` (or a retained target on resume
+or promotion). The completion message contains a lane/run pointer and state,
+never the answer. It is an ordinary peer message under the lane's identity and
+follows the recipient's normal admission policy: active admission, idle staging
+under `stage`, or idle wake under `run`; interactive wake follows the native
+carrier. Delivery does not prove collection. Read with `status`/`wait`, then
+explicitly `ack` after using a `done` result or recording/reporting an
+`unavailable` reason. Both terminal states advance the cursor only on ack.
+Reads do not consume; acknowledgment is oldest-first.
+Closing, automatic close or worker/daemon loss invalidates unacknowledged output.
+There is no promise of answer recovery after retirement. Native saved history
+and the lane's resume recipe remain separate from that transient result cursor.
+
+With native default permissions, a lane has nobody to approve an interactive
+tool request. A tool can return “requires approval” and the model can still
+finish its turn successfully. The adapter does not substitute `dontAsk` or a
+bypass. Callers may explicitly choose `open.permission_mode` or native
+`open.arguments`; those values are passed to Claude. Prefer a rule for the
+specific command needed over a broad grant. Native policy remains authoritative.
+
+Installed Open, public list, staging, active consumption, interruption,
+configuration and independent lanes have been checked at their recorded scope.
+A native Bash tool can have its own process group outside the worker group;
+the daemon’s group kill does not directly reach that tool. A measured hard
+worker kill left it alive, and the earlier forced close path also left a tool
+alive after an interrupted terminal. With the corrected EOF close path, both
+the tool and its parent were absent after held interruption and after held
+close. This does not fix forced-death containment. Pending-wait cancellation,
+forwarder loss and interactive operation on the same build have also been
+checked; each result and its limits are in the product facts. Generic
+forced-death descendant cleanup remains open.
+
+## Remove
+
+After quitting integrated sessions, remove the exact owned launcher symlink
+and package directory:
+
+```sh
+rm "$HOME/.local/bin/claude-peer"
+rm -r "$HOME/.local/libexec/sessionbus/claude"
+```
+
+Check that these paths still name this installation before removing them.
+Keep ordinary Claude, its history/configuration, other plugins and the
+Sessionbus service. The integration creates no separate persistent data store.
+
+The reviewed Node implementation at `9644348`, including C01–C03 regressions,
+is retained under `docs/designs/claude-0.5.0/node-reference` as a behavioral
+reference. It is not included in this installed archive. Existing native facts
+remain version-qualified evidence; the Go translation requires its own actual
+installed acceptance. Source tests alone do not establish that acceptance.
+
+When orchestrating another product, use the tool identifier and argument envelope
+from the orchestrator's installed declaration. Use the selected lane product's
+`describe` response and skill/README for its open fields, native permissions,
+receipts and lifecycle. See the [shared delivery guidance](../README.md#delivery-and-presence)
+for receipt uncertainty and the limits of presence flags.

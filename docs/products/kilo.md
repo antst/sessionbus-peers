@@ -6,6 +6,16 @@
 > commit recorded by the split archive manifest. Host evidence paths are
 > immutable external artifacts, not repository paths.
 
+## Current source candidate
+
+The current source candidate targets native 7.6.2 and uses the shared Go/native
+plugin implementation documented in [the Kilo installation guide](../../kilo/README.md).
+Its controlled source tests do not constitute installed acceptance. The historical
+7.5.6 facts below remain provenance, not authority for the new transport or current
+host state. Installed metadata was 7.5.16 at the post-reboot read-only preflight.
+
+## Historical 0.4 evidence
+
 - Kilo Code was pinned as CLI and plugin version `7.5.6`. [Kilo Code 7.5.6; source: `ff81565:internal/products/kilocode/kilocode.go:14`, `ff81565:integrations/kilo/package.json:29-30`]
 - Kilo loads both `.opencode/plugins` and `.kilo/plugins`; installing the same plugin in both places causes a double load. [Kilo Code 7.5.6; source: `ff81565:integrations/kilo/README.md:3-5`]
 - A managed headless server is started as `kilo serve --hostname <loopback-host> --port <port> ...` in the requested cwd, authenticated by `KILO_SERVER_USERNAME` and `KILO_SERVER_PASSWORD`. [Kilo Code 7.5.6; source: `ff81565:internal/products/opencodefamily/server.go:84-130`]

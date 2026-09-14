@@ -216,12 +216,12 @@ func (s *Server) write(output io.Writer, id json.RawMessage, result any, failed 
 func toolDefinition() map[string]any {
 	return map[string]any{
 		"name":        ToolName,
-		"description": "Use Sessionbus to list or message peers and control product lanes.",
+		"description": toolDescription,
 		"inputSchema": map[string]any{
 			"type": "object", "additionalProperties": false, "required": []string{"action"},
 			"properties": map[string]any{
 				"action":    map[string]any{"type": "string", "enum": sessionkit.Actions, "description": "Exact Sessionbus operation."},
-				"arguments": map[string]any{"type": "object", "additionalProperties": true, "description": "Arguments in the exact shape for the selected operation."},
+				"arguments": argumentSchema(),
 			},
 		},
 	}

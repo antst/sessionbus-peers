@@ -17,10 +17,12 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/antst/sessionbus-peers/internal/testsocket"
 )
 
 func TestPeerWebSocketUpgradeAndFrames(t *testing.T) {
-	home := t.TempDir()
+	home := testsocket.Directory(t)
 	path := filepath.Join(home, "app-server-control", "app-server-control.sock")
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		t.Fatal(err)
