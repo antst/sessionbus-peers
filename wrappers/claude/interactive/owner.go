@@ -46,6 +46,9 @@ type Owner struct {
 	submitted            map[uint64]bool
 	pendingReports       int
 	publishers, handlers sync.WaitGroup
+	startupCancel        context.CancelFunc
+	startupWork          sync.WaitGroup
+	hookObserved         bool
 }
 
 func unavailable() error {
@@ -84,6 +87,16 @@ func (o *Owner) BeginReport(raw json.RawMessage) (<-chan error, error) {
 		return nil, errors.New("unusable native identity report")
 	}
 	o.mu.Lock()
+	o.hookObserved = true
+	if o.startupCancel != nil {
+		o.startupCancel()
+	}
+	return o.beginIdentityLocked(event)
+}
+
+// beginIdentityLocked consumes the mutex and preserves the existing hook
+// publication ordering for both native reports and the startup witness.
+func (o *Owner) beginIdentityLocked(event NativeReport) (<-chan error, error) {
 	if o.ended {
 		o.mu.Unlock()
 		return nil, unavailable()
@@ -357,8 +370,12 @@ func (o *Owner) withdrawLocked(err error) {
 func (o *Owner) End() {
 	o.mu.Lock()
 	o.ended = true
+	if o.startupCancel != nil {
+		o.startupCancel()
+	}
 	o.withdrawLocked(unavailable())
 	o.mu.Unlock()
+	o.startupWork.Wait()
 	o.publishers.Wait()
 	o.handlers.Wait()
 }

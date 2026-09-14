@@ -30,6 +30,7 @@ func run() error {
 		if err != nil {
 			return err
 		}
+		owner.StartStartupObservation(interactive.Environment(os.Environ()))
 		return interactive.Serve(owner, os.Stdin, os.Stdout)
 	case claude.HookAlias:
 		endpoint := os.Getenv(claude.LaneEndpointEnv)

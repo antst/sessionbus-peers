@@ -93,13 +93,19 @@ explicit `claude-peer` invocation with its own `-g` for an integrated child.
 The one Sessionbus skill describes the actual public `sessionbus` tool. Native
 permissions can deny that tool; the allow rule does not bypass native policy.
 
-Presence starts only after a usable native report reaches the resident owner
-and the bus acknowledges it. There is no launch, first-prompt or first-turn
-deadline. A prompt entered during plugin startup may be reported at that
-turn's end or at a later prompt; missed reports are not replayed. A Stop report
-can publish an unnamed peer; a later title report supplies its name. Before
-publication, the session is absent and unaddressable. Rename is reflected at
-the next report that carries its title.
+Before the first native hook, the MCP owner observes Claude's own record for
+its exact live parent process. Where that native registry is available, the
+peer can publish its session ID before any prompt, then its name when Claude
+writes it. This uses no artificial turn or extra helper process. A cwd-derived
+native label is not treated as a session title.
+
+The first usable `UserPromptSubmit`, `Stop`, or `SessionEnd` report permanently
+hands identity control to the existing native hooks. A lagging registry record
+cannot then republish an ended session. Later `/clear` transitions and renames
+follow those hooks. If the registry is unavailable, publication still begins
+from a usable native hook; no launch or first-turn deadline is guaranteed.
+The bus must acknowledge publication before the peer is addressable. Missed
+hook reports are not replayed.
 
 `written` means local native socket write completion only, not native admission
 or model consumption. A failure after possible submission remains uncertain.

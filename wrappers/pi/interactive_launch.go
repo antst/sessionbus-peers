@@ -266,13 +266,13 @@ func runInteractiveResolved(ctx context.Context, plan host.ExecPlan, native, ext
 	select {
 	case err = <-bridgeReady:
 		if err != nil {
-			return errors.Join(err, joinChild(true))
+			return piInteractiveJoinedBridgeResult(owner, joinChild(true), err)
 		}
 	case childErr := <-childDone:
 		childJoined = true
-		return errors.Join(childErr, bridge.Close(), <-bridgeReady)
+		return piInteractiveJoinedBridgeResult(owner, childErr, bridge.Close(), <-bridgeReady)
 	case <-ctx.Done():
-		return errors.Join(joinChild(true), bridge.Close(), <-bridgeReady)
+		return piInteractiveJoinedBridgeResult(owner, joinChild(true), bridge.Close(), <-bridgeReady)
 	}
 
 	// A bridge hello proves transport only. Managed ownership starts only after
@@ -315,6 +315,17 @@ active:
 	case <-ctx.Done():
 		return joinChild(true)
 	}
+}
+
+func piInteractiveJoinedBridgeResult(owner *interactiveOwner, childErr error, bridgeErrs ...error) error {
+	if childErr == nil && owner.gracefulNativeEnd() {
+		for index, bridgeErr := range bridgeErrs {
+			if errors.Is(bridgeErr, pifamily.ErrBridgeClosed) {
+				bridgeErrs[index] = nil
+			}
+		}
+	}
+	return errors.Join(append([]error{childErr}, bridgeErrs...)...)
 }
 
 func validateInteractiveEndpoint(directory, endpoint string) error {
