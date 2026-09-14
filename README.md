@@ -18,19 +18,19 @@ well, since daemons validate forwarded responses with their embedded SDK.
 
 ## Install a product from a binary release
 
-Install [Sessionbus v0.5.3 or later](https://github.com/antst/sessionbus/tree/develop#install-binaries)
+Install [Sessionbus v0.5.3 or later](https://github.com/antst/sessionbus/tree/main#install-binaries)
 and the native product first. The daemon and peers have independent release
 versions. Then run the command for each product you want:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/antst/sessionbus-peers/develop/scripts/install-claude.sh | sh
-curl -fsSL https://raw.githubusercontent.com/antst/sessionbus-peers/develop/scripts/install-codex.sh | sh
-curl -fsSL https://raw.githubusercontent.com/antst/sessionbus-peers/develop/scripts/install-grok.sh | sh
-curl -fsSL https://raw.githubusercontent.com/antst/sessionbus-peers/develop/scripts/install-qwen.sh | sh
-curl -fsSL https://raw.githubusercontent.com/antst/sessionbus-peers/develop/scripts/install-opencode.sh | sh
-curl -fsSL https://raw.githubusercontent.com/antst/sessionbus-peers/develop/scripts/install-kilo.sh | sh
-curl -fsSL https://raw.githubusercontent.com/antst/sessionbus-peers/develop/scripts/install-pi.sh | sh
-curl -fsSL https://raw.githubusercontent.com/antst/sessionbus-peers/develop/scripts/install-omp.sh | sh
+curl -fsSL https://raw.githubusercontent.com/antst/sessionbus-peers/main/scripts/install-claude.sh | sh
+curl -fsSL https://raw.githubusercontent.com/antst/sessionbus-peers/main/scripts/install-codex.sh | sh
+curl -fsSL https://raw.githubusercontent.com/antst/sessionbus-peers/main/scripts/install-grok.sh | sh
+curl -fsSL https://raw.githubusercontent.com/antst/sessionbus-peers/main/scripts/install-qwen.sh | sh
+curl -fsSL https://raw.githubusercontent.com/antst/sessionbus-peers/main/scripts/install-opencode.sh | sh
+curl -fsSL https://raw.githubusercontent.com/antst/sessionbus-peers/main/scripts/install-kilo.sh | sh
+curl -fsSL https://raw.githubusercontent.com/antst/sessionbus-peers/main/scripts/install-pi.sh | sh
+curl -fsSL https://raw.githubusercontent.com/antst/sessionbus-peers/main/scripts/install-omp.sh | sh
 ```
 
 Pi and OMP remain preview integrations, including when distributed in a stable
@@ -64,7 +64,7 @@ development. Mirrors and explicit release tags skip this lookup.
 Pin an actual release tag by setting the variable on **sh**:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/antst/sessionbus-peers/develop/scripts/install-codex.sh | SESSIONBUS_VERSION=vX.Y.Z sh
+curl -fsSL https://raw.githubusercontent.com/antst/sessionbus-peers/main/scripts/install-codex.sh | SESSIONBUS_VERSION=vX.Y.Z sh
 ```
 
 Replace `vX.Y.Z` with a published [release](https://github.com/antst/sessionbus-peers/releases).
