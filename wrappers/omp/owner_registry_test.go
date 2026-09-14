@@ -1357,7 +1357,11 @@ func TestOwnerRegistryPublishesOnlyReplacementIdentityAfterOutage(t *testing.T) 
 			}
 		}
 		registry.mu.Unlock()
-		retryEntered <- token
+		select {
+		case retryEntered <- token:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
@@ -1422,6 +1426,21 @@ func TestOwnerRegistryPublishesOnlyReplacementIdentityAfterOutage(t *testing.T) 
 	case <-registry.Done():
 		t.Fatalf("stale supersession retired replacement: %v", registry.Err())
 	default:
+	}
+	for len(retryEntered) < cap(retryEntered) {
+		retryEntered <- "occupied"
+	}
+	retryCtx, cancelRetry := context.WithCancel(context.Background())
+	retryDone := make(chan error, 1)
+	go func() { retryDone <- registry.retryPublic(retryCtx) }()
+	cancelRetry()
+	select {
+	case err = <-retryDone:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("full retry notification cancellation = %v", err)
+		}
+	case <-ownerTestContext(t).Done():
+		t.Fatal("full retry notification did not observe cancellation")
 	}
 }
 
@@ -1754,9 +1773,13 @@ func TestOwnerRegistryInvalidHelloIsTerminal(t *testing.T) {
 		Topology: ownerTopologyInteractive, Socket: listener.Addr().String(), Directory: directory,
 	}, fixture)
 	retried := make(chan struct{}, 1)
-	registry.retryPublic = func(context.Context) error {
-		retried <- struct{}{}
-		return nil
+	registry.retryPublic = func(ctx context.Context) error {
+		select {
+		case retried <- struct{}{}:
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
 	}
 	if err := native.Call(ownerTestContext(t), "owner.ready", ownerReadyRequest{
 		Topology: ownerTopologyInteractive, Directory: directory, Scope: ownerScopePrimary, Mode: ownerModeTUI,
