@@ -462,3 +462,47 @@ func TestInteractiveReconnectCanceledHelloCannotPublish(t *testing.T) {
 	default:
 	}
 }
+
+func TestInteractiveReconnectRenameACKKeepsDeliveryAdmission(t *testing.T) {
+	f := reconnectOwner(t)
+	f.b.Initialized()
+	w := f.wire(t)
+	hello := w.hello(t, f, "")
+	w.reply(t, hello, struct{}{})
+	receiveReconnect(t, f.b.ready)
+	for index, title := range []string{"renamed", ""} {
+		appendFixtureJSON(t, f.history, titleRecord(title))
+		held := w.hello(t, f, title)
+		// Receiving the rename request proves desire ran. Keep its ACK held while
+		// the same admitted connection delivers a message and makes a public call.
+		marker := []string{"during-rename", "during-clear"}[index]
+		id := 910 + index
+		must(t, w.encoder.Encode(map[string]any{"jsonrpc": "2.0", "id": id, "method": "message.deliver", "params": reconnectDelivery(marker)}))
+		receipt := w.read(t)
+		var disposition kit.DeliveryReceipt
+		must(t, json.Unmarshal(receipt.Result, &disposition))
+		check(t, disposition.Disposition == "written", "same-session rename revoked admission: %+v", disposition)
+		data, e := os.ReadFile(filepath.Join(f.b.launch.Directory, "input.jsonl"))
+		must(t, e)
+		records := 0
+		for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+			if strings.Contains(line, marker) {
+				records++
+			}
+		}
+		check(t, records == 1, "delivery before rename ACK was not written exactly once: %s", data)
+		reconnectListed(t, f, w)
+		w.reply(t, held, struct{}{})
+	}
+	reconnectListed(t, f, w)
+}
+
+func TestInteractiveReconnectChangedIdentityRevokesAdmission(t *testing.T) {
+	b, _, _ := ownerFixture(t, "")
+	// Simulate desire replacing an admitted identity; native observation normally
+	// freezes this binding, but the admission guard must still fail closed here.
+	b.identity = kit.PeerIdentity{SessionID: "previous-session"}
+	b.admitted = true
+	b.desire(initialNativeSession{ID: b.id, CWD: "/workspace"}, "current")
+	check(t, !b.admitted, "a different identity inherited old admission")
+}

@@ -297,9 +297,13 @@ func (b *interactiveOwner) observe() (retErr error) {
 // connection attempts. Neither an outage nor a retry repeats native admission.
 func (b *interactiveOwner) desire(session initialNativeSession, title string) {
 	b.mu.Lock()
+	// Renaming this session does not revoke its existing connection admission.
+	// A different identity, or connect's replacement transport, must hello first.
+	if b.identity.SessionID != b.id {
+		b.admitted = false
+	}
 	b.identity = kit.PeerIdentity{Protocol: 1, Product: Product, SessionID: b.id, Name: title, Groups: b.launch.Groups, Info: map[string]any{"cwd": session.CWD}}
 	b.revision++
-	b.admitted = false
 	b.mu.Unlock()
 	select {
 	case b.changed <- struct{}{}:
