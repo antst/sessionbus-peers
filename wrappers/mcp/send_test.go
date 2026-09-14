@@ -42,7 +42,7 @@ func TestAdvertisedArgumentsMatchPublicActionFieldUnion(t *testing.T) {
 		t.Fatal(err)
 	}
 	expected := map[string]json.RawMessage{}
-	for _, name := range []string{"SessionListRequest", "MessageSendRequest", "LaneDescribeRequest", "LaneSpawnRequest", "TurnRunRequest", "WaitRequest", "RunRef", "TurnInterruptRequest", "SessionCloseRequest"} {
+	for _, name := range []string{"SessionListRequest", "MessageSendRequest", "LaneDescribeRequest", "LaneSpawnRequest", "TraceConfigureRequest", "TurnRunRequest", "WaitRequest", "RunRef", "TurnInterruptRequest", "SessionCloseRequest"} {
 		definition, ok := schema.Definitions[name]
 		if !ok {
 			t.Fatalf("missing kit definition %s", name)
