@@ -168,7 +168,7 @@ test("lane handshake and ordered witnesses retain native ownership", async () =>
   createPiExtension({ launch: launch("lane"), connect: owner.connect })(native.pi);
   assert.equal(native.pi.tool.name, toolName);
   assert.deepEqual(native.pi.tool.parameters.properties.action.enum, [
-    "list", "send", "spawn", "describe", "run", "start", "wait", "status", "interrupt", "close", "forget", "ack",
+    "list", "send", "spawn", "describe", "trace", "run", "start", "wait", "status", "interrupt", "close", "forget", "ack",
   ]);
 
   await native.emit("session_start", { type: "session_start", reason: "startup" });
@@ -410,6 +410,7 @@ test("native tool arguments match the shared closed MCP field declaration", () =
   const native = nativeFixture();
   createPiExtension({ launch: launch("lane") })(native.pi);
   const declaration = JSON.parse(fs.readFileSync(new URL("../opencodefamily/plugin/sessionbus-tool.json", import.meta.url), "utf8"));
+  assert.deepEqual(native.pi.tool.parameters.properties.action, declaration.inputSchema.properties.action);
   assert.deepEqual(native.pi.tool.parameters.properties.arguments, declaration.inputSchema.properties.arguments);
   assert.equal(native.pi.tool.parameters.properties.arguments.additionalProperties, false);
   assert.equal(Object.hasOwn(native.pi.tool.parameters.properties.arguments.properties, "summary"), false);

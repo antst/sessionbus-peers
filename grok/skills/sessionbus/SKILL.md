@@ -1,6 +1,6 @@
 ---
 name: sessionbus
-description: Discover and message Sessionbus peers, and create, run, collect, close and resume Sessionbus lanes through the single tool.
+description: Discover and message Sessionbus peers, trace direct child traffic, and create, run, collect, close and resume Sessionbus lanes through the single tool.
 ---
 
 # Sessionbus
@@ -19,8 +19,8 @@ starts an inert helper with no tools and no bus presence; do not try to enable
 it by setting identity environment variables or invoking its private entry.
 
 Use `sessionbus__sessionbus` with `{action, arguments}`. The advertised actions
-are list, send, spawn, describe, run, start, wait, status, ack, interrupt, close
-and forget. Follow the actual tool schemas; do not invent convenience methods.
+are list, send, spawn, describe, trace, run, start, wait, status, ack, interrupt,
+close and forget. Follow the actual tool schemas; do not invent convenience methods.
 Call `list` before resolving an ambiguous peer name and use its returned ID.
 The native session ID and title are authoritative; a peer may have an empty
 name. Native rename events update presence without a model prompt. Do not use
@@ -86,6 +86,17 @@ In a `list` row, `connected` describes the Sessionbus attachment and `running`
 describes a daemon-managed Run. An interactive peer's `running:false` does not
 prove its native model is idle. Do not use these flags to predict delivery
 admission; follow the actual receipt.
+
+Tracing is a live parent control for a direct child. Pass optional
+`trace:"off"|"events"|"content"` to fresh or resumed `spawn`, or use
+`{"action":"trace","arguments":{"session_id":"CHILD_SESSION_ID","mode":"events"}}`
+to change it later. It defaults to `off` and is independent of lane persistence,
+notification, idle and retirement policies. `events` copies Sessionbus message
+and settled-delivery metadata; `content` also includes message bodies. Each copy
+is a daemon-generated JSON trace envelope delivered as an ordinary message under
+the parent's admission policy, so it can stage or wake the parent.
+The setting applies only to later traffic, is not persisted, and supplies no
+history, replay, Run events, lane lifecycle events or native model content.
 
 ## Choose independent lane policies
 

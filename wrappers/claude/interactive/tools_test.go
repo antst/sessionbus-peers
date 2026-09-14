@@ -17,7 +17,9 @@ func TestPublicActionsUseActualConnectionAndSchema(t *testing.T) {
 		{"send", `{"group":"g","message":"body"}`, "message.send", `{"message_id":"m","deliveries":[]}`},
 		{"send", `{"targets":["a","b"],"message":"body"}`, "message.send", `{"message_id":"m","deliveries":[]}`},
 		{"spawn", `{"product":"claude-peer","name":"lane","open":{"arguments":["--name","native"]}}`, "lane.spawn", `{"session_id":"lane"}`},
+		{"spawn", `{"product":"claude-peer","name":"lane","open":{},"trace":"events"}`, "lane.spawn", `{"session_id":"lane"}`},
 		{"spawn", `{"resume_session_id":"lane"}`, "lane.spawn", `{"session_id":"lane"}`},
+		{"trace", `{"session_id":"lane","mode":"content"}`, "trace.configure", `{"session_id":"lane","mode":"content"}`},
 		{"run", `{"session_id":"lane","input":"one"}`, "turn.run", `{"session_id":"lane","run_id":"g/1","state":"done","result":{"outcome":"completed","result":"done"}}`},
 		{"start", `{"session_id":"lane","input":"one"}`, "turn.start", `{"session_id":"lane","run_id":"g/1"}`},
 		{"status", `{"session_id":"lane"}`, "turn.status", `{"session_id":"lane","run_id":"g/1","state":"running"}`},
@@ -54,7 +56,7 @@ func TestPublicActionsUseActualConnectionAndSchema(t *testing.T) {
 func TestInvalidSendAndSpawnNeverReachWire(t *testing.T) {
 	o, wires := testOwner(t)
 	w := published(t, o, wires)
-	for _, raw := range []string{`{"action":"send","arguments":{"to":"x","body":"wrong"}}`, `{"action":"spawn","arguments":{"product":"claude-peer","name":"x"}}`, `{"action":"native_identity_event","arguments":{}}`, `{"action":"list","arguments":{},"extra":true}`} {
+	for _, raw := range []string{`{"action":"send","arguments":{"to":"x","body":"wrong"}}`, `{"action":"spawn","arguments":{"product":"claude-peer","name":"x"}}`, `{"action":"spawn","arguments":{"resume_session_id":"lane","trace":"all"}}`, `{"action":"trace","arguments":{"session_id":"lane","mode":"all"}}`, `{"action":"native_identity_event","arguments":{}}`, `{"action":"list","arguments":{},"extra":true}`} {
 		if _, err := CallTool(context.Background(), o, json.RawMessage(raw)); err == nil {
 			t.Fatal(raw)
 		}

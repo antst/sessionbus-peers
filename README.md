@@ -101,6 +101,28 @@ permission values, delivery receipts and lifecycle. `describe` lists available
 fields; product documentation supplies their meaning and allowed native values.
 Do not apply the orchestrator product's native options to a different lane product.
 
+### Parent tracing
+
+The unified tool's `trace` action can enable `events` or `content` tracing for
+one live direct child, and `spawn` accepts the same initial `trace` setting. The
+default is `off`. The daemon sends at most one ordinary message copy to the
+eligible parent after the original Sessionbus send settles; `content` includes
+the body, while `events` contains message and delivery metadata. Run lifecycle,
+native prompts, and native results are outside this initial scope.
+
+Tracing adds no history, durable policy, replay, catch-up, or separate event
+transport. It requires the trace-aware Sessionbus daemon, every involved hub,
+and updated peer tools. Upgrade all of them before requesting tracing across
+hosts. See the [v0.5.1 notes](docs/releases/v0.5.1.md) and the
+[Sessionbus communication-trace contract](https://github.com/antst/sessionbus/blob/main/docs/designs/COMMUNICATION-TRACE.md)
+for the complete authority and delivery rules.
+
+The tracing relationship ends with the parent's live lifetime, even for a
+persistent child. Reconnecting with an old parent ID does not recover that
+relationship or replay copies. Older daemons reject the new `trace` action or
+spawn field; a trace-aware daemon returns `unsupported_trace` when an involved
+federation link cannot enforce the requested tracing controls.
+
 ## Interactive CLI aliases
 
 Use `--yolo` to select the native permission-bypass flag and `--resume` to

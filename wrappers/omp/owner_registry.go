@@ -134,6 +134,7 @@ type OwnerRegistry struct {
 
 	mu                sync.Mutex
 	bridge            *pifamily.Bridge
+	bridgeAssigned    chan struct{}
 	bindings          map[string]*ownerRegistryState
 	retiredTokens     map[string]struct{}
 	retiredOrder      []string
@@ -287,7 +288,7 @@ func NewOwnerRegistry(ctx context.Context, options OwnerRegistryOptions) (*Owner
 		directory: options.Directory, initialName: options.InitialName,
 		groups: groups, primaryCaller: options.PrimaryCaller,
 		bindings: make(map[string]*ownerRegistryState), retiredTokens: make(map[string]struct{}),
-		ready: make(chan struct{}), gate: make(chan struct{}, 1),
+		ready: make(chan struct{}), gate: make(chan struct{}, 1), bridgeAssigned: make(chan struct{}),
 		closed: make(chan struct{}), retainedBytes: baseRetained,
 		dialPublic: func(ctx context.Context, network, address string) (net.Conn, error) {
 			return (&net.Dialer{}).DialContext(ctx, network, address)
@@ -317,6 +318,7 @@ func (registry *OwnerRegistry) AssignBridge(bridge *pifamily.Bridge) error {
 		return errors.New("OMP owner bridge is already assigned")
 	}
 	registry.bridge = bridge
+	close(registry.bridgeAssigned)
 	registry.work.Add(1)
 	registry.mu.Unlock()
 	go func() {
@@ -366,6 +368,22 @@ func (registry *OwnerRegistry) GracefulEnd() (string, bool) {
 }
 
 func (registry *OwnerRegistry) HandleBridge(ctx context.Context, method string, raw json.RawMessage) (json.RawMessage, error) {
+	if ctx == nil {
+		return nil, errors.New("OMP owner bridge handler requires context")
+	}
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-registry.ctx.Done():
+		return nil, context.Cause(registry.ctx)
+	case <-registry.bridgeAssigned:
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if err := context.Cause(registry.ctx); err != nil {
+		return nil, err
+	}
 	var value any
 	var err error
 	switch method {
