@@ -4,6 +4,8 @@ This development/beta build publishes all eight peer archives for Linux and macO
 
 ## Changes
 
+- Claude can publish before its first prompt by observing the exact native parent registry. The existing native hooks take permanent authority at their first usable report; unavailable registries retain hook-based startup. No dummy turn is generated.
+
 - Claude interactive messages restore the structured envelope used by its compact sender display, instead of displaying native peer-origin prose as an ordinary user message. Native model-input guidance remains Claude's own.
 - Codex, Claude, Grok, Pi, and OMP interactive owners reconnect after public daemon loss or initial absence while preserving the native session. Old calls and deliveries are not replayed. Supersession and native exit remain terminal. OMP Task child peers reconnect independently; lane Workers retain their single connection lifetime.
 - Shared MCP and Pi/OMP native tool declarations expose the protocol's closed argument fields. In particular, send accepts message and target/targets, not summary. The SDK retains action-specific validation.
