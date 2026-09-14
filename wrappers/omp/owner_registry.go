@@ -14,12 +14,14 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 	"unicode"
 	"unicode/utf8"
 
 	"github.com/antst/sessionbus-peers/wrappers/host"
 	"github.com/antst/sessionbus-peers/wrappers/pifamily"
 	kit "github.com/antst/sessionbus/bus/sdk/go"
+	"github.com/antst/sessionbus/bus/sdk/go/protocol"
 )
 
 const (
@@ -38,6 +40,7 @@ const (
 	maxOwnerTrackedItems  = 256
 	maxOwnerTextBytes     = 1 << 20
 	maxOwnerRetainedBytes = 32 << 20
+	ownerPublicRetryDelay = 2 * time.Second
 )
 
 type OwnerRegistryOptions struct {
@@ -60,10 +63,15 @@ type OwnerBinding struct {
 
 type ownerRegistryState struct {
 	OwnerBinding
-	conn                 *kit.Connection
 	caller               *kit.Caller
 	generation           uint64
 	admitted             bool
+	published            bool
+	terminal             bool
+	publicCtx            context.Context
+	publicCancel         context.CancelFunc
+	publicDone           chan struct{}
+	attempt              *ownerPublicAttempt
 	stageGate            chan struct{}
 	staged               []*ownerStagedDelivery
 	batches              map[string]*ownerDeliveryBatch
@@ -74,11 +82,22 @@ type ownerRegistryState struct {
 	preflightChanged     chan struct{}
 	consumedPreflights   []string
 	consumedPreflightSet map[string]struct{}
-	deliveries           chan ownerPublicDelivery
-	deliveryDone         chan struct{}
 	nextReport           uint64
 	reports              map[uint64]ownerReport
 	retainedBytes        int
+}
+
+type ownerPublicAttempt struct {
+	conn         *kit.Connection
+	caller       *kit.Caller
+	deliveries   chan ownerPublicDelivery
+	deliveryDone chan struct{}
+	stopCancel   func() bool
+	cancelDone   chan struct{}
+
+	mu       sync.Mutex
+	closed   bool
+	handlers sync.WaitGroup
 }
 
 type ownerPublicDelivery struct {
@@ -134,6 +153,9 @@ type OwnerRegistry struct {
 	work      sync.WaitGroup
 	closeOnce sync.Once
 	closed    chan struct{}
+
+	dialPublic  func(context.Context, string, string) (net.Conn, error)
+	retryPublic func(context.Context) error
 }
 
 type ownerReadyRequest struct {
@@ -267,6 +289,19 @@ func NewOwnerRegistry(ctx context.Context, options OwnerRegistryOptions) (*Owner
 		bindings: make(map[string]*ownerRegistryState), retiredTokens: make(map[string]struct{}),
 		ready: make(chan struct{}), gate: make(chan struct{}, 1),
 		closed: make(chan struct{}), retainedBytes: baseRetained,
+		dialPublic: func(ctx context.Context, network, address string) (net.Conn, error) {
+			return (&net.Dialer{}).DialContext(ctx, network, address)
+		},
+		retryPublic: func(ctx context.Context) error {
+			timer := time.NewTimer(ownerPublicRetryDelay)
+			defer timer.Stop()
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-timer.C:
+				return nil
+			}
+		},
 	}
 	registry.gate <- struct{}{}
 	return registry, nil
@@ -398,7 +433,7 @@ func (registry *OwnerRegistry) ownerSwitch(ctx context.Context, raw json.RawMess
 	defer registry.release()
 	registry.mu.Lock()
 	previous := registry.bindings[request.PreviousOwnerToken]
-	current := previous != nil && previous.OwnerToken == registry.primaryToken && previous.SessionID == request.PreviousSessionID &&
+	current := previous != nil && !previous.terminal && previous.OwnerToken == registry.primaryToken && previous.SessionID == request.PreviousSessionID &&
 		previous.Scope == request.Scope && previous.Mode == request.Mode
 	registry.mu.Unlock()
 	if !current {
@@ -408,7 +443,9 @@ func (registry *OwnerRegistry) ownerSwitch(ctx context.Context, raw json.RawMess
 	if err != nil {
 		return nil, registry.protocolFailure("OMP replacement description failed", err)
 	}
-	registry.remove(previous, "")
+	if err = registry.removeForSwitch(ctx, previous); err != nil {
+		return nil, err
+	}
 	if err = registry.admit(ctx, request.Scope, request.Mode, description); err != nil {
 		return nil, registry.protocolFailure("OMP replacement admission failed", err)
 	}
@@ -601,6 +638,9 @@ func (registry *OwnerRegistry) applyReportLocked(state *ownerRegistryState, repo
 }
 
 func (registry *OwnerRegistry) admit(ctx context.Context, scope, mode string, description ownerDescribeResult) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	state := &ownerRegistryState{
 		OwnerBinding: OwnerBinding{
 			OwnerToken: description.OwnerToken, SessionID: description.SessionID,
@@ -610,16 +650,15 @@ func (registry *OwnerRegistry) admit(ctx context.Context, scope, mode string, de
 		completedSet: make(map[string]struct{}), preflights: make(map[string]string),
 		preflightChanged:     make(chan struct{}),
 		consumedPreflightSet: make(map[string]struct{}), reports: make(map[uint64]ownerReport),
-		deliveries: make(chan ownerPublicDelivery, maxOwnerWork),
 	}
 	state.stageGate <- struct{}{}
 	if scope == ownerScopePrimary && registry.topology == ownerTopologyLane {
 		state.caller = registry.primaryCaller
 	}
 	registry.mu.Lock()
-	if registry.ending {
+	if err := registry.admissionErrorLocked(ctx); err != nil {
 		registry.mu.Unlock()
-		return context.Canceled
+		return err
 	}
 	if _, retired := registry.retiredTokens[state.OwnerToken]; retired || registry.bindings[state.OwnerToken] != nil || len(registry.bindings) >= maxOwnerBindings {
 		registry.mu.Unlock()
@@ -635,6 +674,12 @@ func (registry *OwnerRegistry) admit(ctx context.Context, scope, mode string, de
 	}
 	registry.nextGeneration++
 	state.generation = registry.nextGeneration
+	state.admitted = true
+	if !(scope == ownerScopePrimary && registry.topology == ownerTopologyLane) {
+		state.publicCtx, state.publicCancel = context.WithCancel(registry.ctx)
+		state.publicDone = make(chan struct{})
+		registry.work.Add(1)
+	}
 	registry.bindings[state.OwnerToken] = state
 	if scope == ownerScopePrimary {
 		registry.primaryToken = state.OwnerToken
@@ -644,9 +689,16 @@ func (registry *OwnerRegistry) admit(ctx context.Context, scope, mode string, de
 	if scope == ownerScopePrimary && registry.topology == ownerTopologyLane {
 		return registry.finishLaneAdmission(state)
 	}
-	if err := registry.connectPublic(ctx, state); err != nil {
-		registry.remove(state, "")
+	go registry.publicLoop(state)
+	return nil
+}
+
+func (registry *OwnerRegistry) admissionErrorLocked(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
 		return err
+	}
+	if registry.ending || registry.err != nil || registry.ctx.Err() != nil {
+		return errors.Join(errors.New("OMP owner registry is unavailable for admission"), registry.err, registry.ctx.Err())
 	}
 	return nil
 }
@@ -657,7 +709,6 @@ func (registry *OwnerRegistry) finishLaneAdmission(state *ownerRegistryState) er
 	if registry.ending || registry.bindings[state.OwnerToken] != state {
 		return errors.New("OMP lane binding changed before admission")
 	}
-	state.admitted = true
 	if state.Scope == ownerScopePrimary {
 		registry.everPrimary = true
 		registry.lastPrimaryReason = ""
@@ -666,60 +717,82 @@ func (registry *OwnerRegistry) finishLaneAdmission(state *ownerRegistryState) er
 	return nil
 }
 
-func (registry *OwnerRegistry) connectPublic(ctx context.Context, state *ownerRegistryState) error {
-	fd, err := (&net.Dialer{}).DialContext(ctx, "unix", registry.socket)
+func (registry *OwnerRegistry) publicLoop(state *ownerRegistryState) {
+	defer registry.work.Done()
+	defer close(state.publicDone)
+	for state.publicCtx.Err() == nil {
+		retry, err := registry.connectPublicAttempt(state)
+		if err != nil {
+			registry.fail(err)
+			return
+		}
+		if !retry || state.publicCtx.Err() != nil {
+			return
+		}
+		if err = registry.retryPublic(state.publicCtx); err != nil {
+			return
+		}
+	}
+}
+
+func (registry *OwnerRegistry) connectPublicAttempt(state *ownerRegistryState) (bool, error) {
+	fd, err := registry.dialPublic(state.publicCtx, "unix", registry.socket)
 	if err != nil {
-		return err
+		return state.publicCtx.Err() == nil, nil
+	}
+	attempt := &ownerPublicAttempt{
+		deliveries:   make(chan ownerPublicDelivery, maxOwnerWork),
+		deliveryDone: make(chan struct{}),
 	}
 	assigned := make(chan struct{})
 	var conn *kit.Connection
 	conn = kit.NewConnection(fd, func(callCtx context.Context, request *kit.Request) {
 		<-assigned
-		registry.handlePublic(callCtx, state, conn, request)
+		if !attempt.beginHandler() {
+			_ = conn.Close()
+			return
+		}
+		defer attempt.handlers.Done()
+		registry.handlePublic(callCtx, state, attempt, request)
 	})
+	attempt.conn = conn
+	attempt.caller = kit.NewCaller(func(callCtx context.Context, method string, params any) (json.RawMessage, error) {
+		return registry.callPublic(callCtx, state, attempt, method, params)
+	})
+	attempt.cancelDone = make(chan struct{})
+	attempt.stopCancel = context.AfterFunc(state.publicCtx, func() {
+		defer close(attempt.cancelDone)
+		_ = conn.Close()
+	})
+	go registry.deliveryLoop(state, attempt)
 	registry.mu.Lock()
-	if registry.ending || registry.bindings[state.OwnerToken] != state || state.conn != nil {
+	if registry.ending || registry.bindings[state.OwnerToken] != state || state.terminal || state.attempt != nil {
 		registry.mu.Unlock()
 		close(assigned)
-		_ = conn.Close()
-		return errors.New("OMP public binding changed before connection admission")
+		attempt.stop()
+		return false, nil
 	}
-	state.conn = conn
-	state.caller = kit.NewCaller(func(callCtx context.Context, method string, params any) (json.RawMessage, error) {
-		return registry.callPublic(callCtx, state, conn, method, params)
-	})
-	registry.work.Add(1)
-	registry.work.Add(1)
-	state.deliveryDone = make(chan struct{})
+	registry.nextGeneration++
+	state.generation = registry.nextGeneration
+	state.attempt = attempt
 	registry.mu.Unlock()
 	close(assigned)
-	go func() {
-		defer registry.work.Done()
-		<-conn.Done()
-		registry.mu.Lock()
-		current := !registry.ending && registry.bindings[state.OwnerToken] == state && state.conn == conn
-		registry.mu.Unlock()
-		if current {
-			registry.fail(errors.New("OMP public owner connection ended"))
-		}
-	}()
-	go registry.deliveryLoop(state, conn)
 
-	name := state.Name
 	registry.mu.Lock()
+	name := state.Name
 	if state.Scope == ownerScopePrimary && !registry.everPrimary && name == "" {
 		name = registry.initialName
 	}
-	registry.mu.Unlock()
 	identity := kit.PeerIdentity{
 		Protocol: 1, Product: Product, SessionID: state.SessionID, Name: name,
 		Groups: slices.Clone(registry.groups), Info: map[string]any{"cwd": state.CWD},
 	}
+	registry.mu.Unlock()
 	var response json.RawMessage
-	err = conn.CallObserved(ctx, "session.hello", identity, &response, func() error {
+	err = conn.CallObserved(state.publicCtx, "session.hello", identity, &response, func() error {
 		registry.mu.Lock()
 		defer registry.mu.Unlock()
-		if registry.ending || registry.bindings[state.OwnerToken] != state || state.conn != conn {
+		if registry.ending || registry.bindings[state.OwnerToken] != state || state.terminal || state.attempt != attempt {
 			return errors.New("OMP public binding changed before hello")
 		}
 		if extra := len(name) - len(state.Name); extra > 0 {
@@ -730,7 +803,8 @@ func (registry *OwnerRegistry) connectPublic(ctx context.Context, state *ownerRe
 			registry.releaseStateLocked(state, -extra)
 		}
 		state.Name = name
-		state.admitted = true
+		state.caller = attempt.caller
+		state.published = true
 		if state.Scope == ownerScopePrimary {
 			registry.everPrimary = true
 			registry.lastPrimaryReason = ""
@@ -739,16 +813,84 @@ func (registry *OwnerRegistry) connectPublic(ctx context.Context, state *ownerRe
 		return nil
 	})
 	if err != nil {
-		return err
+		registry.detachPublicAttempt(state, attempt)
+		attempt.stop()
+		var rpcErr *protocol.RPCError
+		if errors.As(err, &rpcErr) && rpcErr.Code == protocol.InvalidHello {
+			return false, errors.Join(errors.New("OMP public owner hello was rejected"), err)
+		}
+		return state.publicCtx.Err() == nil, nil
 	}
-	return nil
+	select {
+	case <-state.publicCtx.Done():
+	case <-registry.ctx.Done():
+	case <-conn.Done():
+	}
+	registry.detachPublicAttempt(state, attempt)
+	attempt.stop()
+	return state.publicCtx.Err() == nil, nil
 }
 
-func (registry *OwnerRegistry) handlePublic(ctx context.Context, state *ownerRegistryState, conn *kit.Connection, request *kit.Request) {
+func (attempt *ownerPublicAttempt) beginHandler() bool {
+	attempt.mu.Lock()
+	defer attempt.mu.Unlock()
+	if attempt.closed {
+		return false
+	}
+	attempt.handlers.Add(1)
+	return true
+}
+
+func (attempt *ownerPublicAttempt) stop() {
+	attempt.mu.Lock()
+	if attempt.closed {
+		attempt.mu.Unlock()
+		return
+	}
+	attempt.closed = true
+	attempt.mu.Unlock()
+	if !attempt.stopCancel() {
+		<-attempt.cancelDone
+	}
+	_ = attempt.conn.Close()
+	attempt.handlers.Wait()
+	<-attempt.deliveryDone
+}
+
+func (registry *OwnerRegistry) detachPublicAttempt(state *ownerRegistryState, attempt *ownerPublicAttempt) {
 	registry.mu.Lock()
-	if registry.ending || registry.bindings[state.OwnerToken] != state || state.conn != conn || !state.admitted {
+	if registry.bindings[state.OwnerToken] == state && state.attempt == attempt {
+		state.attempt = nil
+		state.caller = nil
+		state.published = false
+		registry.nextGeneration++
+		state.generation = registry.nextGeneration
+	}
+	registry.mu.Unlock()
+}
+
+func (registry *OwnerRegistry) handlePublic(ctx context.Context, state *ownerRegistryState, attempt *ownerPublicAttempt, request *kit.Request) {
+	registry.mu.Lock()
+	if registry.ending || registry.bindings[state.OwnerToken] != state || state.attempt != attempt || !state.admitted || !state.published || state.terminal {
 		registry.mu.Unlock()
-		_ = conn.Close()
+		_ = attempt.conn.Close()
+		return
+	}
+	if request.Method == "session.superseded" {
+		// Terminal admission is atomic with the exact-attempt check. An old
+		// reader must never retire a replacement binding while its ACK is held.
+		state.terminal = true
+		state.published = false
+		state.caller = nil
+		registry.nextGeneration++
+		state.generation = registry.nextGeneration
+		registry.mu.Unlock()
+		registry.fail(errors.New("OMP public session was superseded"))
+		responseErr := attempt.conn.Result(request, struct{}{})
+		if responseErr != nil && ctx.Err() == nil {
+			registry.fail(responseErr)
+		}
+		_ = attempt.conn.Close()
 		return
 	}
 	var responseErr error
@@ -766,7 +908,7 @@ func (registry *OwnerRegistry) handlePublic(ctx context.Context, state *ownerReg
 				value := *delivery
 				value.From.Groups = slices.Clone(delivery.From.Groups)
 				select {
-				case state.deliveries <- ownerPublicDelivery{ctx: ctx, conn: conn, request: request, value: value, retainedBytes: retained}:
+				case attempt.deliveries <- ownerPublicDelivery{ctx: ctx, conn: attempt.conn, request: request, value: value, retainedBytes: retained}:
 					registry.mu.Unlock()
 					return
 				default:
@@ -780,37 +922,40 @@ func (registry *OwnerRegistry) handlePublic(ctx context.Context, state *ownerReg
 		registry.mu.Unlock()
 	}
 	if responseErr != nil {
-		_ = conn.Close()
+		_ = attempt.conn.Close()
 		if ctx.Err() == nil {
 			registry.fail(responseErr)
 		}
 		return
 	}
-	switch request.Method {
-	case "session.superseded":
-		responseErr = conn.Result(request, struct{}{})
-		registry.fail(errors.New("OMP public session was superseded"))
-	default:
-		responseErr = conn.Error(request, -32601, nil)
-	}
+	responseErr = attempt.conn.Error(request, -32601, nil)
 	if responseErr != nil {
-		_ = conn.Close()
+		_ = attempt.conn.Close()
 		if ctx.Err() == nil {
 			registry.fail(responseErr)
 		}
 	}
 }
 
-func (registry *OwnerRegistry) deliveryLoop(state *ownerRegistryState, conn *kit.Connection) {
-	defer registry.work.Done()
-	defer close(state.deliveryDone)
+func (registry *OwnerRegistry) deliveryLoop(state *ownerRegistryState, attempt *ownerPublicAttempt) {
+	defer close(attempt.deliveryDone)
+	defer func() {
+		for {
+			select {
+			case work := <-attempt.deliveries:
+				registry.releasePublicDelivery(state, work.retainedBytes)
+			default:
+				return
+			}
+		}
+	}()
 	for {
 		select {
 		case <-registry.ctx.Done():
 			return
-		case <-conn.Context().Done():
+		case <-attempt.conn.Context().Done():
 			return
-		case work := <-state.deliveries:
+		case work := <-attempt.deliveries:
 			receipt, err := registry.deliver(work.ctx, state, work.value)
 			var responseErr error
 			if err != nil {
@@ -823,9 +968,6 @@ func (registry *OwnerRegistry) deliveryLoop(state *ownerRegistryState, conn *kit
 			}
 			if responseErr != nil {
 				_ = work.conn.Close()
-				if work.ctx.Err() == nil {
-					registry.fail(responseErr)
-				}
 				registry.releasePublicDelivery(state, work.retainedBytes)
 				return
 			}
@@ -972,7 +1114,7 @@ func (registry *OwnerRegistry) current(token, sessionID string) (*ownerRegistryS
 	registry.mu.Lock()
 	defer registry.mu.Unlock()
 	state := registry.bindings[token]
-	if registry.ending || state == nil || !state.admitted || state.SessionID != sessionID || state.caller == nil {
+	if registry.ending || state == nil || !state.admitted || state.SessionID != sessionID {
 		return nil, pifamily.NewBridgeCallError("stale_owner", "OMP request does not own a current binding")
 	}
 	return state, nil
@@ -982,8 +1124,11 @@ func (registry *OwnerRegistry) currentCaller(token, sessionID string) (*ownerReg
 	registry.mu.Lock()
 	defer registry.mu.Unlock()
 	state := registry.bindings[token]
-	if registry.ending || state == nil || !state.admitted || state.SessionID != sessionID || state.caller == nil {
+	if registry.ending || state == nil || !state.admitted || state.SessionID != sessionID {
 		return nil, nil, 0, pifamily.NewBridgeCallError("stale_owner", "OMP request does not own a current binding")
+	}
+	if state.caller == nil || (!state.published && !(registry.topology == ownerTopologyLane && state.Scope == ownerScopePrimary)) {
+		return nil, nil, 0, pifamily.NewBridgeCallError("tool_error", "OMP public owner is unavailable")
 	}
 	return state, state.caller, state.generation, nil
 }
@@ -991,10 +1136,17 @@ func (registry *OwnerRegistry) currentCaller(token, sessionID string) (*ownerReg
 func (registry *OwnerRegistry) checkGeneration(state *ownerRegistryState, generation uint64) error {
 	registry.mu.Lock()
 	defer registry.mu.Unlock()
-	if registry.ending || registry.bindings[state.OwnerToken] != state || !state.admitted || state.generation != generation {
+	if registry.ending || registry.bindings[state.OwnerToken] != state || !state.admitted || state.terminal {
 		return pifamily.NewBridgeCallError("stale_owner", "OMP request crossed an owner generation")
 	}
-	return nil
+	// A decoded public response belongs to the immutable connection captured by
+	// its Caller. That accepted result wins a following EOF/reconnect. Lane
+	// primary callers are external to this registry and still require the exact
+	// binding generation.
+	if !(registry.topology == ownerTopologyLane && state.Scope == ownerScopePrimary) || state.generation == generation {
+		return nil
+	}
+	return pifamily.NewBridgeCallError("stale_owner", "OMP request crossed an owner generation")
 }
 
 func (registry *OwnerRegistry) takePreflight(token, sessionID, runToken string) (string, error) {
@@ -1087,25 +1239,47 @@ func (registry *OwnerRegistry) signalPreflightLocked(state *ownerRegistryState) 
 	state.preflightChanged = make(chan struct{})
 }
 
-func (registry *OwnerRegistry) callPublic(ctx context.Context, state *ownerRegistryState, conn *kit.Connection, method string, params any) (json.RawMessage, error) {
+func (registry *OwnerRegistry) callPublic(ctx context.Context, state *ownerRegistryState, attempt *ownerPublicAttempt, method string, params any) (json.RawMessage, error) {
 	registry.mu.Lock()
-	current := !registry.ending && registry.bindings[state.OwnerToken] == state && state.conn == conn && state.admitted
+	current := !registry.ending && registry.bindings[state.OwnerToken] == state && state.attempt == attempt &&
+		state.admitted && state.published && !state.terminal
 	registry.mu.Unlock()
 	if !current {
 		return nil, errors.New("OMP public caller does not own the current binding")
 	}
 	var result json.RawMessage
-	if err := conn.Call(ctx, method, params, &result); err != nil {
+	if err := attempt.conn.Call(ctx, method, params, &result); err != nil {
 		return nil, err
 	}
 	return result, nil
 }
 
 func (registry *OwnerRegistry) remove(state *ownerRegistryState, reason string) {
+	_ = registry.removeBinding(nil, state, reason, false)
+}
+
+func (registry *OwnerRegistry) removeForSwitch(ctx context.Context, state *ownerRegistryState) error {
+	return registry.removeBinding(ctx, state, "", true)
+}
+
+func (registry *OwnerRegistry) removeBinding(ctx context.Context, state *ownerRegistryState, reason string, requireHealthy bool) error {
 	registry.mu.Lock()
+	if requireHealthy {
+		if err := registry.admissionErrorLocked(ctx); err != nil {
+			registry.mu.Unlock()
+			return err
+		}
+		if state.terminal {
+			registry.mu.Unlock()
+			return pifamily.NewBridgeCallError("stale_owner", "OMP replacement owner is terminal")
+		}
+	}
 	if registry.bindings[state.OwnerToken] != state {
 		registry.mu.Unlock()
-		return
+		if requireHealthy {
+			return pifamily.NewBridgeCallError("stale_owner", "OMP replacement does not own the current binding")
+		}
+		return nil
 	}
 	registry.signalPreflightLocked(state)
 	delete(registry.bindings, state.OwnerToken)
@@ -1117,15 +1291,15 @@ func (registry *OwnerRegistry) remove(state *ownerRegistryState, reason string) 
 		registry.lastPrimaryToken = state.OwnerToken
 		registry.lastPrimaryID = state.SessionID
 	}
-	conn := state.conn
-	deliveryDone := state.deliveryDone
-	state.conn, state.caller, state.admitted = nil, nil, false
+	publicCancel := state.publicCancel
+	publicDone := state.publicDone
+	state.caller, state.admitted, state.published = nil, false, false
 	registry.mu.Unlock()
-	if conn != nil {
-		_ = conn.Close()
+	if publicCancel != nil {
+		publicCancel()
 	}
-	if deliveryDone != nil {
-		<-deliveryDone
+	if publicDone != nil {
+		<-publicDone
 	}
 	registry.mu.Lock()
 	if !registry.ending {
@@ -1143,6 +1317,7 @@ func (registry *OwnerRegistry) remove(state *ownerRegistryState, reason string) 
 	state.completed, state.consumedPreflights = nil, nil
 	state.completedSet, state.consumedPreflightSet = nil, nil
 	registry.mu.Unlock()
+	return nil
 }
 
 func (registry *OwnerRegistry) Close() error {
@@ -1152,21 +1327,21 @@ func (registry *OwnerRegistry) Close() error {
 			registry.lastPrimaryReason != "" && len(registry.bindings) == 0
 		registry.ending = true
 		bridge := registry.bridge
-		connections := make([]*kit.Connection, 0, len(registry.bindings))
+		publicCancels := make([]context.CancelFunc, 0, len(registry.bindings))
 		for _, state := range registry.bindings {
 			registry.signalPreflightLocked(state)
-			if state.conn != nil {
-				connections = append(connections, state.conn)
+			if state.publicCancel != nil {
+				publicCancels = append(publicCancels, state.publicCancel)
 			}
-			state.conn, state.caller, state.admitted = nil, nil, false
+			state.caller, state.admitted, state.published = nil, false, false
 		}
 		registry.bindings = make(map[string]*ownerRegistryState)
 		registry.primaryToken = ""
 		registry.mu.Unlock()
 		registry.cancel()
 		go func() {
-			for _, conn := range connections {
-				_ = conn.Close()
+			for _, cancel := range publicCancels {
+				cancel()
 			}
 			if bridge != nil {
 				if err := bridge.Close(); err != nil && !(gracefulBridgeEOF && errors.Is(err, pifamily.ErrBridgeClosed)) {

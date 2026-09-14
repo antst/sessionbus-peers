@@ -26,11 +26,23 @@ import (
 type ownerNativeFixture struct {
 	mu           sync.Mutex
 	descriptions map[string]ownerDescribeResult
+	describeHook func(ownerDescribeRequest)
 	stages       []ownerStageRequest
 	shutdowns    []ownerDescribeRequest
 	stageHook    func(ownerStageRequest)
 	stageResult  func(ownerStageRequest) ownerStageResult
 	stageRaw     func(ownerStageRequest) json.RawMessage
+}
+
+type ownerHeldWriteConn struct {
+	net.Conn
+	entered chan struct{}
+	once    sync.Once
+}
+
+func (conn *ownerHeldWriteConn) Write(body []byte) (int, error) {
+	conn.once.Do(func() { close(conn.entered) })
+	return conn.Conn.Write(body)
 }
 
 func (fixture *ownerNativeFixture) handle(_ context.Context, method string, raw json.RawMessage) (json.RawMessage, error) {
@@ -41,6 +53,9 @@ func (fixture *ownerNativeFixture) handle(_ context.Context, method string, raw 
 		var request ownerDescribeRequest
 		if decodeOwnerJSON(raw, &request) != nil {
 			return nil, pifamily.NewBridgeCallError("bad_request", "invalid native description")
+		}
+		if fixture.describeHook != nil {
+			fixture.describeHook(request)
 		}
 		result, ok := fixture.descriptions[request.OwnerToken]
 		if !ok || result.SessionID != request.SessionID {
@@ -217,7 +232,28 @@ func ownerReady(t *testing.T, registry *OwnerRegistry, native *pifamily.Bridge, 
 	if err := <-result; err != nil {
 		t.Fatal(err)
 	}
+	ownerWaitPublished(t, registry, request.OwnerToken)
 	return *hello, conn, scanner
+}
+
+func ownerWaitPublished(t *testing.T, registry *OwnerRegistry, token string) {
+	t.Helper()
+	deadline := time.After(5 * time.Second)
+	for {
+		registry.mu.Lock()
+		state := registry.bindings[token]
+		published := state != nil && state.published
+		registry.mu.Unlock()
+		if published {
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatal("public hello acknowledgement was not admitted")
+		default:
+			time.Sleep(time.Millisecond)
+		}
+	}
 }
 
 func TestOwnerRegistryRejectsInvalidConstruction(t *testing.T) {
@@ -317,6 +353,7 @@ func TestOwnerRegistryKeepsLanePrimaryAndChildCallersDistinct(t *testing.T) {
 	if err := <-childReady; err != nil {
 		t.Fatal(err)
 	}
+	ownerWaitPublished(t, registry, "child-token")
 	if hello.Product != Product || hello.SessionID != "child-session" || hello.Name != "child" ||
 		!slices.Equal(hello.Groups, []string{"shared"}) || hello.Info["cwd"] != "/work/child" {
 		t.Fatalf("child identity = %+v", hello)
@@ -329,7 +366,13 @@ func TestOwnerRegistryKeepsLanePrimaryAndChildCallersDistinct(t *testing.T) {
 			Action: "list", Arguments: json.RawMessage(`{}`),
 		}, nil)
 	}()
+	if err := childConn.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
 	frame := ownerFrame(t, childScanner)
+	if err := childConn.SetReadDeadline(time.Time{}); err != nil {
+		t.Fatal(err)
+	}
 	if !frame.Request || frame.Method != "session.list" {
 		t.Fatalf("child public tool frame = %+v", frame)
 	}
@@ -1124,6 +1167,720 @@ func TestOwnerRegistryConsumedEvidenceDoesNotImposeLifetimeTurnLimit(t *testing.
 		len(state.batches) != 0 || len(state.completed) != maxOwnerTrackedItems || len(state.completedSet) != maxOwnerTrackedItems {
 		t.Fatalf("retained evidence = preflights %d/%d/%d, batches %d/%d/%d", len(state.preflights), len(state.consumedPreflights),
 			len(state.consumedPreflightSet), len(state.batches), len(state.completed), len(state.completedSet))
+	}
+}
+
+func TestOwnerRegistryRecoversWhenDaemonStartsAfterNativeOwner(t *testing.T) {
+	directory := testsocket.Directory(t)
+	socket := filepath.Join(directory, "late-bus.sock")
+	fixture := &ownerNativeFixture{descriptions: map[string]ownerDescribeResult{
+		"owner-token": {OwnerToken: "owner-token", SessionID: "native-session", Name: "native", CWD: "/work/live"},
+	}}
+	registry, native := ownerRegistryPair(t, OwnerRegistryOptions{
+		Topology: ownerTopologyInteractive, Socket: socket, Directory: directory, Groups: []string{"shared"},
+	}, fixture)
+	retryEntered := make(chan struct{}, 1)
+	retry := make(chan struct{})
+	registry.retryPublic = func(ctx context.Context) error {
+		select {
+		case retryEntered <- struct{}{}:
+		default:
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-retry:
+			return nil
+		}
+	}
+	if err := native.Call(ownerTestContext(t), "owner.ready", ownerReadyRequest{
+		Topology: ownerTopologyInteractive, Directory: directory, Scope: ownerScopePrimary,
+		Mode: ownerModeTUI, OwnerToken: "owner-token", SessionID: "native-session", Name: "native",
+	}, nil); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-retryEntered:
+	case <-ownerTestContext(t).Done():
+		t.Fatal("public publisher did not observe the absent daemon")
+	}
+	if binding, ok := registry.Primary(); !ok || binding.SessionID != "native-session" || binding.CWD != "/work/live" {
+		t.Fatalf("private binding during daemon outage = %+v, %v", binding, ok)
+	}
+	select {
+	case <-registry.Ready():
+		t.Fatal("registry became ready before public hello")
+	default:
+	}
+	err := native.Call(ownerTestContext(t), "tool.call", ownerToolRequest{
+		OwnerToken: "owner-token", SessionID: "native-session", CallID: "outage-call",
+		Action: "list", Arguments: json.RawMessage(`{}`),
+	}, nil)
+	var bridgeErr *pifamily.BridgeCallError
+	if !errors.As(err, &bridgeErr) || bridgeErr.Code != "tool_error" {
+		t.Fatalf("tool call during outage = %#v", err)
+	}
+	listener, err := net.Listen("unix", socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = listener.Close() })
+	close(retry)
+	conn, scanner := ownerAccept(t, listener)
+	hello := ownerHello(t, conn, scanner)
+	if hello.SessionID != "native-session" || hello.Name != "native" || hello.Info["cwd"] != "/work/live" ||
+		!slices.Equal(hello.Groups, []string{"shared"}) {
+		t.Fatalf("recovered public hello = %+v", hello)
+	}
+	select {
+	case <-registry.Ready():
+	case <-ownerTestContext(t).Done():
+		t.Fatal("registry did not become ready after daemon recovery")
+	}
+}
+
+func TestOwnerRegistryReconnectsWithoutReplayingLostToolCall(t *testing.T) {
+	listener := ownerBusListener(t)
+	directory := t.TempDir()
+	fixture := &ownerNativeFixture{descriptions: map[string]ownerDescribeResult{
+		"owner-token": {OwnerToken: "owner-token", SessionID: "native-session", Name: "native", CWD: "/work/live"},
+	}}
+	registry, native := ownerRegistryPair(t, OwnerRegistryOptions{
+		Topology: ownerTopologyInteractive, Socket: listener.Addr().String(), Directory: directory, Groups: []string{"shared"},
+	}, fixture)
+	retryEntered := make(chan struct{}, 1)
+	retry := make(chan struct{})
+	registry.retryPublic = func(ctx context.Context) error {
+		select {
+		case retryEntered <- struct{}{}:
+		default:
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-retry:
+			return nil
+		}
+	}
+	hello, first, firstScanner := ownerReady(t, registry, native, listener, ownerReadyRequest{
+		Topology: ownerTopologyInteractive, Directory: directory, Scope: ownerScopePrimary,
+		Mode: ownerModeTUI, OwnerToken: "owner-token", SessionID: "native-session", Name: "native",
+	})
+	if hello.SessionID != "native-session" {
+		t.Fatalf("first hello = %+v", hello)
+	}
+	lost := make(chan error, 1)
+	go func() {
+		lost <- native.Call(ownerTestContext(t), "tool.call", ownerToolRequest{
+			OwnerToken: "owner-token", SessionID: "native-session", CallID: "lost-call",
+			Action: "list", Arguments: json.RawMessage(`{}`),
+		}, nil)
+	}()
+	frame := ownerFrame(t, firstScanner)
+	if !frame.Request || frame.Method != "session.list" {
+		t.Fatalf("old-wire action = %+v", frame)
+	}
+	if err := first.Close(); err != nil {
+		t.Fatal(err)
+	}
+	err := <-lost
+	var bridgeErr *pifamily.BridgeCallError
+	if !errors.As(err, &bridgeErr) || bridgeErr.Code != "tool_error" {
+		t.Fatalf("lost old-wire action = %v; registry = %v", err, registry.Err())
+	}
+	select {
+	case <-retryEntered:
+	case <-ownerTestContext(t).Done():
+		t.Fatal("publisher did not enter reconnect backoff")
+	}
+	if binding, ok := registry.Primary(); !ok || binding.SessionID != "native-session" {
+		t.Fatalf("private binding after public loss = %+v, %v", binding, ok)
+	}
+	err = native.Call(ownerTestContext(t), "tool.call", ownerToolRequest{
+		OwnerToken: "owner-token", SessionID: "native-session", CallID: "gap-call",
+		Action: "list", Arguments: json.RawMessage(`{}`),
+	}, nil)
+	if !errors.As(err, &bridgeErr) || bridgeErr.Code != "tool_error" {
+		t.Fatalf("outage action = %#v", err)
+	}
+	close(retry)
+	second, secondScanner := ownerAccept(t, listener)
+	secondHello := ownerHello(t, second, secondScanner)
+	ownerWaitPublished(t, registry, "owner-token")
+	if !reflect.DeepEqual(secondHello, hello) {
+		t.Fatalf("reconnected hello changed identity:\nfirst  %+v\nsecond %+v", hello, secondHello)
+	}
+	fresh := make(chan error, 1)
+	go func() {
+		fresh <- native.Call(ownerTestContext(t), "tool.call", ownerToolRequest{
+			OwnerToken: "owner-token", SessionID: "native-session", CallID: "fresh-call",
+			Action: "list", Arguments: json.RawMessage(`{}`),
+		}, nil)
+	}()
+	frame = ownerFrame(t, secondScanner)
+	if !frame.Request || frame.Method != "session.list" {
+		t.Fatalf("fresh action after reconnect = %+v", frame)
+	}
+	body, err := protocol.ResultBytes(frame.ID, frame.Method, kit.SessionListResult{Sessions: []kit.SessionSummary{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ownerWrite(t, second, body)
+	if err = <-fresh; err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestOwnerRegistryPublishesOnlyReplacementIdentityAfterOutage(t *testing.T) {
+	directory := testsocket.Directory(t)
+	socket := filepath.Join(directory, "replace-bus.sock")
+	listener, err := net.Listen("unix", socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture := &ownerNativeFixture{descriptions: map[string]ownerDescribeResult{
+		"old-token": {OwnerToken: "old-token", SessionID: "old-session", Name: "old", CWD: "/work/old"},
+		"new-token": {OwnerToken: "new-token", SessionID: "new-session", Name: "new", CWD: "/work/new"},
+	}}
+	registry, native := ownerRegistryPair(t, OwnerRegistryOptions{
+		Topology: ownerTopologyInteractive, Socket: socket, Directory: directory, Groups: []string{"shared"},
+	}, fixture)
+	retryEntered := make(chan string, 2)
+	retry := make(chan struct{})
+	registry.retryPublic = func(ctx context.Context) error {
+		registry.mu.Lock()
+		token := ""
+		for key, state := range registry.bindings {
+			if state.publicCtx == ctx {
+				token = key
+				break
+			}
+		}
+		registry.mu.Unlock()
+		select {
+		case retryEntered <- token:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-retry:
+			return nil
+		}
+	}
+	_, oldConn, _ := ownerReady(t, registry, native, listener, ownerReadyRequest{
+		Topology: ownerTopologyInteractive, Directory: directory, Scope: ownerScopePrimary,
+		Mode: ownerModeTUI, OwnerToken: "old-token", SessionID: "old-session", Name: "old",
+	})
+	registry.mu.Lock()
+	oldState := registry.bindings["old-token"]
+	oldAttempt := oldState.attempt
+	registry.mu.Unlock()
+	if err = oldConn.Close(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case token := <-retryEntered:
+		if token != "old-token" {
+			t.Fatalf("old reconnect token = %q", token)
+		}
+	case <-ownerTestContext(t).Done():
+		t.Fatal("old publisher did not reach reconnect backoff")
+	}
+	if err = listener.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err = native.Call(ownerTestContext(t), "owner.switch", ownerSwitchRequest{
+		Topology: ownerTopologyInteractive, Scope: ownerScopePrimary, Mode: ownerModeTUI,
+		PreviousOwnerToken: "old-token", OwnerToken: "new-token",
+		PreviousSessionID: "old-session", SessionID: "new-session", Name: "new", Reason: "resume",
+	}, nil); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case token := <-retryEntered:
+		if token != "new-token" {
+			t.Fatalf("replacement reconnect token = %q", token)
+		}
+	case <-ownerTestContext(t).Done():
+		t.Fatal("replacement publisher did not reach reconnect backoff")
+	}
+	listener, err = net.Listen("unix", socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = listener.Close() })
+	close(retry)
+	conn, scanner := ownerAccept(t, listener)
+	hello := ownerHello(t, conn, scanner)
+	ownerWaitPublished(t, registry, "new-token")
+	if hello.SessionID != "new-session" || hello.Name != "new" || hello.Info["cwd"] != "/work/new" {
+		t.Fatalf("replacement hello = %+v", hello)
+	}
+	if binding, ok := registry.Primary(); !ok || binding.OwnerToken != "new-token" || binding.SessionID != "new-session" {
+		t.Fatalf("replacement private binding = %+v, %v", binding, ok)
+	}
+	registry.handlePublic(context.Background(), oldState, oldAttempt, &kit.Request{Method: "session.superseded"})
+	select {
+	case <-registry.Done():
+		t.Fatalf("stale supersession retired replacement: %v", registry.Err())
+	default:
+	}
+	for len(retryEntered) < cap(retryEntered) {
+		retryEntered <- "occupied"
+	}
+	retryCtx, cancelRetry := context.WithCancel(context.Background())
+	retryDone := make(chan error, 1)
+	go func() { retryDone <- registry.retryPublic(retryCtx) }()
+	cancelRetry()
+	select {
+	case err = <-retryDone:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("full retry notification cancellation = %v", err)
+		}
+	case <-ownerTestContext(t).Done():
+		t.Fatal("full retry notification did not observe cancellation")
+	}
+}
+
+func TestOwnerRegistryJoinsCanceledPublisherDialOnSessionEnd(t *testing.T) {
+	directory := t.TempDir()
+	fixture := &ownerNativeFixture{descriptions: map[string]ownerDescribeResult{
+		"child-token": {OwnerToken: "child-token", SessionID: "child-session", Name: "child", CWD: "/work/child"},
+	}}
+	caller := kit.NewCaller(func(context.Context, string, any) (json.RawMessage, error) { return json.RawMessage(`{}`), nil })
+	registry, native := ownerRegistryPair(t, OwnerRegistryOptions{
+		Topology: ownerTopologyLane, Socket: filepath.Join(directory, "missing.sock"), Directory: directory, PrimaryCaller: caller,
+	}, fixture)
+	dialEntered, dialReturned := make(chan struct{}), make(chan struct{})
+	registry.dialPublic = func(ctx context.Context, _, _ string) (net.Conn, error) {
+		close(dialEntered)
+		<-ctx.Done()
+		close(dialReturned)
+		return nil, ctx.Err()
+	}
+	if err := native.Call(ownerTestContext(t), "owner.ready", ownerReadyRequest{
+		Topology: ownerTopologyLane, Directory: directory, Scope: ownerScopeChild, Mode: ownerModePrint,
+		OwnerToken: "child-token", SessionID: "child-session", Name: "child",
+	}, nil); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-dialEntered:
+	case <-ownerTestContext(t).Done():
+		t.Fatal("public dial did not begin")
+	}
+	if err := native.Call(ownerTestContext(t), "session_end", ownerEndRequest{
+		Topology: ownerTopologyLane, Scope: ownerScopeChild, Mode: ownerModePrint,
+		OwnerToken: "child-token", SessionID: "child-session", Reason: "task-complete",
+	}, nil); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-dialReturned:
+	default:
+		t.Fatal("session_end returned before its canceled public dial joined")
+	}
+}
+
+func TestOwnerRegistryJoinsCanceledPublisherHelloOnSessionEnd(t *testing.T) {
+	listener := ownerBusListener(t)
+	directory := t.TempDir()
+	fixture := &ownerNativeFixture{descriptions: map[string]ownerDescribeResult{
+		"child-token": {OwnerToken: "child-token", SessionID: "child-session", Name: "child", CWD: "/work/child"},
+	}}
+	caller := kit.NewCaller(func(context.Context, string, any) (json.RawMessage, error) { return json.RawMessage(`{}`), nil })
+	registry, native := ownerRegistryPair(t, OwnerRegistryOptions{
+		Topology: ownerTopologyLane, Socket: listener.Addr().String(), Directory: directory, PrimaryCaller: caller,
+	}, fixture)
+	_ = registry
+	if err := native.Call(ownerTestContext(t), "owner.ready", ownerReadyRequest{
+		Topology: ownerTopologyLane, Directory: directory, Scope: ownerScopeChild, Mode: ownerModePrint,
+		OwnerToken: "child-token", SessionID: "child-session", Name: "child",
+	}, nil); err != nil {
+		t.Fatal(err)
+	}
+	public, scanner := ownerAccept(t, listener)
+	frame := ownerFrame(t, scanner)
+	if !frame.Request || frame.Method != "session.hello" {
+		t.Fatalf("pending child hello = %+v", frame)
+	}
+	if err := native.Call(ownerTestContext(t), "session_end", ownerEndRequest{
+		Topology: ownerTopologyLane, Scope: ownerScopeChild, Mode: ownerModePrint,
+		OwnerToken: "child-token", SessionID: "child-session", Reason: "task-complete",
+	}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if scanner.Scan() || scanner.Err() != nil {
+		t.Fatalf("pending hello connection survived session_end: %v", scanner.Err())
+	}
+	_ = public.Close()
+}
+
+func TestOwnerRegistryJoinsCanceledUnreadHelloWriteOnSessionEnd(t *testing.T) {
+	directory := t.TempDir()
+	client, server := net.Pipe()
+	t.Cleanup(func() { _ = server.Close() })
+	entered := make(chan struct{})
+	fixture := &ownerNativeFixture{descriptions: map[string]ownerDescribeResult{
+		"owner-token": {OwnerToken: "owner-token", SessionID: "native-session", Name: "native", CWD: "/work"},
+	}}
+	registry, native := ownerRegistryPair(t, OwnerRegistryOptions{
+		Topology: ownerTopologyInteractive, Socket: filepath.Join(directory, "bus.sock"), Directory: directory,
+	}, fixture)
+	registry.dialPublic = func(context.Context, string, string) (net.Conn, error) {
+		return &ownerHeldWriteConn{Conn: client, entered: entered}, nil
+	}
+	if err := native.Call(ownerTestContext(t), "owner.ready", ownerReadyRequest{
+		Topology: ownerTopologyInteractive, Directory: directory, Scope: ownerScopePrimary, Mode: ownerModeTUI,
+		OwnerToken: "owner-token", SessionID: "native-session", Name: "native",
+	}, nil); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-entered:
+	case <-ownerTestContext(t).Done():
+		t.Fatal("public hello write did not begin")
+	}
+	if err := native.Call(ownerTestContext(t), "session_end", ownerEndRequest{
+		Topology: ownerTopologyInteractive, Scope: ownerScopePrimary, Mode: ownerModeTUI,
+		OwnerToken: "owner-token", SessionID: "native-session", Reason: "quit",
+	}, nil); err != nil {
+		t.Fatal(err)
+	}
+	registry.mu.Lock()
+	_, retained := registry.bindings["owner-token"]
+	registry.mu.Unlock()
+	if retained {
+		t.Fatal("session_end returned before unread-hello publisher withdrawal")
+	}
+}
+
+func TestOwnerRegistryReconnectsChildWithoutChangingLanePrimary(t *testing.T) {
+	listener := ownerBusListener(t)
+	directory := t.TempDir()
+	primaryCalls := make(chan string, 1)
+	caller := kit.NewCaller(func(_ context.Context, method string, _ any) (json.RawMessage, error) {
+		primaryCalls <- method
+		return json.RawMessage(`{"sessions":[]}`), nil
+	})
+	fixture := &ownerNativeFixture{descriptions: map[string]ownerDescribeResult{
+		"main-token":  {OwnerToken: "main-token", SessionID: "main-session", CWD: "/work/main"},
+		"child-token": {OwnerToken: "child-token", SessionID: "child-session", Name: "child", CWD: "/work/child"},
+	}}
+	registry, native := ownerRegistryPair(t, OwnerRegistryOptions{
+		Topology: ownerTopologyLane, Socket: listener.Addr().String(), Directory: directory, PrimaryCaller: caller,
+	}, fixture)
+	retryEntered, retry := make(chan struct{}, 1), make(chan struct{})
+	registry.retryPublic = func(ctx context.Context) error {
+		select {
+		case retryEntered <- struct{}{}:
+		default:
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-retry:
+			return nil
+		}
+	}
+	if err := native.Call(ownerTestContext(t), "owner.ready", ownerReadyRequest{
+		Topology: ownerTopologyLane, Directory: directory, Scope: ownerScopePrimary, Mode: ownerModeRPC,
+		OwnerToken: "main-token", SessionID: "main-session",
+	}, nil); err != nil {
+		t.Fatal(err)
+	}
+	hello, child, _ := ownerReady(t, registry, native, listener, ownerReadyRequest{
+		Topology: ownerTopologyLane, Directory: directory, Scope: ownerScopeChild, Mode: ownerModePrint,
+		OwnerToken: "child-token", SessionID: "child-session", Name: "child",
+	})
+	if err := child.Close(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-retryEntered:
+	case <-ownerTestContext(t).Done():
+		t.Fatal("child publisher did not enter reconnect backoff")
+	}
+	if err := native.Call(ownerTestContext(t), "tool.call", ownerToolRequest{
+		OwnerToken: "main-token", SessionID: "main-session", CallID: "primary-call",
+		Action: "list", Arguments: json.RawMessage(`{}`),
+	}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if method := <-primaryCalls; method != "session.list" {
+		t.Fatalf("lane primary call during child outage = %q", method)
+	}
+	close(retry)
+	reconnected, scanner := ownerAccept(t, listener)
+	if got := ownerHello(t, reconnected, scanner); !reflect.DeepEqual(got, hello) {
+		t.Fatalf("child rehello changed identity:\nfirst  %+v\nsecond %+v", hello, got)
+	}
+	ownerWaitPublished(t, registry, "child-token")
+	if primary, ok := registry.Primary(); !ok || primary.OwnerToken != "main-token" || primary.SessionID != "main-session" {
+		t.Fatalf("child reconnect changed lane primary = %+v, %v", primary, ok)
+	}
+}
+
+func TestOwnerRegistryReleasesLostAttemptDeliveryAccounting(t *testing.T) {
+	listener := ownerBusListener(t)
+	directory := t.TempDir()
+	fixture := &ownerNativeFixture{descriptions: map[string]ownerDescribeResult{
+		"owner-token": {OwnerToken: "owner-token", SessionID: "native-session", Name: "native", CWD: "/work"},
+	}}
+	registry, native := ownerRegistryPair(t, OwnerRegistryOptions{
+		Topology: ownerTopologyInteractive, Socket: listener.Addr().String(), Directory: directory,
+	}, fixture)
+	retryEntered := make(chan struct{}, 1)
+	registry.retryPublic = func(ctx context.Context) error {
+		select {
+		case retryEntered <- struct{}{}:
+		default:
+		}
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	_, public, _ := ownerReady(t, registry, native, listener, ownerReadyRequest{
+		Topology: ownerTopologyInteractive, Directory: directory, Scope: ownerScopePrimary, Mode: ownerModeTUI,
+		OwnerToken: "owner-token", SessionID: "native-session", Name: "native",
+	})
+	registry.mu.Lock()
+	state := registry.bindings["owner-token"]
+	attempt := state.attempt
+	baseline := state.retainedBytes
+	registry.mu.Unlock()
+	if attempt == nil {
+		t.Fatal("public attempt was not published")
+	}
+	<-state.stageGate
+	body, err := protocol.RequestBytes(91, "message.deliver", kit.DeliveryRequest{
+		MessageID: "lost-delivery", From: kit.DeliverySource{SessionID: "sender", Product: "codex-peer", Groups: []string{}}, Body: "held before native stage",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ownerWrite(t, public, body)
+	deadline := time.After(5 * time.Second)
+	for {
+		registry.mu.Lock()
+		retained := state.retainedBytes
+		registry.mu.Unlock()
+		if retained > baseline {
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatal("public delivery was not retained before loss")
+		default:
+			time.Sleep(time.Millisecond)
+		}
+	}
+	if err = public.Close(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-attempt.conn.Context().Done():
+	case <-ownerTestContext(t).Done():
+		t.Fatal("public attempt did not observe daemon loss")
+	}
+	state.stageGate <- struct{}{}
+	select {
+	case <-retryEntered:
+	case <-ownerTestContext(t).Done():
+		t.Fatal("lost delivery attempt did not join before reconnect")
+	}
+	registry.mu.Lock()
+	retained := state.retainedBytes
+	staged := len(state.staged)
+	registry.mu.Unlock()
+	if retained != baseline || staged != 0 {
+		t.Fatalf("lost attempt accounting = retained %d, staged %d; want %d, 0", retained, staged, baseline)
+	}
+	fixture.mu.Lock()
+	stages := len(fixture.stages)
+	fixture.mu.Unlock()
+	if stages != 0 {
+		t.Fatalf("lost delivery reached native stage %d times", stages)
+	}
+}
+
+func TestOwnerRegistrySupersessionIsTerminalBeforeHeldAcknowledgement(t *testing.T) {
+	directory := t.TempDir()
+	client, server := net.Pipe()
+	t.Cleanup(func() { _ = server.Close() })
+	fixture := &ownerNativeFixture{descriptions: map[string]ownerDescribeResult{
+		"owner-token": {OwnerToken: "owner-token", SessionID: "native-session", Name: "native", CWD: "/work"},
+	}}
+	registry, native := ownerRegistryPair(t, OwnerRegistryOptions{
+		Topology: ownerTopologyInteractive, Socket: filepath.Join(directory, "bus.sock"), Directory: directory,
+	}, fixture)
+	dials := 0
+	registry.dialPublic = func(ctx context.Context, _, _ string) (net.Conn, error) {
+		dials++
+		if dials == 1 {
+			return client, nil
+		}
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
+	if err := native.Call(ownerTestContext(t), "owner.ready", ownerReadyRequest{
+		Topology: ownerTopologyInteractive, Directory: directory, Scope: ownerScopePrimary, Mode: ownerModeTUI,
+		OwnerToken: "owner-token", SessionID: "native-session", Name: "native",
+	}, nil); err != nil {
+		t.Fatal(err)
+	}
+	scanner := bufio.NewScanner(server)
+	hello := ownerFrame(t, scanner)
+	body, err := protocol.ResultBytes(hello.ID, hello.Method, struct{}{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ownerWrite(t, server, body)
+	ownerWaitPublished(t, registry, "owner-token")
+	body, err = protocol.RequestBytes(90, "session.superseded", struct{}{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ownerWrite(t, server, body)
+	select {
+	case <-registry.Done():
+	case <-ownerTestContext(t).Done():
+		t.Fatal("supersession did not retire registry before its acknowledgement was read")
+	}
+	registry.mu.Lock()
+	state := registry.bindings["owner-token"]
+	terminal := state != nil && state.terminal && !state.published && state.caller == nil
+	registry.mu.Unlock()
+	if !terminal {
+		t.Fatal("superseded public binding remained admissible")
+	}
+	if err = registry.Close(); err == nil || !strings.Contains(err.Error(), "superseded") {
+		t.Fatalf("superseded registry close = %v", err)
+	}
+	if dials != 1 {
+		t.Fatalf("superseded owner redialed %d times", dials)
+	}
+}
+
+func TestOwnerRegistryInvalidHelloIsTerminal(t *testing.T) {
+	listener := ownerBusListener(t)
+	directory := t.TempDir()
+	fixture := &ownerNativeFixture{descriptions: map[string]ownerDescribeResult{
+		"owner-token": {OwnerToken: "owner-token", SessionID: "native-session", Name: "native", CWD: "/work"},
+	}}
+	registry, native := ownerRegistryPair(t, OwnerRegistryOptions{
+		Topology: ownerTopologyInteractive, Socket: listener.Addr().String(), Directory: directory,
+	}, fixture)
+	retried := make(chan struct{}, 1)
+	registry.retryPublic = func(ctx context.Context) error {
+		select {
+		case retried <- struct{}{}:
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	if err := native.Call(ownerTestContext(t), "owner.ready", ownerReadyRequest{
+		Topology: ownerTopologyInteractive, Directory: directory, Scope: ownerScopePrimary, Mode: ownerModeTUI,
+		OwnerToken: "owner-token", SessionID: "native-session", Name: "native",
+	}, nil); err != nil {
+		t.Fatal(err)
+	}
+	public, scanner := ownerAccept(t, listener)
+	hello := ownerFrame(t, scanner)
+	body, err := protocol.ErrorBytes(hello.ID, protocol.InvalidHello, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ownerWrite(t, public, body)
+	select {
+	case <-registry.Done():
+	case <-ownerTestContext(t).Done():
+		t.Fatal("invalid hello did not retire the registry")
+	}
+	select {
+	case <-retried:
+		t.Fatal("invalid hello entered reconnect backoff")
+	default:
+	}
+	if err = registry.Close(); err == nil || !strings.Contains(err.Error(), "hello was rejected") {
+		t.Fatalf("invalid hello close = %v", err)
+	}
+}
+
+func TestOwnerRegistryRejectsAdmissionAfterRecordedFailure(t *testing.T) {
+	directory := t.TempDir()
+	registry, _ := ownerRegistryPair(t, OwnerRegistryOptions{
+		Topology: ownerTopologyInteractive, Socket: filepath.Join(directory, "bus.sock"), Directory: directory,
+	}, &ownerNativeFixture{})
+	registry.fail(errors.New("public owner became terminal before admission"))
+	err := registry.admit(context.Background(), ownerScopePrimary, ownerModeTUI, ownerDescribeResult{
+		OwnerToken: "new-token", SessionID: "new-session", Name: "late", CWD: "/work",
+	})
+	if err == nil {
+		t.Fatal("recorded registry failure admitted a late native owner")
+	}
+	if binding, present := registry.Primary(); present {
+		t.Fatalf("late native owner became primary: %+v", binding)
+	}
+}
+
+func TestOwnerRegistrySupersessionWinsHeldReplacementDescription(t *testing.T) {
+	listener := ownerBusListener(t)
+	directory := t.TempDir()
+	describeEntered, releaseDescribe := make(chan struct{}), make(chan struct{})
+	fixture := &ownerNativeFixture{descriptions: map[string]ownerDescribeResult{
+		"old-token": {OwnerToken: "old-token", SessionID: "old-session", Name: "old", CWD: "/work/old"},
+		"new-token": {OwnerToken: "new-token", SessionID: "new-session", Name: "new", CWD: "/work/new"},
+	}}
+	fixture.describeHook = func(request ownerDescribeRequest) {
+		if request.OwnerToken == "new-token" {
+			close(describeEntered)
+			<-releaseDescribe
+		}
+	}
+	registry, native := ownerRegistryPair(t, OwnerRegistryOptions{
+		Topology: ownerTopologyInteractive, Socket: listener.Addr().String(), Directory: directory,
+	}, fixture)
+	_, oldPublic, _ := ownerReady(t, registry, native, listener, ownerReadyRequest{
+		Topology: ownerTopologyInteractive, Directory: directory, Scope: ownerScopePrimary, Mode: ownerModeTUI,
+		OwnerToken: "old-token", SessionID: "old-session", Name: "old",
+	})
+	switched := make(chan error, 1)
+	go func() {
+		switched <- native.Call(ownerTestContext(t), "owner.switch", ownerSwitchRequest{
+			Topology: ownerTopologyInteractive, Scope: ownerScopePrimary, Mode: ownerModeTUI,
+			PreviousOwnerToken: "old-token", OwnerToken: "new-token",
+			PreviousSessionID: "old-session", SessionID: "new-session", Name: "new", Reason: "resume",
+		}, nil)
+	}()
+	select {
+	case <-describeEntered:
+	case <-ownerTestContext(t).Done():
+		t.Fatal("replacement description did not begin")
+	}
+	body, err := protocol.RequestBytes(92, "session.superseded", struct{}{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ownerWrite(t, oldPublic, body)
+	select {
+	case <-registry.Done():
+	case <-ownerTestContext(t).Done():
+		t.Fatal("supersession did not retire registry during replacement description")
+	}
+	close(releaseDescribe)
+	if err = <-switched; err == nil {
+		t.Fatal("replacement committed after supersession")
+	}
+	registry.mu.Lock()
+	oldState := registry.bindings["old-token"]
+	newState := registry.bindings["new-token"]
+	primary := registry.primaryToken
+	registry.mu.Unlock()
+	if oldState == nil || !oldState.terminal || newState != nil || primary != "old-token" {
+		t.Fatalf("terminal replacement boundary = old %+v, new %+v, primary %q", oldState, newState, primary)
 	}
 }
 
