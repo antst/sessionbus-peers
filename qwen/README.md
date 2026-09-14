@@ -117,6 +117,15 @@ restarts Qwen within the same launcher: exit that replacement and start a new
 `qwen-peer` process. Integration is not transferred to the replacement helper.
 The claim contains no session metadata.
 
+Initial daemon absence and later daemon connection loss keep the same helper
+and native session alive. The helper retries the launch's socket and publishes
+the current session name after reconnecting. Calls during an outage return
+`not_connected`; old calls and deliveries are never replayed. A rename on an
+already admitted connection keeps delivery admission while its updated hello
+is pending. Supersession, a refused hello, and native/helper exit remain terminal;
+they do not start another owner. Lane Workers retain their single connection
+lifetime.
+
 The launcher owns its native child, unique temporary input file and native event
 FIFO until native exit. One claimed helper reads the initial native event and
 then drains/discards output; it does not store an answer transcript. Native may
