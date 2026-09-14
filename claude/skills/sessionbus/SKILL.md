@@ -1,6 +1,6 @@
 ---
 name: sessionbus
-description: Discover and message Sessionbus peers, and create, run, collect, close and resume Sessionbus lanes through the single tool.
+description: Discover and message Sessionbus peers, trace direct child traffic, and create, run, collect, close and resume Sessionbus lanes through the single tool.
 ---
 
 # Sessionbus
@@ -20,8 +20,8 @@ launch's groups for an integrated child.
 
 Use `mcp__plugin_sessionbus_sessionbus__sessionbus` with `{action, arguments}`. Its advertised
 `action` enum comes from the pinned public kit: list, send, spawn, describe,
-run, start, wait, status, ack, interrupt, close and forget. Use the actual tool and
-daemon schemas for each arguments object; do not invent convenience methods.
+trace, run, start, wait, status, ack, interrupt, close and forget. Use the actual
+tool and daemon schemas for each arguments object; do not invent convenience methods.
 
 Call `list` to discover a peer before selecting an ambiguous name. Use the
 returned native/daemon ID as the send target. Keep bus-provided source identity
@@ -109,6 +109,17 @@ In a `list` row, `connected` describes the Sessionbus attachment and `running`
 describes a daemon-managed Run. An interactive peer's `running:false` does not
 prove its native model is idle. Do not use these flags to predict delivery
 admission; follow the actual receipt.
+
+Tracing is a live parent control for a direct child. Pass optional
+`trace:"off"|"events"|"content"` to fresh or resumed `spawn`, or use
+`{"action":"trace","arguments":{"session_id":"CHILD_SESSION_ID","mode":"events"}}`
+to change it later. It defaults to `off` and is independent of lane persistence,
+notification, idle and retirement policies. `events` copies Sessionbus message
+and settled-delivery metadata; `content` also includes message bodies. Each copy
+is a daemon-generated JSON trace envelope delivered as an ordinary message under
+the parent's admission policy, so it can stage or wake the parent.
+The setting applies only to later traffic, is not persisted, and supplies no
+history, replay, Run events, lane lifecycle events or native model content.
 
 ## Choose independent lane policies
 

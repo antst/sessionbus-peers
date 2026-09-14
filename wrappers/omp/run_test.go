@@ -311,9 +311,18 @@ func TestOMPWorkerReportsSubmittedNoAgentDeliveryBeforeTerminal(t *testing.T) {
 
 func TestOMPRunRejectsForeignLeadingPreflight(t *testing.T) {
 	fixture := newOMPRunFixture(t)
-	_, started := fixture.prompt(t, "owned prompt", "")
+	started := fixture.start(t, "owned prompt")
+	command := fixture.peer.read(t)
+	id := nativeRPCField(t, command, "id")
+	if nativeRPCField(t, command, "type") != "prompt" || string(command["message"]) != mustOMPJSONText(t, "owned prompt") {
+		t.Fatalf("prompt command = %#v", command)
+	}
+	// Hold the prompt response so both candidates arrive before waitPreflight
+	// retires the registry on the leading mismatch. A later report need not be
+	// admitted after that retirement.
 	fixture.preflight(t, 1, "foreign", "other prompt")
 	fixture.preflight(t, 2, "matching", "owned prompt")
+	fixture.peer.write(t, `{"id":`+mustOMPJSONText(t, id)+`,"type":"response","command":"prompt","success":true}`)
 	fixture.peer.write(t, `{"type":"agent_start"}`)
 	start := <-started
 	if start.err != nil || start.turn == nil {
@@ -648,6 +657,17 @@ func TestOMPTerminalCancelsAndJoinsUnsettledUIBeforeResult(t *testing.T) {
 				t.Fatalf("start = %#v, %v", start.turn, start.err)
 			}
 
+			// The prompt response can make StartPrompt return before the writer's
+			// completion callback. Settle that write before the hold can capture it.
+			writeCtx := nativeRPCTestContext(t)
+			for fixture.rpc.Stats().pendingWrites != 0 {
+				select {
+				case <-writeCtx.Done():
+					t.Fatal("OMP prompt write did not settle before arming the UI hold")
+				default:
+					runtime.Gosched()
+				}
+			}
 			held.enabled.Store(true)
 			if err := fixture.wrapper.observeNative(json.RawMessage(`{"type":"extension_ui_request","id":"held-dialog","method":"confirm"}`)); err != nil {
 				t.Fatal(err)

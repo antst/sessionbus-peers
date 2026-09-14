@@ -175,18 +175,13 @@ func ownerRegistryPair(t *testing.T, options OwnerRegistryOptions, fixture *owne
 		t.Fatal(err)
 	}
 	left, right := net.Pipe()
-	assigned := make(chan struct{})
-	hostBridge, err := pifamily.NewBridge(left, pifamily.BridgeHost, func(ctx context.Context, method string, raw json.RawMessage) (json.RawMessage, error) {
-		<-assigned
-		return registry.HandleBridge(ctx, method, raw)
-	}, pifamily.BridgeLimits{})
+	hostBridge, err := pifamily.NewBridge(left, pifamily.BridgeHost, registry.HandleBridge, pifamily.BridgeLimits{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err = registry.AssignBridge(hostBridge); err != nil {
 		t.Fatal(err)
 	}
-	close(assigned)
 	nativeBridge, err := pifamily.NewBridge(right, pifamily.BridgeNative, fixture.handle, pifamily.BridgeLimits{})
 	if err != nil {
 		t.Fatal(err)
@@ -276,6 +271,178 @@ func TestOwnerRegistryRejectsInvalidConstruction(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestOwnerRegistryWaitsForBridgeAssignmentBeforeDispatch(t *testing.T) {
+	listener := ownerBusListener(t)
+	directory := t.TempDir()
+	registry, err := NewOwnerRegistry(context.Background(), OwnerRegistryOptions{
+		Topology: ownerTopologyInteractive, Socket: listener.Addr().String(), Directory: directory,
+		InitialName: "requested", Groups: []string{"shared"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	hostConn, nativeConn := net.Pipe()
+	entered := make(chan struct{})
+	handled := make(chan error, 1)
+	var enterOnce sync.Once
+	hostBridge, err := pifamily.NewBridge(hostConn, pifamily.BridgeHost, func(ctx context.Context, method string, raw json.RawMessage) (json.RawMessage, error) {
+		enterOnce.Do(func() { close(entered) })
+		body, err := registry.HandleBridge(ctx, method, raw)
+		handled <- err
+		return body, err
+	}, pifamily.BridgeLimits{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = registry.Close()
+		_ = hostBridge.Close()
+		_ = nativeConn.Close()
+	})
+	if err := nativeConn.SetDeadline(time.Now().Add(5 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	reader := bufio.NewReader(nativeConn)
+	hello, err := reader.ReadString('\n')
+	if err != nil || !strings.Contains(hello, `"type":"hello"`) || !strings.Contains(hello, `"role":"host"`) {
+		t.Fatalf("host hello = %q, %v", hello, err)
+	}
+	readyParams, err := json.Marshal(ownerReadyRequest{
+		Topology: ownerTopologyInteractive, Directory: directory, Scope: ownerScopePrimary,
+		Mode: ownerModeTUI, OwnerToken: "owner-token", SessionID: "owner-session", Name: "event-name",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	eagerFrames := fmt.Sprintf("{\"version\":1,\"type\":\"hello\",\"role\":\"native\"}\n{\"version\":1,\"type\":\"request\",\"id\":\"n:1\",\"method\":\"owner.ready\",\"params\":%s}\n", readyParams)
+	if _, err = nativeConn.Write([]byte(eagerFrames)); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-entered:
+	case <-ownerTestContext(t).Done():
+		t.Fatal("owner.ready was not dispatched before assignment")
+	}
+	select {
+	case err := <-handled:
+		t.Fatalf("owner.ready crossed the assignment gate: %v", err)
+	default:
+	}
+	if err = registry.AssignBridge(hostBridge); err != nil {
+		t.Fatal(err)
+	}
+	describeLine, err := reader.ReadString('\n')
+	if err != nil {
+		t.Fatal(err)
+	}
+	var describeFrame struct {
+		ID     string               `json:"id"`
+		Method string               `json:"method"`
+		Params ownerDescribeRequest `json:"params"`
+	}
+	if err = json.Unmarshal([]byte(describeLine), &describeFrame); err != nil {
+		t.Fatal(err)
+	}
+	if describeFrame.ID != "h:1" || describeFrame.Method != "native.describe" ||
+		describeFrame.Params.OwnerToken != "owner-token" || describeFrame.Params.SessionID != "owner-session" {
+		t.Fatalf("native describe = %+v", describeFrame)
+	}
+	description, err := json.Marshal(ownerDescribeResult{
+		OwnerToken: "owner-token", SessionID: "owner-session", Name: "native-name", CWD: "/work/native",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = fmt.Fprintf(nativeConn, "{\"version\":1,\"type\":\"response\",\"id\":\"h:1\",\"result\":%s}\n", description); err != nil {
+		t.Fatal(err)
+	}
+	publicConn, publicScanner := ownerAccept(t, listener)
+	identity := ownerHello(t, publicConn, publicScanner)
+	if identity.SessionID != "owner-session" || identity.Name != "native-name" || identity.Info["cwd"] != "/work/native" {
+		t.Fatalf("published identity = %+v", identity)
+	}
+	readyLine, err := reader.ReadString('\n')
+	if err != nil {
+		t.Fatal(err)
+	}
+	var readyFrame struct {
+		ID     string `json:"id"`
+		Result struct {
+			OwnerToken string `json:"owner_token"`
+			SessionID  string `json:"session_id"`
+		} `json:"result"`
+	}
+	if err = json.Unmarshal([]byte(readyLine), &readyFrame); err != nil {
+		t.Fatal(err)
+	}
+	if readyFrame.ID != "n:1" || readyFrame.Result.OwnerToken != "owner-token" || readyFrame.Result.SessionID != "owner-session" {
+		t.Fatalf("owner.ready response = %+v", readyFrame)
+	}
+	if err := <-handled; err != nil {
+		t.Fatal(err)
+	}
+	ownerWaitPublished(t, registry, "owner-token")
+}
+
+func TestOwnerRegistryBridgeAssignmentWaitCancelsAndJoins(t *testing.T) {
+	directory := t.TempDir()
+	registry, err := NewOwnerRegistry(context.Background(), OwnerRegistryOptions{
+		Topology: ownerTopologyInteractive, Socket: filepath.Join(directory, "bus.sock"), Directory: directory,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	hostConn, nativeConn := net.Pipe()
+	entered := make(chan struct{})
+	handled := make(chan error, 1)
+	hostBridge, err := pifamily.NewBridge(hostConn, pifamily.BridgeHost, func(ctx context.Context, method string, raw json.RawMessage) (json.RawMessage, error) {
+		close(entered)
+		body, err := registry.HandleBridge(ctx, method, raw)
+		handled <- err
+		return body, err
+	}, pifamily.BridgeLimits{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = hostBridge.Close()
+		_ = registry.Close()
+		_ = nativeConn.Close()
+	})
+	if err := nativeConn.SetDeadline(time.Now().Add(5 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	reader := bufio.NewReader(nativeConn)
+	if _, err := reader.ReadString('\n'); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := nativeConn.Write([]byte("{\"version\":1,\"type\":\"hello\",\"role\":\"native\"}\n{\"version\":1,\"type\":\"request\",\"id\":\"n:1\",\"method\":\"owner.ready\",\"params\":{}}\n")); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-entered:
+	case <-ownerTestContext(t).Done():
+		t.Fatal("owner.ready did not reach the assignment gate")
+	}
+	closeResult := make(chan error, 1)
+	go func() { closeResult <- hostBridge.Close() }()
+	select {
+	case err := <-handled:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("canceled assignment wait = %v", err)
+		}
+	case <-ownerTestContext(t).Done():
+		t.Fatal("bridge handler did not leave the assignment gate")
+	}
+	if err := <-closeResult; err != nil && !errors.Is(err, pifamily.ErrBridgeClosed) {
+		t.Fatal(err)
+	}
+	if err := registry.Close(); err != nil {
+		t.Fatal(err)
+	}
+	_ = nativeConn.Close()
 }
 
 func TestOwnerRegistryKeepsLanePrimaryAndChildCallersDistinct(t *testing.T) {

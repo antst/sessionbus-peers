@@ -18,7 +18,7 @@ const processExtensionKey = Symbol.for("sessionbus.omp.managed-extension.v1");
 const topologyMode = Object.freeze({ lane: "rpc", interactive: "tui" });
 const switchReasons = Object.freeze(["new", "resume", "fork"]);
 const actions = Object.freeze([
-  "list", "send", "spawn", "describe", "run", "start", "wait", "status",
+  "list", "send", "spawn", "describe", "trace", "run", "start", "wait", "status",
   "interrupt", "close", "forget", "ack",
 ]);
 
@@ -32,11 +32,15 @@ const maxBatchBytes = 1 << 20;
 
 const toolDescription = `Call Sessionbus using this exact OMP session identity.
 Use list to discover peers and self_info, send to message peers, describe before
-spawning a product lane, and run/start/status/wait/ack/interrupt/close/forget to
+spawning a product lane, trace a direct child's Sessionbus messages, and
+run/start/status/wait/ack/interrupt/close/forget to
 own a lane through its full lifecycle. Arguments must have the exact public
 shape for the selected action. A successful send confirms only the recipient's
 published delivery disposition; queued_for_next_turn is not model consumption.
-A completion pointer is an ordinary peer message, not the lane result.`;
+A completion pointer is an ordinary peer message, not the lane result. Tracing
+defaults off; events copies message and settled-delivery metadata, content also
+includes message bodies, and neither mode includes history or lane lifecycle.
+Copies arrive as daemon-generated JSON trace envelopes in ordinary messages.`;
 
 function object(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -144,6 +148,8 @@ function argumentSchema() {
   for (const field of ["persistent", "notify", "forget"]) properties[field] = { type: "boolean" };
   for (const field of ["auto_close_ms", "timeout_ms"]) properties[field] = { type: "integer" };
   properties.idle_message = { type: "string", enum: ["stage", "run"] };
+  properties.trace = { type: "string", enum: ["off", "events", "content"] };
+  properties.mode = { type: "string", enum: ["off", "events", "content"] };
   const open = {};
   for (const field of ["cwd", "permission_mode", "model", "reasoning_effort"]) open[field] = { type: "string" };
   open.arguments = { type: "array", items: { type: "string" } };
