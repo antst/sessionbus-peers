@@ -40,17 +40,26 @@ Pi error/local-only and loss cases retain the deterministic scope described by
 the original remaining-acceptance inventory. Additional native runs should add
 an observable product boundary rather than repeat the same fixture schedule.
 
-## Remaining release work
+## Remaining work before removing preview status
+
+Pi and OMP may be distributed as explicitly preview integrations within a stable
+peers release. The native rows below qualify those integrations; they are not
+additional gates for the six established products in that release.
 
 - Pi: installed interruption of an admitted Run followed by a healthy next Run.
 - OMP: installed idle lane staging, one explicit Run and Forget with native history
   retention; then interactive delivery/context and replacement boundaries.
-- OMP: assess the installed dialog/no-agent/child boundaries against the exact
-  deterministic evidence before selecting further native scenarios. These remain
-  qualified until the decision and any required evidence are recorded.
-- Finish existing-product regression, final archive/install correspondence and
-  CI on the integrated release source before merge. Linux native acceptance does
-  not establish Darwin native behavior; report that platform separately.
+- OMP: no-agent completion, dialog cancellation, and Task child identity/lifetime
+  are accepted at their deterministic fixture scope for preview. Installed dialog
+  cancellation and Task child acceptance remain deferred; no new native run is
+  required just to restate the existing no-agent fixture. This decision does not
+  promote fixture evidence to installed native acceptance.
+
+Stable publication still requires the existing-product installed regression and
+CI on the integrated release source. CI-generated checksums/source metadata and
+normal installer verification establish archive correspondence; a separate
+manual archive inventory is not a release gate. Linux native acceptance does
+not establish Darwin native behavior; report that platform separately.
 
 ## Native environment limits
 

@@ -18,8 +18,9 @@ well, since daemons validate forwarded responses with their embedded SDK.
 
 ## Install a product from a binary release
 
-Install the [Sessionbus host](https://github.com/antst/sessionbus/tree/develop#install-binaries)
-and the native product first. Then run the command for each product you want:
+Install [Sessionbus v0.5.3 or later](https://github.com/antst/sessionbus/tree/develop#install-binaries)
+and the native product first. The daemon and peers have independent release
+versions. Then run the command for each product you want:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/antst/sessionbus-peers/develop/scripts/install-claude.sh | sh
@@ -32,9 +33,10 @@ curl -fsSL https://raw.githubusercontent.com/antst/sessionbus-peers/develop/scri
 curl -fsSL https://raw.githubusercontent.com/antst/sessionbus-peers/develop/scripts/install-omp.sh | sh
 ```
 
-Pi and OMP are preview integrations in the development prerelease. See the
-[release notes](docs/releases/development.md) for included fixes and remaining
-acceptance work.
+Pi and OMP remain preview integrations, including when distributed in a stable
+peers release. See the [v0.5.0 release scope](docs/releases/v0.5.0.md) and
+[development notes](docs/releases/development.md) for included fixes and remaining
+preview acceptance work.
 
 Each command installs only that peer and its plugin into your normal user
 installation under `~/.local`; it does not install the native vendor product,
