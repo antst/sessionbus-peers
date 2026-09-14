@@ -606,15 +606,19 @@ func terminal(t nativeTurn) (sessionkit.TurnResult, error) {
 		return sessionkit.TurnResult{}, fmt.Errorf("Codex turn %s is not product-closed", t.ID)
 	}
 	result := sessionkit.TurnResult{Outcome: t.Status, NativeStopReason: t.Status}
+	answers := make([]string, 0, len(t.Items))
 	for _, item := range t.Items {
-		if item.Type == "agentMessage" && item.Phase == "final_answer" {
-			result.Result = item.Text
+		// Steering can leave more than one final answer in the persisted turn.
+		// Exact empty items carry no text; whitespace-only text remains content.
+		if item.Type == "agentMessage" && item.Phase == "final_answer" && item.Text != "" {
+			answers = append(answers, item.Text)
 		}
 	}
+	result.Result = strings.Join(answers, "\n\n")
 	switch t.Status {
 	case "completed":
 		result.Outcome = "completed"
-		if strings.TrimSpace(result.Result) == "" {
+		if len(answers) == 0 {
 			return sessionkit.TurnResult{}, fmt.Errorf("completed Codex turn %s has no final answer", t.ID)
 		}
 	case "interrupted":

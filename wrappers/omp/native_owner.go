@@ -500,7 +500,11 @@ func (owner *NativeOwner) finish(force bool, closeCtx context.Context) {
 	graceful := owner.graceful()
 	var rpcErr error
 	if owner.rpc != nil {
-		rpcErr = owner.rpc.Close()
+		if !force && childErr == nil && graceful {
+			rpcErr = drainNativeOwnerRPC(operationCtx, owner.rpc)
+		} else {
+			rpcErr = owner.rpc.Close()
+		}
 	}
 	registryErr := owner.registry.Close()
 	if inputErr != nil && !(graceful && childErr == nil && expectedNativeOwnerRPCShutdown(inputErr)) {
@@ -528,6 +532,20 @@ func (owner *NativeOwner) finish(force bool, closeCtx context.Context) {
 	owner.recordError(owner.process.Cleanup())
 	owner.cancel(errNativeOwnerClosed)
 	close(owner.done)
+}
+
+// Once a graceful native process has exited successfully, its stdout has a
+// finite owned end. Let the RPC reader consume every buffered frame before
+// closing it so an already-written protocol failure cannot be hidden by the
+// owner's intentional shutdown. The operation context still bounds inherited
+// or otherwise held stdout, and its cancellation remains part of the result.
+func drainNativeOwnerRPC(ctx context.Context, rpc *nativeRPC) error {
+	select {
+	case <-rpc.Done():
+		return errors.Join(rpc.Err(), context.Cause(ctx))
+	case <-ctx.Done():
+		return errors.Join(context.Cause(ctx), rpc.Close())
+	}
 }
 
 func watchNativeOwnerContext(ctx context.Context, callback func()) func() {

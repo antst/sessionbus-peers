@@ -297,11 +297,45 @@ func TestLaneRunSteerAndTerminal(t *testing.T) {
 		t.Fatalf("read = %#v", request)
 	}
 	completed := int64(1788679081)
-	writeApp(t, server, map[string]any{"id": request.ID, "result": map[string]any{"data": []any{map[string]any{"id": "turn-1", "items": []any{map[string]string{"type": "agentMessage", "text": "STEER_PROBE_OK", "phase": "final_answer"}}, "status": "completed", "completedAt": completed}}}})
+	firstAnswer := strings.Repeat("x", 3506-len("MIDRUN=WORD-7X")) + "MIDRUN=WORD-7X"
+	writeApp(t, server, map[string]any{"id": request.ID, "result": map[string]any{"data": []any{
+		map[string]any{"id": "other-turn", "items": []any{map[string]string{"type": "agentMessage", "text": "FOREIGN", "phase": "final_answer"}}, "status": "completed", "completedAt": completed},
+		map[string]any{"id": "turn-1", "items": []any{
+			map[string]string{"type": "agentMessage", "text": "commentary before the final", "phase": "commentary"},
+			map[string]string{"type": "agentMessage", "text": firstAnswer, "phase": "final_answer"},
+			map[string]string{"type": "userMessage", "text": "injected steering message"},
+			map[string]string{"type": "toolMessage", "text": "tool output", "phase": "final_answer"},
+			map[string]string{"type": "agentMessage", "text": "MIDRUN=KILO-7K", "phase": "final_answer"},
+		}, "status": "completed", "completedAt": completed},
+	}}})
 	done := <-waited
 	result, err := done.result, done.err
-	if err != nil || result.Outcome != "completed" || result.Result != "STEER_PROBE_OK" || result.NativeStopReason != "completed" {
+	want := firstAnswer + "\n\nMIDRUN=KILO-7K"
+	if err != nil || result.Outcome != "completed" || result.Result != want || len(result.Result) != 3522 || result.NativeStopReason != "completed" {
 		t.Fatalf("terminal = %#v, %v", result, err)
+	}
+}
+
+func TestTerminalFinalAnswerProjection(t *testing.T) {
+	completed := int64(1)
+	tests := []struct {
+		name  string
+		items []nativeItem
+		want  string
+	}{
+		{name: "single byte exact", items: []nativeItem{{Type: "agentMessage", Phase: "final_answer", Text: "\n exact bytes \t\n"}}, want: "\n exact bytes \t\n"},
+		{name: "whitespace byte exact", items: []nativeItem{{Type: "agentMessage", Phase: "final_answer", Text: " \t\n"}}, want: " \t\n"},
+		{name: "ordered and not deduplicated", items: []nativeItem{{Type: "agentMessage", Phase: "final_answer", Text: "same"}, {Type: "agentMessage", Phase: "final_answer", Text: "same"}}, want: "same\n\nsame"},
+		{name: "empty ignored and whitespace retained", items: []nativeItem{{Type: "agentMessage", Phase: "final_answer"}, {Type: "agentMessage", Phase: "final_answer", Text: " \t\n"}, {Type: "agentMessage", Phase: "final_answer", Text: "tail "}}, want: " \t\n\n\ntail "},
+		{name: "commentary and tools excluded", items: []nativeItem{{Type: "agentMessage", Phase: "commentary", Text: "thinking"}, {Type: "toolMessage", Phase: "final_answer", Text: "tool"}, {Type: "agentMessage", Phase: "final_answer", Text: "answer"}}, want: "answer"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result, err := terminal(nativeTurn{ID: "turn", Status: "completed", CompletedAt: &completed, Items: test.items})
+			if err != nil || result.Result != test.want {
+				t.Fatalf("terminal = %#v, %v", result, err)
+			}
+		})
 	}
 }
 
@@ -376,8 +410,10 @@ func TestLaneTerminalBeforeSteerResponseRetainsAdmission(t *testing.T) {
 
 func TestCompletedTurnRequiresFinalAnswer(t *testing.T) {
 	completed := int64(1)
-	if _, err := terminal(nativeTurn{ID: "turn-4", Status: "completed", CompletedAt: &completed}); err == nil || !strings.Contains(err.Error(), "no final answer") {
-		t.Fatalf("error = %v", err)
+	for _, items := range [][]nativeItem{nil, {{Type: "agentMessage", Phase: "final_answer"}}} {
+		if _, err := terminal(nativeTurn{ID: "turn-4", Status: "completed", CompletedAt: &completed, Items: items}); err == nil || !strings.Contains(err.Error(), "no final answer") {
+			t.Fatalf("items = %#v, error = %v", items, err)
+		}
 	}
 }
 

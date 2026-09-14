@@ -192,7 +192,7 @@ func runOMPNativeOwnerHelper() error {
 	if helper.scenario == "hold_shutdown" {
 		select {}
 	}
-	if helper.scenario == "malformed_shutdown" {
+	if helper.scenario == "malformed_shutdown" || helper.scenario == "delayed_malformed_shutdown" {
 		_, _ = fmt.Fprintln(os.Stdout, "{")
 	}
 	if err = bridge.Call(context.Background(), "session_end", ownerEndRequest{
@@ -304,7 +304,7 @@ func (helper *ompNativeOwnerHelper) serveCommands() error {
 		}
 		if kind == "get_state" {
 			helper.stateOnce.Do(func() { close(helper.state) })
-			if helper.scenario == "event_after_ready" {
+			if helper.scenario == "event_after_ready" || helper.scenario == "delayed_malformed_shutdown" {
 				if _, err = fmt.Fprintln(os.Stdout, `{"type":"agent_start"}`); err != nil {
 					return err
 				}
@@ -791,6 +791,107 @@ func TestNativeOwnerPreservesClosingProtocolFailure(t *testing.T) {
 	}
 	if reason, ok := owner.GracefulEnd(); !ok || reason != "quit" {
 		t.Fatalf("graceful native end was lost: %q, %v", reason, ok)
+	}
+}
+
+func TestNativeOwnerDrainsClosingProtocolFailureAfterChildExit(t *testing.T) {
+	options, _ := nativeOwnerFixture(t, "delayed_malformed_shutdown")
+	observed := make(chan struct{})
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	releaseReader := func() { releaseOnce.Do(func() { close(release) }) }
+	options.NativeObserver = func(raw json.RawMessage) error {
+		if bytes.Contains(raw, []byte(`"agent_start"`)) {
+			close(observed)
+			<-release
+		}
+		return nil
+	}
+	owner, err := StartNativeOwner(nativeOwnerTestContext(t), options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		releaseReader()
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = owner.Close(ctx)
+	})
+	waitNativeOwnerReady(t, owner)
+	select {
+	case <-observed:
+	case <-nativeOwnerTestContext(t).Done():
+		t.Fatal("native RPC reader did not enter the held event")
+	}
+	closed := make(chan error, 1)
+	go func() { closed <- owner.Close(nativeOwnerTestContext(t)) }()
+	select {
+	case <-owner.process.done:
+	case <-nativeOwnerTestContext(t).Done():
+		t.Fatal("native child did not exit before the reader was released")
+	}
+	select {
+	case err = <-closed:
+		t.Fatalf("Close returned before the held RPC reader was released: %v", err)
+	default:
+	}
+	releaseReader()
+	if err = <-closed; !errors.Is(err, errNativeRPCProtocol) {
+		t.Fatalf("delayed closing protocol failure = %v", err)
+	}
+	if reason, ok := owner.GracefulEnd(); !ok || reason != "quit" {
+		t.Fatalf("delayed graceful native end was lost: %q, %v", reason, ok)
+	}
+}
+
+func TestNativeOwnerGracefulRPCDrainCancellationJoinsHeldOutput(t *testing.T) {
+	inputRead, inputWrite, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer inputRead.Close()
+	outputRead, outputWrite, err := os.Pipe()
+	if err != nil {
+		_ = inputWrite.Close()
+		t.Fatal(err)
+	}
+	defer outputWrite.Close()
+	rpc, err := newNativeRPC(inputWrite, outputRead, nil, nativeRPCLimits{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rpc.Close()
+	ownerCtx, cancelOwner := context.WithCancelCause(context.Background())
+	operationCtx, cancelOperations := context.WithCancelCause(context.Background())
+	joinOperations := watchNativeOwnerContext(ownerCtx, func() {
+		cancelOperations(context.Cause(ownerCtx))
+	})
+	defer func() {
+		cancelOwner(errNativeOwnerClosed)
+		cancelOperations(errNativeOwnerClosed)
+		joinOperations()
+	}()
+	drained := make(chan error, 1)
+	go func() { drained <- drainNativeOwnerRPC(operationCtx, rpc) }()
+	select {
+	case err = <-drained:
+		t.Fatalf("held stdout drained before cancellation: %v", err)
+	default:
+	}
+	want := errors.New("cancel held native stdout")
+	cancelOwner(want)
+	select {
+	case err = <-drained:
+		if !errors.Is(err, want) {
+			t.Fatalf("held stdout cancellation = %v", err)
+		}
+	case <-nativeOwnerTestContext(t).Done():
+		t.Fatal("held stdout cancellation did not join native RPC")
+	}
+	select {
+	case <-rpc.Done():
+	default:
+		t.Fatal("held stdout cancellation returned before native RPC joined")
 	}
 }
 
