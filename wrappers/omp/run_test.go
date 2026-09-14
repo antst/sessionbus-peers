@@ -657,6 +657,17 @@ func TestOMPTerminalCancelsAndJoinsUnsettledUIBeforeResult(t *testing.T) {
 				t.Fatalf("start = %#v, %v", start.turn, start.err)
 			}
 
+			// The prompt response can make StartPrompt return before the writer's
+			// completion callback. Settle that write before the hold can capture it.
+			writeCtx := nativeRPCTestContext(t)
+			for fixture.rpc.Stats().pendingWrites != 0 {
+				select {
+				case <-writeCtx.Done():
+					t.Fatal("OMP prompt write did not settle before arming the UI hold")
+				default:
+					runtime.Gosched()
+				}
+			}
 			held.enabled.Store(true)
 			if err := fixture.wrapper.observeNative(json.RawMessage(`{"type":"extension_ui_request","id":"held-dialog","method":"confirm"}`)); err != nil {
 				t.Fatal(err)
