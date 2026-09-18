@@ -5,6 +5,10 @@
   "author": {
     "name": "Sessionbus"
   },
+  "homepage": "https://github.com/antst/sessionbus",
+  "repository": "https://github.com/antst/sessionbus-peers",
+  "license": "MIT",
+  "keywords": ["sessionbus", "messaging", "codex"],
   "skills": "./skills/",
   "mcpServers": "./.mcp.json",
   "interface": {
