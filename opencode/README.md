@@ -3,7 +3,7 @@
 Install the permanent Go launcher and native plugin on Linux or macOS:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/antst/sessionbus-peers/develop/scripts/install-opencode.sh | sh
+curl -fsSL https://raw.githubusercontent.com/antst/sessionbus-peers/main/scripts/install-opencode.sh | sh
 opencode-peer -n project -g development,reviews
 ```
 

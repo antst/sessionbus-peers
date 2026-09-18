@@ -12,7 +12,7 @@ Install the binary and native plugin in one step (native Claude and Sessionbus
 must already be installed):
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/antst/sessionbus-peers/develop/scripts/install-claude.sh | sh
+curl -fsSL https://raw.githubusercontent.com/antst/sessionbus-peers/main/scripts/install-claude.sh | sh
 ```
 
 The default is the latest stable release, falling back to development only
