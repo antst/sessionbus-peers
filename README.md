@@ -1,9 +1,32 @@
 # Sessionbus product peers
 
-This repository contains the Sessionbus wrappers, peer commands, plugins,
-skills, installers, and product facts. The daemon and public SDKs live in
-[`antst/sessionbus`](https://github.com/antst/sessionbus); this repository uses
-the public Go SDK and the pinned public JavaScript kit.
+Connect sessions of the same or different products through
+[Sessionbus](https://github.com/antst/sessionbus), while each keeps its native
+tools, permissions and history. Start two sessions in a shared group (`-g team`)
+to discover and message one another. You can use existing sessions without a
+parent workflow, or open managed sessions that join the same conversation and
+remain available for follow-up work under explicit lifecycle policies.
+
+These integrations work alongside native orchestration; native children become
+separately addressable only where their product integration supports it. The
+bus also supports custom tools and programs through its public SDKs.
+
+[Start with two sessions](https://github.com/antst/sessionbus/blob/main/docs/QUICKSTART.md) ·
+[Scenarios and contract](https://github.com/antst/sessionbus/blob/main/docs/USAGE.md) ·
+[Native terminal demo](https://x.com/iamantst/status/2100973895377371533)
+
+Six established adapters: [Claude Code](claude/README.md),
+[Codex](codex/README.md), [Grok](grok/README.md), [Qwen](qwen/README.md),
+[OpenCode](opencode/README.md) and [Kilo](kilo/README.md).
+Two additional previews: [Pi](pi/README.md) and [OMP](omp/README.md).
+[DSH](https://github.com/antst/sessionbus-dsh) has a separate, ongoing release path.
+
+This repository contains wrappers, peer commands, plugins, skills, installers
+and product facts. The daemon, hub, protocol and public SDKs live in
+[`antst/sessionbus`](https://github.com/antst/sessionbus). This repository uses
+the public Go SDK and pinned public JavaScript kit.
+
+## Updating older installations
 
 `list` reports the bound originating caller in `self_info` alongside the visible
 `sessions`. Compare its `session_id` with row IDs to recognize self; a filter or
@@ -111,7 +134,7 @@ the body, while `events` contains message and delivery metadata. Run lifecycle,
 native prompts, and native results are outside this initial scope.
 
 Tracing adds no history, durable policy, replay, catch-up, or separate event
-transport. It requires the trace-aware Sessionbus daemon, every involved hub,
+transport. It requires Sessionbus v0.5.4 or later on the daemon and every involved hub,
 and updated peer tools. Upgrade all of them before requesting tracing across
 hosts. See the [v0.5.1 notes](docs/releases/v0.5.1.md) and the
 [Sessionbus communication-trace contract](https://github.com/antst/sessionbus/blob/main/docs/designs/COMMUNICATION-TRACE.md)
