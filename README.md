@@ -11,7 +11,7 @@ These integrations work alongside native orchestration; native children become
 separately addressable only where their product integration supports it. The
 bus also supports custom tools and programs through its public SDKs.
 
-[Start with two sessions](https://github.com/antst/sessionbus/blob/main/docs/QUICKSTART.md) ·
+[Start with two sessions](https://github.com/antst/sessionbus/blob/main/QUICKSTART.md) ·
 [Scenarios and contract](https://github.com/antst/sessionbus/blob/main/docs/USAGE.md) ·
 [Native terminal demo](https://x.com/iamantst/status/2100973895377371533)
 
