@@ -20,6 +20,15 @@ behavior are historical integration choices, not current Codex limitations.
   has a different quote-aware key parser. The original failed no-input Open and
   corrected successful Open are preserved in `dev1-lane-open-{ebd5c0a,aaea430}`
   under `/home/antst/codex-architecture-20260909/`.
+- Retained native 0.153.4 source commit
+  `3d2ee51ca2d5db578f328aa75e20aa22c0197c9a` defines repeatable
+  `--disable FEATURE` as equivalent to `-c features.<name>=false`, validates the
+  feature name, and folds the generated override into the same root config
+  overrides (`sources/native-01534/codex-rs/cli/src/main.rs:959-1006,1052-1059`
+  under `/home/antst/codex-architecture-20260909/`; commit and file hash are in
+  that directory's `SOURCE.json`). The managed installed rows cited here use
+  the accepted `plugins` feature through `features.plugins=true`; therefore
+  `--disable plugins` is the native spelling of `features.plugins=false`.
 - On installed aaea430/native0.153.4, idle `thread/inject_items` staging received
   `queued_for_next_turn`; the marker appeared in native user history before any
   assistant response and was consumed in the following explicit run. The
