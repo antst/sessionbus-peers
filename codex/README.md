@@ -69,8 +69,8 @@ A managed launch prefixes `-c features.plugins=true` and
 `-c plugins.codex@sessionbus-peers.enabled=true` to enable the plugin. CLI keys
 split on dots without unquoting segments; the quotes used by the separate
 config-write API must not be embedded in this CLI key. The launcher
-keeps the caller's native arguments in order. Caller overrides retain native
-precedence; disabling the required tool can make lane Open unavailable.
+keeps the caller's native arguments in order, except that a caller cannot
+disable or replace the managed plugin and its Sessionbus tool.
 There is one generic `sessionbus` skill and public tool, shared across products.
 
 Repeat the same archive install to update the permanent installation. Reinstall
@@ -109,10 +109,12 @@ alongside plugin activation. The entry grants the one Sessionbus tool and all
 of its public actions; it does not change the approval policy, sandbox, or any
 other tool. Native `strict_auto_review` has a separate policy path.
 
-Caller config remains byte-preserved except for assignments that could replace
-the managed plugin feature, plugin activation, or exact Sessionbus approval
-path. Those assignments fail launch instead of silently disabling comms.
-Unrelated plugin/config keys and values after native `--` remain untouched.
+Caller config remains byte-preserved except for assignments that overlap the
+managed plugin feature, plugin activation, or native Sessionbus server controls
+that can disable, exclude, or downgrade its one tool. `--disable plugins` is
+rejected for the same reason. Native CLI config keys split literally on dots;
+quoted segments remain different keys. Other plugins, servers, tool policies,
+feature flags, and values after native `--` remain untouched.
 
 ## Interactive launch
 

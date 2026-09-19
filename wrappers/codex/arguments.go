@@ -10,7 +10,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
-	"strconv"
 	"strings"
 
 	"github.com/antst/sessionbus-peers/wrappers/host"
@@ -30,12 +29,16 @@ func processArguments(arguments []string) ([]string, error) {
 var managedConfigPaths = [][]string{
 	{"features", "plugins"},
 	{"plugins", PluginID, "enabled"},
-	{"plugins", PluginID, "mcp_servers", "sessionbus", "tools", "sessionbus", "approval_mode"},
+	{"plugins", PluginID, "mcp_servers", "sessionbus", "enabled"},
+	{"plugins", PluginID, "mcp_servers", "sessionbus", "default_tools_approval_mode"},
+	{"plugins", PluginID, "mcp_servers", "sessionbus", "enabled_tools"},
+	{"plugins", PluginID, "mcp_servers", "sessionbus", "disabled_tools"},
+	{"plugins", PluginID, "mcp_servers", "sessionbus", "tools", "sessionbus"},
 }
 
-// validateManagedConfig rejects only assignments that can replace a fixed
-// managed path. Codex accepts TOML dotted keys, including quoted segments, so
-// string-prefix checks are both incomplete and liable to reject sibling keys.
+// validateManagedConfig rejects only arguments that can disable or replace the
+// managed plugin or its Sessionbus tool. Native CLI config keys split on dots
+// without unquoting; only their values use TOML syntax.
 func validateManagedConfig(arguments []string) error {
 	for index := 0; index < len(arguments); index++ {
 		argument := arguments[index]
@@ -54,6 +57,17 @@ func validateManagedConfig(arguments []string) error {
 		case strings.HasPrefix(argument, "-c") && len(argument) > len("-c"):
 			value, found = strings.TrimPrefix(argument, "-c"), true
 			value = strings.TrimPrefix(value, "=")
+		case argument == "--disable":
+			if index+1 < len(arguments) && arguments[index+1] != "--" {
+				index++
+				if arguments[index] == "plugins" {
+					return errors.New("disabling the plugins feature conflicts with the managed Sessionbus grant")
+				}
+			}
+		case strings.HasPrefix(argument, "--disable="):
+			if strings.TrimPrefix(argument, "--disable=") == "plugins" {
+				return errors.New("disabling the plugins feature conflicts with the managed Sessionbus grant")
+			}
 		}
 		if !found {
 			continue
@@ -63,7 +77,7 @@ func validateManagedConfig(arguments []string) error {
 			continue // Native Codex owns malformed and non-assignment config values.
 		}
 		for _, managed := range managedConfigPaths {
-			if pathPrefix(path, managed) {
+			if pathPrefix(path, managed) || pathPrefix(managed, path) {
 				return fmt.Errorf("configuration %q conflicts with the managed Sessionbus grant", strings.Join(path, "."))
 			}
 		}
@@ -83,77 +97,15 @@ func pathPrefix(path, target []string) bool {
 	return true
 }
 
-// codexConfigPath parses only the dotted assignment key. Values remain opaque
-// and are still validated by native Codex. Double-quoted segments use TOML's
-// basic escape spellings; single-quoted segments are literal.
+// codexConfigPath mirrors native CLI override parsing: split once on '=', trim
+// the whole key, and split it literally on dots. Quote bytes remain key bytes.
 func codexConfigPath(value string) ([]string, bool) {
-	index := 0
-	skipSpace := func() {
-		for index < len(value) && (value[index] == ' ' || value[index] == '\t') {
-			index++
-		}
+	key, _, found := strings.Cut(value, "=")
+	key = strings.TrimSpace(key)
+	if !found || key == "" {
+		return nil, false
 	}
-	path := []string{}
-	for {
-		skipSpace()
-		if index >= len(value) {
-			return nil, false
-		}
-		segment := ""
-		if value[index] == '\'' || value[index] == '"' {
-			quote, start := value[index], index
-			index++
-			escaped, closed := false, false
-			for index < len(value) {
-				character := value[index]
-				index++
-				if quote == '"' && character == '\\' && !escaped {
-					escaped = true
-					continue
-				}
-				if character == quote && !escaped {
-					closed = true
-					break
-				}
-				escaped = false
-			}
-			if !closed {
-				return nil, false
-			}
-			raw := value[start:index]
-			if quote == '\'' {
-				segment = raw[1 : len(raw)-1]
-			} else {
-				decoded, err := strconv.Unquote(raw)
-				if err != nil {
-					return nil, false
-				}
-				segment = decoded
-			}
-		} else {
-			start := index
-			for index < len(value) && value[index] != '.' && value[index] != '=' && value[index] != ' ' && value[index] != '\t' {
-				index++
-			}
-			segment = value[start:index]
-		}
-		if segment == "" {
-			return nil, false
-		}
-		path = append(path, segment)
-		skipSpace()
-		if index >= len(value) {
-			return nil, false
-		}
-		switch value[index] {
-		case '.':
-			index++
-		case '=':
-			return path, true
-		default:
-			return nil, false
-		}
-	}
+	return strings.Split(key, "."), true
 }
 func permission(value string) (string, string, error) { return value, "", nil }
 

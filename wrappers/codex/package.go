@@ -20,8 +20,8 @@ const InstallAlias = "codex-peer-install"
 const sessionbusApprovalConfigKey = "plugins.codex@sessionbus-peers.mcp_servers.sessionbus.tools.sessionbus.approval_mode"
 const sessionbusApprovalConfig = sessionbusApprovalConfigKey + `="approve"`
 
-// Managed CLI overrides use the spelling recorded by installed native
-// acceptance. Caller validation also recognizes equivalent quoted dotted keys.
+// Native CLI override paths split on dots and do not unquote segments. This
+// spelling differs from the quote-aware config/value/write API used at install.
 func ActivationArguments() []string {
 	return []string{
 		"-c", "features.plugins=true",
