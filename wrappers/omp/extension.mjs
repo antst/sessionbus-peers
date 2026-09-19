@@ -749,6 +749,7 @@ export function createOMPExtension({ launch, connect = connectBridge, createToke
       parameters: toolParameters(),
       // Sessionbus includes mutating actions and delegation; keep the honest
       // exec tier while granting only this tool in every managed factory.
+      loadMode: "essential",
       approval: { tier: "exec", policy: "allow" },
       async execute(callID, params, signal, _onUpdate, ctx) {
         throwIfAborted(signal);

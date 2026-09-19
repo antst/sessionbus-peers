@@ -27,6 +27,28 @@ acceptance run.
   `always-ask`, while an unrelated mutating tool still requires approval.
   Source inspection and registration tests alone do not establish that result.
 
+### Native device transport and the first installed grant check
+
+The first ordinary interactive check of `5beacab` on UMKA failed under
+`always-ask`: the model invoked `write` on `xd://sessionbus`, and native Write
+approval prevented the Sessionbus call. No list/send result or receiver marker
+was observed. The denial and cleanup remain part of that check's evidence;
+the lane default and explicit bypass message checks passed separately.
+
+This route is native behavior. On the same 18.1.17 source,
+`tools/write.ts:518-554` uses the mounted tool's tier and a device policy key,
+but `tools/approval.ts:96-98` returns only the tier, dropping its declared
+`policy: "allow"` at the outer Write gate. An inner tool grant therefore does
+not establish unattended use through this device transport under always-ask.
+
+Register Sessionbus with the native `loadMode: "essential"` so it is exposed
+directly. `extensibility/extensions/types.ts:634-636` documents this choice,
+`extensions/wrapper.ts:47-48` preserves it, and `tools/xdev.ts:84-87` plus
+`sdk.ts:3350-3362` keep essential tools top-level. Other tools retain their
+native presentation and policy. The exec-tier allow remains unchanged. A new
+installed ordinary interactive check is required to verify this correction;
+the previous failed attempt is not relabeled or replayed.
+
 ## Historical product facts
 
 ### Explicit bypass compatibility and earlier working implementation
