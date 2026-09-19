@@ -10,6 +10,8 @@ import path from "node:path";
 import test from "node:test";
 import { Connection } from "@sessionbus/kit";
 import { OwnedPeer } from "./peer.mjs";
+import { createServer } from "./server.mjs";
+import { InteractiveEndpoint } from "./endpoint.mjs";
 
 function deferred() {
   let resolve;
@@ -41,6 +43,32 @@ function own(t, env, options, deliver = async () => ({ disposition: "written" })
   t.after(() => peer.dispose());
   return peer;
 }
+
+test("spawn and resume retain response trace through actual kit and native tool", { timeout: 5000 }, async (t) => {
+  let expected;
+  const env = await fixture(t, (connection, request) => {
+    if (request.method === "session.hello") return connection.result(request, {});
+    assert.equal(request.method, "lane.spawn");
+    // Raw wire response also proves the kit's inbound schema accepts trace.
+    connection.stream.write(JSON.stringify({jsonrpc:"2.0", id:request.id, result:expected}) + "\n");
+  });
+  const peer = own(t, env);
+  const endpointPath = path.join(path.dirname(env.SESSIONBUS_SOCKET), "actions.sock");
+  const endpoint = new InteractiveEndpoint(endpointPath, (action, args) => peer.action(action, args));
+  t.after(() => endpoint.dispose());
+  await endpoint.ready();
+  const hooks = await createServer({SESSIONBUS_LANE_SOCKET:endpointPath})();
+  t.after(() => hooks.dispose());
+  for (const trace of [undefined, "off", "events", "content"]) {
+    for (const args of [{name:"child", product:"fixture-worker", open:{}}, {resume_session_id:"child@local"}]) {
+      expected = {session_id:"child@local", policy:{persistent:false, auto_close_ms:60000, idle_message:"stage", notify:true, ...(trace === undefined ? {} : {trace})}};
+      const output = await hooks.tool.sessionbus.execute({action:"spawn", arguments:args}, {sessionID:identity.session_id, messageID:"msg_fixture_call"});
+      assert.deepEqual(JSON.parse(output), expected);
+    }
+  }
+  // The old kit closed its connection on the first response carrying trace.
+  assert.deepEqual(await peer.action("spawn", {resume_session_id:"child@local"}), expected);
+});
 
 test("actual kit admits native identity before sole Caller action", { timeout: 5000 }, async (t) => {
   const hello = deferred(), release = deferred();
