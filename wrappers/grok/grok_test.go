@@ -300,6 +300,8 @@ func TestFreshLaneNativeLifecycle(t *testing.T) {
 	check(t, !exists(filepath.Join(root, "locks")), "adapter session lock recreated")
 	frames := records(t, recordPath)
 	check(t, containsStart(frames, "--permission-mode", "bypassPermissions", "--reasoning-effort", "low", "-m", "grok-4.6", "--disable-web-search"), "typed argv not preserved")
+	check(t, containsStart(frames, "--allow", "MCPTool(sessionbus__sessionbus)", "--relay-on-demand"), "lane leader omitted exact Sessionbus grant")
+	check(t, countStartsContaining(frames, "--allow", "MCPTool(sessionbus__sessionbus)") == 1, "Sessionbus grant escaped the one private leader")
 	check(t, containsStart(frames, "--relay-on-demand") && !containsStart(frames, "--no-exit-on-disconnect"), "leader argv did not preserve relay-on-demand")
 	check(t, allStartsContain(frames, "--no-auto-update"), "an ACP client omitted --no-auto-update")
 	check(t, countFrames(frames, "initialize") == 3, "authenticated startup hold absent: %d handshakes", countFrames(frames, "initialize"))
@@ -337,7 +339,7 @@ func TestInterruptAndResume(t *testing.T) {
 	load := findFrame(frames, "session/load")
 	check(t, strings.Contains(string(load), `"sessionId":"`+testSessionID+`"`), "resume load = %s", load)
 	check(t, !containsStart(frames, "--resume", testSessionID), "resume was selected in both argv and session/load")
-	check(t, !containsStart(frames, "--allow", "MCPTool(sessionbus__*)"), "implicit native MCP grant")
+	check(t, containsStart(frames, "--allow", "MCPTool(sessionbus__sessionbus)", "--relay-on-demand"), "resumed lane leader omitted exact Sessionbus grant")
 	must(t, p.Close(context.Background(), sessionkit.SessionCloseRequest{}))
 }
 
@@ -720,6 +722,21 @@ func containsStart(records []json.RawMessage, values ...string) bool {
 		return true
 	}
 	return false
+}
+
+func countStartsContaining(records []json.RawMessage, values ...string) int {
+	count := 0
+	for _, raw := range records {
+		if !strings.Contains(string(raw), `"kind":"START"`) {
+			continue
+		}
+		body := string(raw)
+		if slices.ContainsFunc(values, func(value string) bool { return !strings.Contains(body, value) }) {
+			continue
+		}
+		count++
+	}
+	return count
 }
 
 func allStartsContain(records []json.RawMessage, value string) bool {

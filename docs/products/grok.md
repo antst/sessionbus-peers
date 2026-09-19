@@ -8,13 +8,35 @@
 
 ## Current Go integration (2026-09-10)
 
-The rewrite starts at peers eb727701 and retains the native evidence below as historical knowledge. Current implementation and installation are described in [Grok README](../../grok/README.md) and the [implementation contract](../designs/grok-0.5.0/CONTRACT.md), with activation, naming and delivery amendments alongside it. The installed composition uses native Grok 1.0.25 and the real permanent umka installation.
+The rewrite starts at peers eb727701 and retains the native evidence below as historical knowledge. Current implementation and installation are described in [Grok README](../../grok/README.md) and the [implementation contract](../designs/grok-0.5.0/CONTRACT.md), with activation, naming and delivery amendments alongside it. The source boundary below observed native Grok 1.0.34 in the real permanent UMKA installation.
 
-Current behavior supersedes historical wrapper choices below: no generated native IDs or native selector resolver; repeated mixed -g/--group before --; no session lock, reconnect loop, default MCP permission grant or forced autoMode; native titles including empty names update the same owner connection. The private MCP alias shares one Go binary with launcher and lane, and only the generic Sessionbus skill is installed. Ordinary Grok still discovers that global plugin and starts its inert, zero-tool helper because native leader mode rejects per-launch plugin-dir.
+Current behavior supersedes historical wrapper choices below: no generated native IDs or native selector resolver; repeated mixed -g/--group before --; no session lock, reconnect loop, broad server-wildcard permission grant or forced autoMode; native titles including empty names update the same owner connection. The managed private leader receives only the exact `MCPTool(sessionbus__sessionbus)` grant. The private MCP alias shares one Go binary with launcher and lane, and only the generic Sessionbus skill is installed. Ordinary Grok still discovers that global plugin and starts its inert, zero-tool helper because native leader mode rejects per-launch plugin-dir.
 
 The shared Worker owns message-seeded runs and nonconsuming result cursors with explicit ack. Persistence means owner-exit lifetime, not durable storage. Grok stage keeps only never-submitted messages in bounded worker memory. Attempted deliveries never replay; actor admission stays injected across a native terminal. A product-created continuation remains in the original shared Run until its matched native completion, with bounded aggregate output. No wrapper database, result journal or restart recovery exists.
 
 Installed evidence scope and remaining limits are mapped in [acceptance](../designs/grok-0.5.0/ACCEPTANCE.md). The retained earlier isolated-home/daemon experiments are historical evidence, not the current installation or acceptance recipe. Current changes do not require repeating already sealed native discoveries.
+
+## Current managed grant source boundary (2026-09-19)
+
+The installed UMKA version observed for this change was Grok 1.0.34 revision
+`3736acbc8658`; its exact source is private. Public 1.0.32 and 1.0.35 source
+brackets that build. Their CLI policy declarations and extracted leader
+permission-merge block are byte-identical, while their complete `spawn.rs`
+files differ. Both pin Rust `glob` 0.3.3. The retained source bridge, hashes
+and exact-version parser/glob oracle are recorded in
+`/home/antst/sessionbus-evidence/grok-comms-grant-design-refined-dev1-20260919`.
+
+Managed interactive peers and ACP lanes put the exact native rule
+`--allow MCPTool(sessionbus__sessionbus)` on the one private leader. Followers
+and helpers receive no duplicate rule because native leader mode ignores their
+per-process rules. Interactive caller allow/deny, permission mode and bypass
+controls retain native ownership; the wrapper rejects only a deny which the
+bridged native parser and Rust glob semantics apply to the managed tool. Empty
+comma members remain tool-wide denies, ASCII matching is case-insensitive,
+Unicode ranges retain rune semantics, invalid glob patterns remain nonmatches,
+and `--disallowed-tools` is not treated as the separate MCP deny alias
+`--disallowedTools`. The exact grant stays present with explicit bypass. Native
+installed acceptance is tracked separately from this source boundary.
 
 ## Historical native captures and earlier wrapper behavior
 

@@ -45,10 +45,15 @@ sessions keep their native names. Renaming happens after MCP initialization and
 must be confirmed natively. Failed naming does not transfer to later sessions.
 Blank native names stay blank; native title events update the same bus owner.
 
-Explicit `--always-approve` and `--permission-mode` switches are mirrored
-verbatim and in order to the private leader, while remaining in the TUI argv.
-This does not assert a wrapper-defined precedence between conflicting switches.
-Omitted permission policy stays omitted. No default tool grant is added.
+The wrapper puts the exact native rule
+`--allow MCPTool(sessionbus__sessionbus)` on its one private leader in both
+interactive and lane mode. It does not grant another tool. Interactive caller
+allow, deny, permission-mode and bypass controls are mirrored to that leader
+without removing them from the TUI argv. A caller deny which native Grok would
+apply to the managed Sessionbus tool is rejected before launch because native
+deny wins over allow; unrelated native rules retain their bytes and order.
+`--yolo`/`--always-approve` and the exact Sessionbus grant coexist. This does
+not assert a wrapper-defined precedence between other conflicting switches.
 
 Grok leader mode currently ignores per-process `--plugin-dir`. Consequently
 the plugin is globally registered: ordinary `grok` discovers the generic skill

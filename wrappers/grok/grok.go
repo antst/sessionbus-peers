@@ -256,7 +256,7 @@ func (p *Wrapper) startLeader(cwd, permission string) (*nativeProcess, error) {
 }
 
 func startLeader(ctx context.Context, socket, key, cwd, permission string, environment []string) (*nativeProcess, error) {
-	arguments := []string{}
+	arguments := sessionbusLeaderPolicy()
 	if permission != "" {
 		arguments = append(arguments, "--permission-mode", permission)
 	}

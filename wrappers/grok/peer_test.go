@@ -44,6 +44,7 @@ func TestInteractivePlan(t *testing.T) {
 		{[]string{"--continue", "--fork-session"}, []string{"--continue", "--fork-session"}, `[]`, ""},
 		{[]string{"--resume", testSessionID, "-r" + testSessionID}, []string{"--resume", testSessionID, "-r" + testSessionID}, `[]`, ""},
 		{[]string{"--session-id", testSessionID, "--peer-name", "alias"}, []string{"--session-id", testSessionID}, `[]`, "alias"},
+		{[]string{"--disallowed-tools", "Read,Write"}, []string{"--disallowed-tools", "Read,Write"}, `[]`, ""},
 	} {
 		plan, err := InteractivePlan(test.args, []string{"PATH=/bin", host.SessionIDEnv + "=inherited", host.NameEnv + "=inherited", host.GroupsEnv + `=["inherited"]`})
 		must(t, err)
@@ -56,6 +57,10 @@ func TestInteractivePlan(t *testing.T) {
 		_, err := InteractivePlan(args, nil)
 		check(t, err != nil, "conflict/missing value accepted: %#v", args)
 	}
+	for _, args := range [][]string{{"--deny", "MCPTool(sessionbus__sessionbus)"}, {"--disallowedTools=mcp__sessionbus"}, {"--deny=unrelated,,other"}} {
+		_, err := InteractivePlan(args, nil)
+		check(t, err != nil && strings.Contains(err.Error(), "disables the managed Sessionbus tool"), "managed deny reached native plan: %#v: %v", args, err)
+	}
 	for _, args := range [][]string{{"--single", "prompt"}, {"-pprompt"}, {"--prompt-file", "prompt.txt"}, {"--prompt-json", `[]`}, {"--output-format", "json"}, {"--json-schema", `{}`}, {"--max-turns", "1"}, {"--include-partial-messages"}} {
 		_, err := InteractivePlan(args, nil)
 		check(t, err != nil && strings.Contains(err.Error(), "Sessionbus Grok lane"), "headless accepted: %#v", args)
@@ -66,9 +71,27 @@ func TestInteractivePlan(t *testing.T) {
 		check(t, slices.Equal(plan.Args, args) && environment(plan.Env, ManagedEnv) == "", "native command wrapped: %#v", plan)
 	}
 	for _, args := range [][]string{nil, {"--always-approve"}, {"--always-approve", "--permission-mode=default"}, {"--permission-mode", "default", "--always-approve"}, {"--permission-mode", "custom-native-value"}} {
-		check(t, slices.Equal(interactivePolicy(args), args), "explicit native policy rewritten: %#v", args)
+		policy, err := interactivePolicy(args)
+		must(t, err)
+		check(t, slices.Equal(policy, appendGrant(args...)), "explicit native policy rewritten: %#v", policy)
 	}
-	check(t, len(interactivePolicy([]string{"--", "--always-approve"})) == 0, "post-delimiter operand selected policy")
+	policy, err := interactivePolicy([]string{"--", "--always-approve"})
+	must(t, err)
+	check(t, slices.Equal(policy, sessionbusLeaderPolicy()), "post-delimiter operand selected policy: %#v", policy)
+}
+
+func TestManagedDenyRejectedBeforeNativeStart(t *testing.T) {
+	root := testsocket.Directory(t)
+	recordPath := filepath.Join(t.TempDir(), "record")
+	t.Setenv("GROK_TEST_RECORD", recordPath)
+	plan := host.ExecPlan{
+		Path: "grok",
+		Args: []string{"--deny", "MCPTool(sessionbus__sessionbus)"},
+		Env:  []string{ManagedEnv + "=launch", host.SocketEnv + "=" + filepath.Join(root, "sessionbus.sock")},
+	}
+	err := RunInteractive(context.Background(), plan)
+	check(t, err != nil && strings.Contains(err.Error(), "disables the managed Sessionbus tool"), "managed deny = %v", err)
+	check(t, len(records(t, recordPath)) == 0, "managed deny started native Grok: %s", records(t, recordPath))
 }
 
 func TestNativeTitleEventsRefreshPeerWithoutDelivery(t *testing.T) {
@@ -371,7 +394,7 @@ func TestInteractiveLauncherOwnsLeaderHoldAndTUI(t *testing.T) {
 	<-fileReady(started)
 	waitFrame(t, recordPath, "authenticate", 1)
 	frames := records(t, recordPath)
-	foundArgs := false
+	foundTUI, foundLeader := false, false
 	for _, raw := range frames {
 		var start struct {
 			Kind  string `json:"kind"`
@@ -384,10 +407,16 @@ func TestInteractiveLauncherOwnsLeaderHoldAndTUI(t *testing.T) {
 			index := slices.Index(start.Value.Arguments, "--model")
 			check(t, index >= 0 && index+1 < len(start.Value.Arguments) && start.Value.Arguments[index+1] == "--yolo", "native model value rewritten: %q", start.Value.Arguments)
 			check(t, !slices.Contains(start.Value.Arguments, "--always-approve"), "model value selected native bypass: %q", start.Value.Arguments)
-			foundArgs = true
+			foundTUI = true
+		}
+		if start.Kind == "START" && slices.Contains(start.Value.Arguments, "agent") && slices.Contains(start.Value.Arguments, "leader") {
+			check(t, slices.Contains(start.Value.Arguments, "--allow") && slices.Contains(start.Value.Arguments, "MCPTool(sessionbus__sessionbus)"), "private leader omitted exact Sessionbus grant: %q", start.Value.Arguments)
+			check(t, !slices.Contains(start.Value.Arguments, "--always-approve"), "model value selected private-leader bypass: %q", start.Value.Arguments)
+			foundLeader = true
 		}
 	}
-	check(t, foundArgs, "native interactive argv missing")
+	check(t, foundTUI && foundLeader, "native interactive topology missing: tui=%t leader=%t", foundTUI, foundLeader)
+	check(t, countStartsContaining(frames, "--allow", "MCPTool(sessionbus__sessionbus)") == 1, "Sessionbus grant escaped the one private leader")
 	clients := peerClientPIDs(t, frames)
 	check(t, len(clients) == 1 && slices.Equal(peerClientMethods(frames, clients[0]), []string{"initialize", "authenticate"}), "startup hold was not the only quiet ACP client: %#v", frames)
 	check(t, countFrames(frames, "_x.ai/sessions/list") == 0, "launcher queried the roster")
@@ -459,6 +488,8 @@ func TestInteractiveLauncherReturnsProductExit(t *testing.T) {
 
 func TestLeaderCreatesDefaultStateRoot(t *testing.T) {
 	root := filepath.Join(testsocket.Directory(t), "state")
+	recordPath := filepath.Join(t.TempDir(), "record")
+	t.Setenv("GROK_TEST_RECORD", recordPath)
 	t.Setenv(host.SocketEnv, "")
 	t.Setenv("XDG_RUNTIME_DIR", root)
 	socket := sessionkit.Socket()
@@ -466,6 +497,7 @@ func TestLeaderCreatesDefaultStateRoot(t *testing.T) {
 	leader, err := startLeader(context.Background(), socket, host.LaunchTokenDigest(testSessionID), t.TempDir(), "default", os.Environ())
 	must(t, err)
 	check(t, grokSocketReady(leaderSocket(socket, host.LaunchTokenDigest(testSessionID))), "leader socket was not created")
+	check(t, containsStart(records(t, recordPath), "--allow", "MCPTool(sessionbus__sessionbus)", "--permission-mode", "default", "agent", "leader"), "lane leader policy missing: %s", records(t, recordPath))
 	must(t, closeNative("leader", leader))
 }
 
