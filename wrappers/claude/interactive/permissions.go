@@ -24,10 +24,10 @@ func ValidateManagedToolArguments(arguments []string) error {
 			values := []string(nil)
 			if attached {
 				values = append(values, attachedValue)
-			} else if index+1 < len(arguments) && arguments[index+1] != "--" {
+			} else if index+1 < len(arguments) {
 				index++
 				values = append(values, arguments[index])
-				for index+1 < len(arguments) && arguments[index+1] != "--" && !claudeOptionLike(arguments[index+1]) {
+				for arguments[index] != "--" && index+1 < len(arguments) && arguments[index+1] != "--" && !claudeOptionLike(arguments[index+1]) {
 					index++
 					values = append(values, arguments[index])
 				}
@@ -37,7 +37,7 @@ func ValidateManagedToolArguments(arguments []string) error {
 			}
 			continue
 		}
-		if !attached && claudeOptionTakesValue(option) && index+1 < len(arguments) && arguments[index+1] != "--" {
+		if !attached && claudeOptionTakesValue(option) && index+1 < len(arguments) {
 			// The first value of a native value-taking option remains data even
 			// when it begins with a dash. Do not reinterpret it as our guard.
 			index++
