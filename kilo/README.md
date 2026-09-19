@@ -82,7 +82,11 @@ assistant history, and has no wrapper silence deadline. Ordinary deliveries
 received while active or idle remain unsent as `queued_for_next_turn` until the
 next explicit Run. Seed input is handled by that Run. Interactive and lane
 permission behavior differs: unattended lane questions/permissions are rejected
-under the selected lane contract, without a global permission override.
+under the selected lane contract. Omitted or `default` permission mode inherits
+native policy. Explicit `permission_mode=bypassPermissions` supplies the native
+session wildcard allow rule on creation or resume, preserving native hard guards
+and leaving installation-wide configuration unchanged. This explicit caller choice
+is separate from the Sessionbus custom tool, which executes directly in either mode.
 
 Model selection follows native configuration or explicit `open.model` with a
 native provider/model value. The wrapper does not inherit a displayed TUI model

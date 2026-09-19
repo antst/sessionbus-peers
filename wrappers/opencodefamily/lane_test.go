@@ -398,6 +398,10 @@ func newWorkerKindFixture(t *testing.T, kind nativeKind, decorate func(*Wrapper)
 }
 func newWorkerRequestFixture(t *testing.T, kind nativeKind, decorate func(*Wrapper) kit.WorkerCallbacks, resume string) *workerFixture {
 	t.Helper()
+	return newWorkerOpenPolicyFixture(t, kind, decorate, resume, "")
+}
+func newWorkerOpenPolicyFixture(t *testing.T, kind nativeKind, decorate func(*Wrapper) kit.WorkerCallbacks, resume, permission string) *workerFixture {
+	t.Helper()
 	dir := testsocket.Directory(t)
 	socket := filepath.Join(dir, "bus.sock")
 	l, err := net.Listen("unix", socket)
@@ -480,7 +484,7 @@ func newWorkerRequestFixture(t *testing.T, kind nativeKind, decorate func(*Wrapp
 		t.Fatal(ctx.Err())
 	}
 	var opened kit.OpenResult
-	f.call(t, "session.open", kit.OpenRequest{Name: "lane@local", Groups: []string{}, ResumeSessionID: resume, Open: kit.OpenOptions{Cwd: t.TempDir()}}, &opened)
+	f.call(t, "session.open", kit.OpenRequest{Name: "lane@local", Groups: []string{}, ResumeSessionID: resume, Open: kit.OpenOptions{Cwd: t.TempDir(), PermissionMode: permission}}, &opened)
 	if opened.SessionID != "ses_native" {
 		t.Fatal(opened)
 	}

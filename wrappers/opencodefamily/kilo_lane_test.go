@@ -42,7 +42,7 @@ func TestKiloLanePolicyAndNativeDefaults(t *testing.T) {
 	if err != nil || hello.Product != "kilo-peer" || !hello.SupportsMessageRun {
 		t.Fatalf("hello=%+v/%v", hello, err)
 	}
-	for _, mode := range []string{"bypassPermissions", "plan"} {
+	for _, mode := range []string{"plan", "unknown"} {
 		if _, _, _, err := launchArgumentsFor(kiloNative, kit.OpenOptions{PermissionMode: mode}); err == nil {
 			t.Fatalf("unsupported Kilo policy accepted: %s", mode)
 		}
@@ -60,6 +60,47 @@ func TestKiloLanePolicyAndNativeDefaults(t *testing.T) {
 		t.Fatalf("native default policy replaced: %s", raw)
 	}
 	closeKiloFixture(t, f)
+}
+
+func TestKiloExplicitLaneBypassUsesNativeSessionPolicy(t *testing.T) {
+	for _, resume := range []string{"", "ses_native"} {
+		for _, mode := range []string{"", "default", "bypassPermissions"} {
+			t.Run(resume+"/"+mode, func(t *testing.T) {
+				f := newWorkerOpenPolicyFixture(t, kiloNative, nil, resume, mode)
+				t.Cleanup(func() { f.p.stopKiloChild(true) })
+				raw, err := f.p.client.call(f.ctx, "GET", "/fixture/state", nil, 200)
+				if err != nil {
+					t.Fatal(err)
+				}
+				var state struct {
+					Permission              []map[string]string
+					Creates, Loads, Patches int
+				}
+				if err := json.Unmarshal(raw, &state); err != nil {
+					t.Fatal(err)
+				}
+				if mode == "bypassPermissions" {
+					if len(state.Permission) != 1 || len(state.Permission[0]) != 3 || state.Permission[0]["permission"] != "*" || state.Permission[0]["pattern"] != "*" || state.Permission[0]["action"] != "allow" {
+						t.Fatalf("explicit bypass missing native rule: %s", raw)
+					}
+				} else if state.Permission != nil {
+					t.Fatalf("inherited native policy replaced: %s", raw)
+				}
+				if resume == "" {
+					if state.Creates != 1 || state.Patches != 0 {
+						t.Fatalf("fresh path: %s", raw)
+					}
+				} else if state.Creates != 0 || state.Loads != 1 || state.Patches != 1 {
+					t.Fatalf("resume path: %s", raw)
+				}
+				f.start(t, 1, "healthy")
+				if result := f.wait(t, 1); result.Result == nil || result.Result.Outcome != "completed" {
+					t.Fatalf("native session unusable: %+v", result)
+				}
+				closeKiloFixture(t, f)
+			})
+		}
+	}
 }
 
 func TestKiloActiveStageDoesNotWriteUntilNextOwnedRun(t *testing.T) {
