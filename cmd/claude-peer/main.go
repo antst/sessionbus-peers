@@ -8,18 +8,24 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/antst/sessionbus-peers/internal/peerversion"
 	"github.com/antst/sessionbus-peers/wrappers/claude"
 	"github.com/antst/sessionbus-peers/wrappers/claude/interactive"
 	kit "github.com/antst/sessionbus/bus/sdk/go"
 )
 
 func main() {
-	if err := run(); err != nil {
+	arguments, report, handled := peerversion.Resolve("claude-peer", os.Args[0], os.Args[1:])
+	if handled {
+		fmt.Fprintln(os.Stdout, report)
+		return
+	}
+	if err := run(arguments); err != nil {
 		fmt.Fprintln(os.Stderr, "claude-peer:", err)
 		os.Exit(1)
 	}
 }
-func run() error {
+func run(arguments []string) error {
 	ctx := context.Background()
 	switch filepath.Base(os.Args[0]) {
 	case interactive.PrivateAlias:
@@ -40,9 +46,9 @@ func run() error {
 		return claude.InitialReport(ctx, endpoint, os.Getenv("CLAUDE_PID"), os.Stdin)
 	}
 	if _, workerMode := os.LookupEnv("SESSIONBUS_LAUNCH_TOKEN"); !workerMode {
-		return interactive.Launch(os.Args[1:])
+		return interactive.Launch(arguments)
 	}
-	if len(os.Args) != 1 {
+	if len(arguments) != 0 {
 		return errors.New("lane worker arguments belong in session.open")
 	}
 	root, err := interactive.InstalledRoot()

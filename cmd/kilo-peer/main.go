@@ -9,15 +9,22 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 
+	"github.com/antst/sessionbus-peers/internal/peerversion"
 	"github.com/antst/sessionbus-peers/wrappers/host"
 	"github.com/antst/sessionbus-peers/wrappers/kilo"
 	sessionkit "github.com/antst/sessionbus/bus/sdk/go"
 )
 
 func main() {
+	arguments, report, handled := peerversion.Resolve("kilo-peer", filepath.Base(os.Args[0]), os.Args[1:])
+	if handled {
+		fmt.Fprintln(os.Stdout, report)
+		return
+	}
 	signals := []os.Signal{os.Interrupt, syscall.SIGTERM, syscall.SIGHUP}
 	if !host.LaneMode() {
 		// Native TUI receives foreground terminal SIGINT itself. Observing it
@@ -29,7 +36,7 @@ func main() {
 	}
 	ctx, cancel := signal.NotifyContext(context.Background(), signals...)
 	defer cancel()
-	if err := run(ctx, os.Args[1:]); err != nil {
+	if err := run(ctx, arguments); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		code := 1
 		var native *exec.ExitError

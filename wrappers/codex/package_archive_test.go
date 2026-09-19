@@ -54,8 +54,13 @@ func TestCodexArchiveContainsOneArtifactAndOneGenericSkill(t *testing.T) {
 			regular = append(regular, h.Name)
 			if h.Name == "marketplace/codex/.codex-plugin/plugin.json" {
 				var m struct{ Name, Version string }
-				if json.NewDecoder(reader).Decode(&m) != nil || m.Name != "codex" || !strings.HasPrefix(m.Version, "0.5.0-codex.g") {
+				if json.NewDecoder(reader).Decode(&m) != nil || m.Name != "codex" || !strings.HasPrefix(m.Version, "0.5.2-codex.g") {
 					t.Fatalf("manifest=%+v", m)
+				}
+			} else if h.Name == "SOURCE.txt" {
+				body, err := io.ReadAll(reader)
+				if err != nil || len(strings.TrimSpace(string(body))) != 40 {
+					t.Fatalf("SOURCE.txt=%q err=%v", body, err)
 				}
 			}
 		default:
@@ -63,7 +68,7 @@ func TestCodexArchiveContainsOneArtifactAndOneGenericSkill(t *testing.T) {
 		}
 	}
 	sort.Strings(regular)
-	want := []string{"LICENSE", "ROLE", "THIRD-PARTY-NOTICES.txt", "README.md", "bin/codex-peer", "install", "marketplace/.agents/plugins/marketplace.json", "marketplace/codex/.codex-plugin/plugin.json", "marketplace/codex/.mcp.json", "marketplace/codex/skills/sessionbus/SKILL.md", "uninstall"}
+	want := []string{"LICENSE", "ROLE", "SOURCE.txt", "THIRD-PARTY-NOTICES.txt", "README.md", "bin/codex-peer", "install", "marketplace/.agents/plugins/marketplace.json", "marketplace/codex/.codex-plugin/plugin.json", "marketplace/codex/.mcp.json", "marketplace/codex/skills/sessionbus/SKILL.md", "uninstall"}
 	sort.Strings(want)
 	if !reflect.DeepEqual(regular, want) {
 		t.Fatalf("regular payload=%q", regular)
@@ -104,6 +109,9 @@ func main(){if filepath.Base(os.Args[0])!="codex-peer-install"||len(os.Args)!=2{
 		}
 	}
 	if err := os.WriteFile(filepath.Join(payload, "LICENSE"), []byte("fixture license"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(payload, "SOURCE.txt"), []byte(strings.Repeat("a", 40)+"\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	wanted := filepath.Join(payload, "marketplace", "codex", "skills", "sessionbus", "SKILL.md")
@@ -154,5 +162,8 @@ func main(){if filepath.Base(os.Args[0])!="codex-peer-install"||len(os.Args)!=2{
 	expected, err := filepath.EvalSymlinks(filepath.Join(packagePath, "bin", "codex-peer"))
 	if err != nil || public != expected {
 		t.Fatalf("public bin=%q %v", public, err)
+	}
+	if b, err := os.ReadFile(filepath.Join(packagePath, "SOURCE.txt")); err != nil || string(b) != strings.Repeat("a", 40)+"\n" {
+		t.Fatalf("installed source=%q %v", b, err)
 	}
 }

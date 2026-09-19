@@ -11,15 +11,21 @@ import (
 	"path/filepath"
 	"syscall"
 
+	"github.com/antst/sessionbus-peers/internal/peerversion"
 	"github.com/antst/sessionbus-peers/wrappers/codex"
 	"github.com/antst/sessionbus-peers/wrappers/host"
 	sessionkit "github.com/antst/sessionbus/bus/sdk/go"
 )
 
 func main() {
+	arguments, report, handled := peerversion.Resolve("codex-peer", os.Args[0], os.Args[1:])
+	if handled {
+		fmt.Fprintln(os.Stdout, report)
+		return
+	}
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
-	if err := run(ctx, os.Args[1:]); err != nil {
+	if err := run(ctx, arguments); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}

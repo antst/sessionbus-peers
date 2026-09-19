@@ -9,8 +9,10 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 
+	"github.com/antst/sessionbus-peers/internal/peerversion"
 	"github.com/antst/sessionbus-peers/wrappers/host"
 	"github.com/antst/sessionbus-peers/wrappers/pi"
 	sessionkit "github.com/antst/sessionbus/bus/sdk/go"
@@ -30,9 +32,14 @@ func (s piCaughtSignal) Error() string           { return "caught " + s.signal.S
 func (s piCaughtSignal) CaughtSignal() os.Signal { return s.signal }
 
 func main() {
+	arguments, report, handled := peerversion.Resolve("pi-peer", filepath.Base(os.Args[0]), os.Args[1:])
+	if handled {
+		fmt.Fprintln(os.Stdout, report)
+		return
+	}
 	ctx, stop := piProcessContext(host.LaneMode())
 	defer stop()
-	if err := run(ctx, os.Args[1:], piTerminal(os.Stdin), piTerminal(os.Stdout)); err != nil {
+	if err := run(ctx, arguments, piTerminal(os.Stdin), piTerminal(os.Stdout)); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		code := 1
 		var native *exec.ExitError

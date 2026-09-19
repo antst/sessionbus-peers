@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"syscall"
 
+	"github.com/antst/sessionbus-peers/internal/peerversion"
 	"github.com/antst/sessionbus-peers/wrappers/grok"
 	"github.com/antst/sessionbus-peers/wrappers/host"
 	"github.com/antst/sessionbus-peers/wrappers/mcp"
@@ -21,6 +22,11 @@ import (
 )
 
 func main() {
+	arguments, report, handled := peerversion.Resolve("grok-peer", os.Args[0], os.Args[1:])
+	if handled {
+		fmt.Fprintln(os.Stdout, report)
+		return
+	}
 	ctx, cancel := context.WithCancelCause(context.Background())
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
@@ -32,7 +38,7 @@ func main() {
 		case <-ctx.Done():
 		}
 	}()
-	if err := runEntry(ctx, filepath.Base(os.Args[0]), os.Args[1:]); err != nil {
+	if err := runEntry(ctx, filepath.Base(os.Args[0]), arguments); err != nil {
 		cancel(nil)
 		var exited *exec.ExitError
 		if errors.As(err, &exited) {
