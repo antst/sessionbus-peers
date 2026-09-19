@@ -49,6 +49,23 @@ native presentation and policy. The exec-tier allow remains unchanged. A new
 installed ordinary interactive check is required to verify this correction;
 the previous failed attempt is not relabeled or replayed.
 
+The first direct-tool lane check of `817879c` exposed a separate schema issue:
+native `openai-codex/gpt-5.5` supplied defaults for all optional union argument
+fields. The public validator rejected those foreign fields; no message was
+delivered. Preserve that failure separately from the earlier approval failure.
+
+Declare `strict: false` on this tool. Native
+`extensibility/extensions/types.ts:643-645` documents explicit false as distinct
+from omission, and the wrappers forward the property. In the same source,
+`packages/ai/src/providers/openai-codex-responses.ts:4744-4752` emits explicit
+`strict: false` only when the definition supplies it (unless the native global
+strict-field suppression is selected). `packages/ai/src/utils/schema/CONSTRAINTS.md:56`
+records optional-field overfill on backends when the flag is omitted. This
+tool-local setting preserves the public optional-field schema and validation;
+it does not remove unexpected arguments or change any other tool. Registration
+tests cover lane, primary and Task-child definitions; fresh installed results
+are still needed to verify actual model calls.
+
 ## Historical product facts
 
 ### Explicit bypass compatibility and earlier working implementation

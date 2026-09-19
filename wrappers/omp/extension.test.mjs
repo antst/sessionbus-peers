@@ -241,6 +241,7 @@ test("lane primary reports ready and preflight before routing its exact tool ide
   await start(extension, native, owner);
   assert.deepEqual(native.pi.tool.approval, { tier: "exec", policy: "allow" });
   assert.equal(native.pi.tool.loadMode, "essential");
+  assert.equal(native.pi.tool.strict, false);
 
   const preflight = await native.emit("before_agent_start", { type: "before_agent_start", prompt: "expanded prompt" }, native.context());
   assert.equal(preflight, undefined);
@@ -475,6 +476,8 @@ test("Task child receives a separate owner and cannot request primary shutdown",
   assert.deepEqual(child.pi.tool.approval, { tier: "exec", policy: "allow" });
   assert.equal(primary.pi.tool.loadMode, "essential");
   assert.equal(child.pi.tool.loadMode, "essential");
+  assert.equal(primary.pi.tool.strict, false);
+  assert.equal(child.pi.tool.strict, false);
   await child.emit("session_start");
   await owner.waitFor((calls) => calls.filter((call) => call.method === "owner.ready").length === 2);
   const childReady = owner.calls.filter((call) => call.method === "owner.ready")[1].params;
