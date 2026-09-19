@@ -27,6 +27,15 @@ Pi's native `--name` option remains available for the native session title.
 Native maintenance, help, version, print/export commands, and non-terminal
 stdin or stdout run directly without managed ownership.
 
+A managed interactive launch requires the exact `sessionbus` extension tool.
+The wrapper therefore rejects an effective tool selection that removes it:
+`--no-tools` without an overriding `--tools` list containing `sessionbus`, an
+explicit `--tools` list that omits it, or `--exclude-tools` containing it.
+Other tool selections and project-trust arguments remain native-owned and
+unchanged. These checks do not apply to the direct native paths above.
+For managed interactive launches, the wrapper alias `--yolo` selects Pi's
+native `--approve`; an explicit native `--approve` remains unchanged.
+
 Daemon-owned lanes are selected by the Sessionbus launch token and accept no
 command-line arguments. The lane exposes the standard Sessionbus tool from the
 real native Pi session through the per-launch extension. Installation alone

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/antst/sessionbus-peers/wrappers/host"
@@ -101,6 +102,27 @@ func TestPiTTYRoutesManagedAndNativeInvocations(t *testing.T) {
 	}
 	if err := run(context.Background(), []string{"--help"}, true, true); err == nil || err.Error() != "native fixture" {
 		t.Fatalf("native run = %v", err)
+	}
+}
+
+func TestPiTTYRejectsDisabledManagedToolBeforeNativeLaunch(t *testing.T) {
+	resetPiCommandHooks(t)
+	unsetPiLaneMode(t)
+	launched := false
+	piRunInteractive = func(context.Context, host.ExecPlan, string) error {
+		launched = true
+		return nil
+	}
+	piExecNative = func(string, []string, []string) error {
+		launched = true
+		return nil
+	}
+	if err := run(context.Background(), []string{"--tools", "read,bash"}, true, true); err == nil ||
+		!strings.Contains(err.Error(), "disables managed Pi Sessionbus tool") {
+		t.Fatalf("managed disable = %v", err)
+	}
+	if launched {
+		t.Fatal("managed Pi native was launched after tool-disable rejection")
 	}
 }
 
