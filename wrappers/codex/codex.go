@@ -128,11 +128,11 @@ func (p *Wrapper) Open(ctx context.Context, request sessionkit.OpenRequest) (res
 		}
 	}()
 	nativeCtx := p.ctx
-	arguments, err := processArguments(request.Open.Arguments)
+	arguments, nativeBypass, err := laneArguments(request.Open.Arguments)
 	if err != nil {
 		return sessionkit.OpenResult{}, err
 	}
-	approval, sandbox, err := permission(request.Open.PermissionMode)
+	approval, sandbox, err := permission(request.Open.PermissionMode, nativeBypass)
 	if err != nil {
 		return sessionkit.OpenResult{}, err
 	}

@@ -94,9 +94,14 @@ consuming and acknowledged separately. Persistence, automatic close and idle
 message policy are independent; see the installed generic skill for their exact
 fields and collection rules.
 
-Omitted `permission_mode` inherits Codex policy. An explicit value is passed as
-the native approval-policy string, without substituting `never` or a sandbox
-policy. A headless lane has no human approval recipient; unsupported native
+Omitted or `default` `permission_mode` inherits Codex policy. Other native
+approval-policy strings pass through without changing the inherited sandbox.
+The explicit `bypassPermissions` value, lane `--yolo`, and lane
+`--dangerously-bypass-approvals-and-sandbox` select App Server approval `never`
+and sandbox `danger-full-access`; the TUI-only flags are consumed before the
+App Server process is launched. Combining a raw bypass flag with a different
+explicit policy is rejected as contradictory. A headless lane has no human
+approval recipient; unsupported native
 approval requests fail truthfully. Normal close ends stdin, drains native output
 and waits for the direct native process. Hard failure uses forced cleanup; this
 does not promise containment of arbitrary native tool descendants.
@@ -109,8 +114,9 @@ alongside plugin activation. The entry grants the one Sessionbus tool and all
 of its public actions; it does not change the approval policy, sandbox, or any
 other tool. `--yolo` still maps to native
 `--dangerously-bypass-approvals-and-sandbox`, and that global caller choice is
-preserved alongside the fixed tool grant. Native `strict_auto_review` has a
-separate policy path.
+preserved alongside the fixed tool grant. Lanes project the equivalent policy
+through App Server's thread and turn fields because its command does not accept
+the TUI flag. Native `strict_auto_review` has a separate policy path.
 
 Caller config remains byte-preserved. Assignments that disable plugin
 activation, remove Sessionbus from `enabled_tools`, add it to `disabled_tools`,

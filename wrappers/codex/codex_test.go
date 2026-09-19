@@ -86,6 +86,62 @@ func TestWrapperFreshOpenAndClose(t *testing.T) {
 	}
 }
 
+func TestWrapperLaneBypassUsesAppServerPolicy(t *testing.T) {
+	t.Setenv("GO_WANT_CODEX_PROCESS", "1")
+	evidence := filepath.Join(t.TempDir(), "child.json")
+	t.Setenv("CODEX_TEST_EVIDENCE", evidence)
+	workspace := t.TempDir()
+	t.Setenv("CODEX_TEST_CWD", workspace)
+	original := laneCommand
+	laneCommand = func(_ string, arguments ...string) *exec.Cmd {
+		return exec.Command(os.Args[0], append([]string{"-test.run=TestCodexProcess", "--"}, arguments...)...)
+	}
+	t.Cleanup(func() { laneCommand = original })
+	p := New()
+	p.SetCall(func(context.Context, string, any) (json.RawMessage, error) { return json.RawMessage(`{}`), nil })
+	result, err := p.Open(context.Background(), sessionkit.OpenRequest{
+		Name: "parent/bypass@host",
+		Open: sessionkit.OpenOptions{
+			Cwd:       workspace,
+			Arguments: []string{"--enable", "feature", codexNativeBypass},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.SessionID != "thread-1" {
+		t.Fatalf("session = %q", result.SessionID)
+	}
+	if err = p.Close(context.Background(), sessionkit.SessionCloseRequest{}); err != nil {
+		t.Fatal(err)
+	}
+	var observed struct {
+		Args  []string
+		Calls []appRequest
+	}
+	body, err := os.ReadFile(evidence)
+	if err != nil || json.Unmarshal(body, &observed) != nil {
+		t.Fatalf("evidence = %s, %v", body, err)
+	}
+	if slices.Contains(observed.Args, codexNativeBypass) || !slices.Contains(observed.Args, sessionbusApprovalConfig) {
+		t.Fatalf("native arguments = %q", observed.Args)
+	}
+	seen := map[string]bool{}
+	for _, call := range observed.Calls {
+		if call.Method != "thread/start" && call.Method != "thread/resume" {
+			continue
+		}
+		var params map[string]any
+		if json.Unmarshal(call.Params, &params) != nil || params["approvalPolicy"] != "never" || params["sandbox"] != "danger-full-access" {
+			t.Fatalf("%s params = %s", call.Method, call.Params)
+		}
+		seen[call.Method] = true
+	}
+	if !seen["thread/start"] || !seen["thread/resume"] {
+		t.Fatalf("policy-bearing calls = %v", seen)
+	}
+}
+
 func TestCodexProcess(t *testing.T) {
 	if os.Getenv("GO_WANT_CODEX_PROCESS") != "1" {
 		return
@@ -132,7 +188,8 @@ func TestCodexProcess(t *testing.T) {
 			}
 			startup := first(os.Getenv("CODEX_TEST_STARTUP_STATUS"), "ready")
 			_ = encoder.Encode(map[string]any{"method": "mcpServer/startupStatus/updated", "params": map[string]string{"threadId": "thread-1", "name": "sessionbus", "status": startup}})
-			result = map[string]any{"thread": map[string]string{"id": "thread-1", "name": title}, "cwd": os.Getenv("CODEX_TEST_CWD"), "approvalPolicy": "never", "sandbox": map[string]string{"type": "readOnly"}}
+			approval, sandbox := effectiveTestPolicy(request.Params)
+			result = map[string]any{"thread": map[string]string{"id": "thread-1", "name": title}, "cwd": os.Getenv("CODEX_TEST_CWD"), "approvalPolicy": approval, "sandbox": map[string]string{"type": sandbox}}
 		case "thread/name/set":
 			var params struct{ Name string }
 			_ = json.Unmarshal(request.Params, &params)
@@ -140,12 +197,29 @@ func TestCodexProcess(t *testing.T) {
 		case "mcpServerStatus/list":
 			result = map[string]any{"data": []any{map[string]any{"name": "sessionbus", "pluginId": "codex@sessionbus-peers", "runtimeStatus": "connected", "tools": map[string]any{"sessionbus": map[string]string{"name": "sessionbus"}}}}}
 		case "thread/resume":
-			result = map[string]any{"thread": map[string]string{"id": "thread-1", "name": title}, "cwd": os.Getenv("CODEX_TEST_CWD"), "approvalPolicy": "never", "sandbox": map[string]string{"type": "readOnly"}}
+			approval, sandbox := effectiveTestPolicy(request.Params)
+			result = map[string]any{"thread": map[string]string{"id": "thread-1", "name": title}, "cwd": os.Getenv("CODEX_TEST_CWD"), "approvalPolicy": approval, "sandbox": map[string]string{"type": sandbox}}
 		}
 		if request.ID != 0 {
 			_ = encoder.Encode(map[string]any{"id": request.ID, "result": result})
 		}
 	}
+}
+
+func effectiveTestPolicy(raw json.RawMessage) (string, string) {
+	var params struct {
+		ApprovalPolicy string `json:"approvalPolicy"`
+		Sandbox        string `json:"sandbox"`
+	}
+	_ = json.Unmarshal(raw, &params)
+	approval, sandbox := "never", "readOnly"
+	if params.ApprovalPolicy != "" {
+		approval = params.ApprovalPolicy
+	}
+	if params.Sandbox == "danger-full-access" {
+		sandbox = "dangerFullAccess"
+	}
+	return approval, sandbox
 }
 
 func TestAbnormalRunCarriesNothingIntoReopen(t *testing.T) {
@@ -314,6 +388,40 @@ func TestLaneRunSteerAndTerminal(t *testing.T) {
 	if err != nil || result.Outcome != "completed" || result.Result != want || len(result.Result) != 3522 || result.NativeStopReason != "completed" {
 		t.Fatalf("terminal = %#v, %v", result, err)
 	}
+}
+
+func TestLaneBypassTurnUsesAppServerPolicy(t *testing.T) {
+	p, server := testLane(t)
+	p.sandbox = "danger-full-access"
+	started := make(chan host.Turn, 1)
+	errors := make(chan error, 1)
+	go func() {
+		turn, err := p.start(context.Background(), "bypass")
+		if err != nil {
+			errors <- err
+			return
+		}
+		started <- turn
+	}()
+	request := readAppRequest(t, server)
+	var params struct {
+		ApprovalPolicy string `json:"approvalPolicy"`
+		SandboxPolicy  struct {
+			Type string `json:"type"`
+		} `json:"sandboxPolicy"`
+	}
+	if request.Method != "turn/start" || json.Unmarshal(request.Params, &params) != nil || params.ApprovalPolicy != "never" || params.SandboxPolicy.Type != "dangerFullAccess" {
+		t.Fatalf("turn/start = %s %s", request.Method, request.Params)
+	}
+	writeApp(t, server, map[string]any{"id": request.ID, "result": map[string]any{"turn": map[string]any{"id": "turn-bypass", "status": "inProgress"}}})
+	writeRaw(t, server, `{"method":"turn/started","params":{"threadId":"thread-1","turn":{"id":"turn-bypass","status":"inProgress"}}}`)
+	var native host.Turn
+	select {
+	case err := <-errors:
+		t.Fatal(err)
+	case native = <-started:
+	}
+	p.clear(native.(*turn))
 }
 
 func TestTerminalFinalAnswerProjection(t *testing.T) {

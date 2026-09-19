@@ -19,12 +19,45 @@ import (
 
 var peerDaemonCommand = exec.CommandContext
 
+const codexNativeBypass = "--dangerously-bypass-approvals-and-sandbox"
+
 // These are native App Server arguments, validated by Codex itself.
 func processArguments(arguments []string) ([]string, error) {
 	if err := validateManagedConfig(arguments); err != nil {
 		return nil, err
 	}
 	return append([]string(nil), arguments...), nil
+}
+
+// laneArguments consumes the TUI-only bypass spelling before starting App
+// Server. Earlier lane dispatch canonicalized this flag to permission_mode;
+// App Server instead accepts the equivalent policy through thread and turn
+// requests. Known scalar option values and post-- operands retain their bytes.
+func laneArguments(arguments []string) ([]string, bool, error) {
+	arguments, err := processArguments(arguments)
+	if err != nil {
+		return nil, false, err
+	}
+	native := make([]string, 0, len(arguments))
+	bypass := false
+	for index := 0; index < len(arguments); index++ {
+		argument := arguments[index]
+		if argument == "--" {
+			native = append(native, arguments[index:]...)
+			break
+		}
+		if argument == codexNativeBypass || argument == "--yolo" {
+			bypass = true
+			continue
+		}
+		native = append(native, argument)
+		key, _, attached := strings.Cut(argument, "=")
+		if !attached && codexOptionTakesValue(key) && index+1 < len(arguments) && arguments[index+1] != "--" {
+			index++
+			native = append(native, arguments[index])
+		}
+	}
+	return native, bypass, nil
 }
 
 var managedConfigPaths = [][]string{
@@ -160,7 +193,22 @@ func codexTOMLString(value string) string {
 	// Native Codex falls back to a trimmed raw string when TOML parsing fails.
 	return strings.Trim(strings.TrimSpace(value), `"'`)
 }
-func permission(value string) (string, string, error) { return value, "", nil }
+func permission(value string, nativeBypass bool) (string, string, error) {
+	switch value {
+	case "", "default":
+		if nativeBypass {
+			return "never", "danger-full-access", nil
+		}
+		return "", "", nil
+	case "bypassPermissions":
+		return "never", "danger-full-access", nil
+	default:
+		if nativeBypass {
+			return "", "", fmt.Errorf("permission_mode=%s conflicts with %s", value, codexNativeBypass)
+		}
+		return value, "", nil
+	}
+}
 
 func namePart(name string) (string, error) {
 	index := strings.LastIndexByte(name, '@')

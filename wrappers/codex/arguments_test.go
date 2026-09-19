@@ -158,26 +158,61 @@ func TestManagedGrantCoexistsWithYoloAndNativeBypass(t *testing.T) {
 		}
 	}
 
-	lane, err := processArguments([]string{"--model", "native", bypass, "-c", `model="caller"`})
-	if err != nil {
-		t.Fatal(err)
+	for _, selected := range []string{"--yolo", bypass} {
+		lane, nativeBypass, err := laneArguments([]string{"--model", "native", selected, "-c", `model="caller"`})
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := append(append([]string{"app-server", "--stdio"}, ActivationArguments()...), lane...)
+		want := append(append([]string{"app-server", "--stdio"}, ActivationArguments()...), "--model", "native", "-c", `model="caller"`)
+		if !nativeBypass || !slices.Equal(got, want) {
+			t.Fatalf("managed lane selection=%q bypass=%t arguments=%q want=%q", selected, nativeBypass, got, want)
+		}
+		approval, sandbox, err := permission("", nativeBypass)
+		if err != nil || approval != "never" || sandbox != "danger-full-access" {
+			t.Fatalf("managed lane selection=%q policy=%q,%q err=%v", selected, approval, sandbox, err)
+		}
 	}
-	got := append(append([]string{"app-server", "--stdio"}, ActivationArguments()...), lane...)
-	want := append(append([]string{"app-server", "--stdio"}, ActivationArguments()...), "--model", "native", bypass, "-c", `model="caller"`)
-	if !slices.Equal(got, want) {
-		t.Fatalf("managed lane arguments=%q want=%q", got, want)
+}
+
+func TestLaneBypassPreservesValuesAndBoundary(t *testing.T) {
+	const bypass = "--dangerously-bypass-approvals-and-sandbox"
+	for _, test := range []struct {
+		arguments []string
+		want      []string
+		bypass    bool
+	}{
+		{[]string{"--model", bypass, "--enable", "feature"}, []string{"--model", bypass, "--enable", "feature"}, false},
+		{[]string{"--model=native", bypass, "--enable", "feature"}, []string{"--model=native", "--enable", "feature"}, true},
+		{[]string{"--", bypass, "--yolo"}, []string{"--", bypass, "--yolo"}, false},
+		{[]string{bypass + "=true"}, []string{bypass + "=true"}, false},
+	} {
+		got, selected, err := laneArguments(test.arguments)
+		if err != nil || selected != test.bypass || !slices.Equal(got, test.want) {
+			t.Fatalf("laneArguments(%q) = %q, %t, %v; want %q, %t", test.arguments, got, selected, err, test.want, test.bypass)
+		}
 	}
 }
 
 func TestPermissionAndName(t *testing.T) {
-	for _, test := range []struct{ input, approval, sandbox, failure string }{
-		{"", "", "", ""}, {"default", "default", "", ""},
-		{"bypassPermissions", "bypassPermissions", "", ""},
-		{"ask", "ask", "", ""},
+	for _, test := range []struct {
+		input, approval, sandbox, failure string
+		bypass                            bool
+	}{
+		{input: ""}, {input: "default"},
+		{input: "bypassPermissions", approval: "never", sandbox: "danger-full-access"},
+		{input: "", bypass: true, approval: "never", sandbox: "danger-full-access"},
+		{input: "never", approval: "never"},
+		{input: "on-request", approval: "on-request"},
+		{input: "untrusted", approval: "untrusted"},
+		{input: "never", bypass: true, failure: "permission_mode=never conflicts with " + codexNativeBypass},
 	} {
-		approval, sandbox, err := permission(test.input)
+		approval, sandbox, err := permission(test.input, test.bypass)
 		if approval != test.approval || sandbox != test.sandbox || (err != nil && err.Error() != test.failure) {
-			t.Fatalf("permission(%q) = %q, %q, %v", test.input, approval, sandbox, err)
+			t.Fatalf("permission(%q, %t) = %q, %q, %v", test.input, test.bypass, approval, sandbox, err)
+		}
+		if test.failure != "" && err == nil {
+			t.Fatalf("permission(%q, %t) unexpectedly succeeded", test.input, test.bypass)
 		}
 	}
 	if got, err := namePart("parent/leaf@host"); err != nil || got != "parent/leaf" {

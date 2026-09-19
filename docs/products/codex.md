@@ -44,6 +44,18 @@ behavior are historical integration choices, not current Codex limitations.
   `d21cb1c60785d6d3a84a7059323ccafc45c645b1bbda281c76a62d66ad2d7dc3`).
   It adds no transitive module, executable, service, configuration, or runtime
   installation dependency.
+- Native 0.153.4 `AppServerCommand` does not define the TUI
+  `--dangerously-bypass-approvals-and-sandbox` flag
+  (`codex-rs/cli/src/main.rs:546-595`). The TUI maps that flag to approval
+  `Never` and sandbox `DangerFullAccess` separately (`main.rs:2212-2225`). App
+  Server accepts those settings on `thread/start` and converts them to native
+  config overrides
+  (`codex-rs/app-server/src/request_processors/thread_processor.rs:1116-1192,1604-1631`).
+  The 0.4.0 lane likewise canonicalized the raw flag to `bypassPermissions`
+  before dispatch and mapped bypass to `never` plus `danger-full-access`
+  (`ff81565:cmd/agent-sessions/lane.go:280` and
+  `ff81565:internal/products/codex/lane.go:156`). Current lanes retain that
+  policy projection and never pass the TUI flag to App Server.
 - On installed aaea430/native0.153.4, idle `thread/inject_items` staging received
   `queued_for_next_turn`; the marker appeared in native user history before any
   assistant response and was consumed in the following explicit run. The
