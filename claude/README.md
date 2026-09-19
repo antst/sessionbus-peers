@@ -87,11 +87,19 @@ Native `-n`, `--resume`, repeated flags and errors remain Claude's own. After
 native `--`, every argument is passed through literally, including `-g` and
 `--yolo`.
 
+A caller-provided `--disallowedTools` / `--disallowed-tools` rule that names
+the exact managed Sessionbus tool fails before either topology starts. Other
+deny rules, values owned by other native options and operands after `--` remain
+unchanged. Ambient native policy can still refuse the tool; the wrapper reports
+that refusal and does not replay the call.
+
 Ordinary `claude` stays ordinary. The wrapper loads the whole plugin only for
 this launch. An unconfigured plain nested `claude` stays ordinary; use an
 explicit `claude-peer` invocation with its own `-g` for an integrated child.
-The one Sessionbus skill describes the actual public `sessionbus` tool. Native
-permissions can deny that tool; the allow rule does not bypass native policy.
+The one Sessionbus skill describes the actual public `sessionbus` tool. The
+fixed one-tool grant coexists with `--yolo` and Claude's native
+`--dangerously-skip-permissions`; unrelated native permission and sandbox
+behavior stays unchanged.
 
 Before the first native hook, the MCP owner observes Claude's own record for
 its exact live parent process. Where that native registry is available, the
@@ -185,6 +193,8 @@ finish its turn successfully. The adapter does not substitute `dontAsk` or a
 bypass. Callers may explicitly choose `open.permission_mode` or native
 `open.arguments`; those values are passed to Claude. Prefer a rule for the
 specific command needed over a broad grant. Native policy remains authoritative.
+An exact launch-argument denial of the managed Sessionbus tool is rejected as
+an unusable lane rather than starting a lane with communications muted.
 
 Installed Open, public list, staging, active consumption, interruption,
 configuration and independent lanes have been checked at their recorded scope.
