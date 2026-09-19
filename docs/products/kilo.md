@@ -36,8 +36,29 @@ The restoration accepts only `bypassPermissions` in addition to omitted/default;
 ordinary operation sends no permission override. Fresh and resumed lanes use the
 existing native session API. No global config, automatic permission replies, or
 Sessionbus custom-tool behavior is changed. Controlled fake-native tests cover
-both paths and default inheritance; installed checks on this correction remain
-pending.
+both paths and default inheritance.
+
+## Installed restoration checks
+
+On native Kilo 7.6.2, permanent candidate
+`66ebd5338c98ec478794981953fdc66c190d1d56` passed Sessionbus list/send checks
+for ordinary and explicit-bypass lanes, ordinary peer, and peer `--yolo`.
+Each send had a settled injected receipt and direct receiver observation;
+Sessionbus requested no approval. Owned sessions/processes were cleaned up and
+the daemon remained healthy.
+
+The ordinary peer's unrelated file command raised a native permission prompt.
+The operator intended to reject it but accidentally selected Allow once; native
+recorded `approved by you`, and the owned marker file was created, hashed, and
+removed. The prompt establishes that the unrelated tool remained gated. The
+intended rejection check is inconclusive, was not repeated, and is not claimed
+as a pass.
+
+Evidence: `/home/antst/sessionbus-evidence/opencode-kilo-installed-acceptance-dev1-20260919`,
+`KILO-SHA256SUMS` SHA-256
+`a546c14478cd60fbf741c6581f21cd0fdd9b47eaaff63b5eb6eb169b4e6499ff`
+(21 verified payloads); `KILO-OBSERVATIONS.md` SHA-256
+`72d57632d2e3804a10d009b7a157890cae43bf66851ef770594b0a2f8b29d132`.
 
 ## Historical 0.4 evidence
 
