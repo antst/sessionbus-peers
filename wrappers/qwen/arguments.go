@@ -40,9 +40,9 @@ func appendManagedQwenGrant(arguments []string) []string {
 
 // validateManagedQwenArguments rejects only caller controls that would make
 // the managed server or its one public tool unavailable. All other native
-// policy stays caller-owned. Required-value options consume their following
-// token even when it looks like a flag, matching the existing Qwen argument
-// projection rather than reinterpreting another option's value.
+// policy stays caller-owned. Array and scalar options stop at native option
+// boundaries, so a flag-looking token is never reinterpreted as another
+// option's value.
 func validateManagedQwenArguments(arguments []string) error {
 	serverBound := false
 	serverAllowed := false
@@ -78,10 +78,9 @@ func validateManagedQwenArguments(arguments []string) error {
 			continue
 		}
 		if !attached && containsQwenOption(qwenRequiredValueOptions, name) {
-			if index+1 == len(arguments) {
-				return errors.New(argument + " requires a value")
+			if index+1 < len(arguments) && qwenScalarArgument(arguments[index+1]) {
+				index++
 			}
-			index++
 		}
 	}
 	if serverBound && !serverAllowed {
@@ -105,6 +104,10 @@ func qwenManagedArrayOption(name string) string {
 
 func qwenArrayArgument(argument string) bool {
 	return argument != "--" && (!strings.HasPrefix(argument, "-") || qwenNegativeNumber.MatchString(argument))
+}
+
+func qwenScalarArgument(argument string) bool {
+	return !strings.HasPrefix(argument, "-") || qwenNegativeNumber.MatchString(argument)
 }
 
 func containsQwenOption(options []string, wanted string) bool {

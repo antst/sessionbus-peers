@@ -259,16 +259,17 @@ func TestOpenValueAndArgumentErrors(t *testing.T) {
 		{sessionkit.OpenOptions{ReasoningEffort: "high"}, "unsupported value reasoning_effort=high"},
 		{sessionkit.OpenOptions{Arguments: []string{"--resume=x"}}, "argument conflicts with typed field session_id"},
 		{sessionkit.OpenOptions{Arguments: []string{"--"}}, "argument conflicts with typed field arguments"},
+		{sessionkit.OpenOptions{Arguments: []string{"query"}}, "unsupported argument query"},
 	} {
 		_, err := launchArguments(test.open)
 		check(t, err != nil && err.Error() == test.want, "error = %v", err)
 	}
 	arguments, err := launchArguments(sessionkit.OpenOptions{Arguments: []string{"--system-prompt", "--resume"}})
 	must(t, err)
-	check(t, reflect.DeepEqual(arguments, []string{"--acp", "--allowed-tools", managedQwenTool, "--system-prompt", "--resume"}), "arguments = %#v", arguments)
+	check(t, reflect.DeepEqual(arguments, []string{"--acp", "--system-prompt", "--resume", "--allowed-tools", managedQwenTool}), "arguments = %#v", arguments)
 	arguments, err = launchArguments(sessionkit.OpenOptions{Arguments: []string{"--telemetry"}})
 	must(t, err)
-	check(t, reflect.DeepEqual(arguments, []string{"--acp", "--allowed-tools", managedQwenTool, "--telemetry"}), "telemetry arguments = %#v", arguments)
+	check(t, reflect.DeepEqual(arguments, []string{"--acp", "--telemetry", "--allowed-tools", managedQwenTool}), "telemetry arguments = %#v", arguments)
 	_, err = launchArguments(sessionkit.OpenOptions{Arguments: []string{"--telemetry-enabled"}})
 	check(t, err != nil && err.Error() == "unsupported argument --telemetry-enabled", "telemetry-enabled error = %v", err)
 }
@@ -295,7 +296,7 @@ func TestOpenResumeUsesCapturedACPShapesAndScrubsBusEnv(t *testing.T) {
 	check(t, result.SessionID == fixtureID, "open = %#v", result)
 	var child map[string]any
 	must(t, json.Unmarshal(mustRead(t, record), &child))
-	check(t, reflect.DeepEqual(child["args"], []any{"--acp", "--allowed-tools", managedQwenTool, "--yolo", "-m", "model", "--screen-reader"}), "args = %#v", child["args"])
+	check(t, reflect.DeepEqual(child["args"], []any{"--acp", "--yolo", "-m", "model", "--screen-reader", "--allowed-tools", managedQwenTool}), "args = %#v", child["args"])
 	check(t, child["lane_socket"] == "", "legacy lane socket reached native: %#v", child["lane_socket"])
 	for _, name := range []string{host.SocketEnv, host.LocalKeyEnv, host.TokenEnv, host.SessionIDEnv, host.NameEnv, host.GroupsEnv} {
 		check(t, child[name] == "", "%s reached child: %#v", name, child)

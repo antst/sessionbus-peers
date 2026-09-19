@@ -300,14 +300,15 @@ func launchArguments(open sessionkit.OpenOptions) ([]string, error) {
 	if err = validateManagedQwenArguments(extra); err != nil {
 		return nil, err
 	}
-	arguments := append([]string{"--acp"}, managedQwenGrant()...)
+	arguments := []string{"--acp"}
 	if open.PermissionMode == "bypassPermissions" {
 		arguments = append(arguments, "--yolo")
 	}
 	if open.Model != "" {
 		arguments = append(arguments, "-m", open.Model)
 	}
-	return append(arguments, extra...), nil
+	arguments = append(arguments, extra...)
+	return append(arguments, managedQwenGrant()...), nil
 }
 
 var argumentConflicts = map[string]string{
