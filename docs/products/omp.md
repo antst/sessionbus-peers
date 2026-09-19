@@ -1,5 +1,11 @@
 # Oh My Pi product facts
 
+> Historical source note: citations to pre-split Sessionbus paths resolve in
+> the Forgejo `ai/sessionbus` repository through its `legacy-*` branches.
+> Citations to product source resolve in the external repository and full
+> commit recorded by the split archive manifest. Host evidence paths are
+> immutable external artifacts, not repository paths.
+
 ## OMP 18.1.17 tool approval source audit (2026-09-19)
 
 The following facts come from native commit
@@ -22,10 +28,9 @@ acceptance run.
   because their names match. Sources: `packages/coding-agent/src/main.ts:1343-1348`
   and `packages/coding-agent/src/sdk.ts:3293-3305`. The managed lane already
   reserves its tool-selection arguments.
-- The installed gate remains outstanding: primary peer, native Task child and
-  lane must send a marker with a receipt and receiver observation under
-  `always-ask`, while an unrelated mutating tool still requires approval.
-  Source inspection and registration tests alone do not establish that result.
+- The installed results below verify primary peer, native Task child and lane
+  communication under ordinary policy and preserve an unrelated mutating
+  tool's approval. Source inspection alone does not establish those results.
 
 ### Native device transport and the first installed grant check
 
@@ -45,8 +50,7 @@ Register Sessionbus with the native `loadMode: "essential"` so it is exposed
 directly. `extensibility/extensions/types.ts:634-636` documents this choice,
 `extensions/wrapper.ts:47-48` preserves it, and `tools/xdev.ts:84-87` plus
 `sdk.ts:3350-3362` keep essential tools top-level. Other tools retain their
-native presentation and policy. The exec-tier allow remains unchanged. A new
-installed ordinary interactive check is required to verify this correction;
+native presentation and policy. The exec-tier allow remains unchanged. The fresh installed checks below verify the correction;
 the previous failed attempt is not relabeled or replayed.
 
 The first direct-tool lane check of `817879c` exposed a separate schema issue:
@@ -63,8 +67,30 @@ strict-field suppression is selected). `packages/ai/src/utils/schema/CONSTRAINTS
 records optional-field overfill on backends when the flag is omitted. This
 tool-local setting preserves the public optional-field schema and validation;
 it does not remove unexpected arguments or change any other tool. Registration
-tests cover lane, primary and Task-child definitions; fresh installed results
-are still needed to verify actual model calls.
+tests cover lane, primary and Task-child definitions.
+
+## Installed communication checks (2026-09-19)
+
+Candidate `d84c4e1c27a89b14a94882a29d054b869ca9f396` was installed through
+its ordinary archive installer into UMKA's permanent installation, with native
+OMP 18.1.17 and `openai-codex/gpt-5.5`. Ordinary lane, primary peer and native
+Task-child calls listed their identities and sent unique markers with settled
+`injected` receipts and direct receiver observation. Calls used top-level
+`sessionbus` with sparse action arguments. An unrelated native write still
+prompted under `always-ask`; declining it returned `Tool call denied by user:
+write`, and the file was absent. Explicit bypass lane and primary `--yolo`
+checks also delivered their markers. This does not claim a Task-child bypass
+check on this final candidate.
+
+The earlier Write-transport approval failure, optional-field overfill failure,
+and an earlier bypass primary/Task check with no shared receiver group remain
+recorded separately. No successful delivery is attributed to those failed
+checks. All owned sessions and processes were cleaned up; the daemon stayed
+healthy. Evidence is sealed at `omp-comms-grant-installed-20260919`:
+`SHA256SUMS` SHA256
+`79909c0a7661bcb06463ade2a7f6f74017edfa80eac8735f16e609577172ed93`;
+`OBSERVATIONS.json` SHA256
+`d4816f982810ddaa3105d5eddd5e4de6e23f701967bb8b08136ed14224e17d47`.
 
 ## Historical product facts
 
@@ -72,7 +98,7 @@ are still needed to verify actual model calls.
 
 The earlier `ff81565:internal/products/omp/permission.go:15-23` mapped explicit
 `bypassPermissions` to `--approval-mode=yolo`. Its shared extension registered
-`agent_sessions` without a tool-owned approval declaration
+its then-current public tool without a tool-owned approval declaration
 (`ff81565:integrations/pi/pifamily.mjs:100-115`). Retain the explicit bypass
 behavior; do not infer that this legacy path proved a narrow default grant.
 
@@ -89,14 +115,7 @@ The UMKA help-only capture on 2026-09-19 confirms OMP 18.1.17 and
 `--auto-approve` / `--approval-mode` at lines 57-58 of `omp-help.stdout` in
 `umka-native-version-preflight-20260919` (evidence manifest SHA256
 `708fa0f5b37f28098c8d3fa08a75ad349a280e92c7d0b80a087768d931d5da78`).
-This is surface evidence. Installed send/receipt and receiver observations,
-including explicit bypass, remain outstanding.
-
-> Historical source note: citations to pre-split Sessionbus paths resolve in
-> the Forgejo `ai/sessionbus` repository through its `legacy-*` branches.
-> Citations to product source resolve in the external repository and full
-> commit recorded by the split archive manifest. Host evidence paths are
-> immutable external artifacts, not repository paths.
+This capture is surface evidence; the installed results below are separate.
 
 Current integration: see [Pi/OMP design](../designs/pi-omp-0.5.0/DESIGN.md) and
 [acceptance status](../designs/pi-omp-0.5.0/ACCEPTANCE.md) for native 18.1.17.
