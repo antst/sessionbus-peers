@@ -4,6 +4,11 @@ This development/beta build publishes all eight peer archives for Linux and macO
 
 ## Changes
 
+- All eight public peer commands report the peers release and exact source
+  revision without starting the native product. `--native-version` is the
+  explicit native-version escape outside lane mode. Stable packaging rejects
+  drift between the release tag, central release version, Claude manifest and
+  Codex plugin base, and each installed product retains its `SOURCE.txt`.
 - Claude can publish before its first prompt by observing the exact native parent registry. The existing native hooks take permanent authority at their first usable report; unavailable registries retain hook-based startup. No dummy turn is generated.
 
 - Claude interactive messages restore the structured envelope used by its compact sender display, instead of displaying native peer-origin prose as an ordinary user message. Native model-input guidance remains Claude's own.

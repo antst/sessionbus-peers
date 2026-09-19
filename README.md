@@ -102,7 +102,29 @@ Maintainers build Claude/Codex using `scripts/package-claude` and
 `scripts/package-codex`. For other products use
 `scripts/package-product PRODUCT OUTPUT_DIRECTORY`. The `Binary releases`
 workflow builds all eight for four platforms, publishes development after its tests and builds pass, and publishes a stable release when a new `vX.Y.Z` tag is pushed. Release
-archives record their exact source in the accompanying `SOURCE.txt`.
+archives record their exact source in both the published and packaged
+`SOURCE.txt`. Installers retain the packaged file under
+`~/.local/libexec/sessionbus/<product>/SOURCE.txt`.
+
+## Version reporting
+
+Every public peer command reports the peer release and exact source revision
+without starting its native product:
+
+```text
+claude-peer --version
+claude-peer v0.5.2 (<revision>)
+```
+
+`--version` works for all eight commands. The native short version flag is
+also intercepted: `-v` for Claude, Grok, Kilo, OpenCode, Qwen, Pi and OMP;
+`-V` for Codex. Use exact `--native-version` to request the native product's
+own `--version` outside lane mode. Lane workers reject that escape, and private
+MCP, broker, hook and installer aliases retain their existing argument rules.
+
+Development builds print `development` with their VCS revision. A stable build
+fails before packaging unless its `vX.Y.Z` tag, [`RELEASE_VERSION`](RELEASE_VERSION),
+Claude plugin version and Codex plugin base version all agree.
 
 ## Delivery and presence
 

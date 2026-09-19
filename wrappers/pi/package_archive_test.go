@@ -10,6 +10,7 @@ import (
 	"reflect"
 	"runtime"
 	"sort"
+	"strings"
 	"testing"
 
 	"github.com/antst/sessionbus-peers/internal/testsocket"
@@ -31,7 +32,7 @@ func TestPiArchiveInstallsOnlyTheManagedLaunchPayload(t *testing.T) {
 		t.Fatalf("extract Pi: %v\n%s", err, output)
 	}
 	wantFiles := []string{
-		"LICENSE", "README.md", "ROLE", "THIRD-PARTY-NOTICES.txt", "install", "pi-peer",
+		"LICENSE", "README.md", "ROLE", "SOURCE.txt", "THIRD-PARTY-NOTICES.txt", "install", "pi-peer",
 		"plugin/pi/extension.mjs", "plugin/pi/native.mjs", "plugin/pifamily/extension/bridge.mjs",
 	}
 	if got := piArchiveFiles(t, extracted); !reflect.DeepEqual(got, wantFiles) {
@@ -48,6 +49,9 @@ func TestPiArchiveInstallsOnlyTheManagedLaunchPayload(t *testing.T) {
 	}
 	if body, err := os.ReadFile(filepath.Join(extracted, "ROLE")); err != nil || string(body) != "pi\n" {
 		t.Fatalf("archive role = %q (%v)", body, err)
+	}
+	if body, err := os.ReadFile(filepath.Join(extracted, "SOURCE.txt")); err != nil || len(strings.TrimSpace(string(body))) != 40 {
+		t.Fatalf("archive source = %q (%v)", body, err)
 	}
 
 	home, tools := testsocket.Directory(t), testsocket.Directory(t)

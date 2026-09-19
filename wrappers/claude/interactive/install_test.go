@@ -93,6 +93,9 @@ func TestInstalledArchiveExecAndPrivateMCP(t *testing.T) {
 	if !reflect.DeepEqual(skills, []string{"plugin/skills/sessionbus/SKILL.md"}) {
 		t.Fatal(skills)
 	}
+	if source, err := os.ReadFile(filepath.Join(install, "SOURCE.txt")); err != nil || len(strings.TrimSpace(string(source))) != 40 {
+		t.Fatalf("archive source=%q err=%v", source, err)
+	}
 	binary := filepath.Join(install, "claude-peer")
 	private := filepath.Join(install, "plugin/bin/"+PrivateAlias)
 	resolved, err := filepath.EvalSymlinks(private)

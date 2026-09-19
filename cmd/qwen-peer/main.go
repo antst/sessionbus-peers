@@ -12,12 +12,18 @@ import (
 	"path/filepath"
 	"syscall"
 
+	"github.com/antst/sessionbus-peers/internal/peerversion"
 	"github.com/antst/sessionbus-peers/wrappers/host"
 	"github.com/antst/sessionbus-peers/wrappers/qwen"
 	sessionkit "github.com/antst/sessionbus/bus/sdk/go"
 )
 
 func main() {
+	arguments, report, handled := peerversion.Resolve("qwen-peer", filepath.Base(os.Args[0]), os.Args[1:])
+	if handled {
+		fmt.Fprintln(os.Stdout, report)
+		return
+	}
 	signals := []os.Signal{os.Interrupt, syscall.SIGTERM}
 	if filepath.Base(os.Args[0]) != qwen.PrivateAlias && !host.LaneMode() {
 		// Native TUI and launcher share the foreground process group. Native
@@ -30,7 +36,7 @@ func main() {
 	}
 	ctx, cancel := signal.NotifyContext(context.Background(), signals...)
 	defer cancel()
-	if err := runEntry(ctx, filepath.Base(os.Args[0]), os.Args[1:]); err != nil {
+	if err := runEntry(ctx, filepath.Base(os.Args[0]), arguments); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		code := 1
 		var native *exec.ExitError
