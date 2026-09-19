@@ -216,7 +216,7 @@ func testLiteralNativeArchive(t *testing.T, product string) {
 	if err := json.Unmarshal(b, &manifest); err != nil {
 		t.Fatal(err)
 	}
-	if manifest.Bin != nil || len(manifest.Dependencies) != 1 || manifest.Dependencies["@sessionbus/kit"] != "https://pkg.pr.new/@sessionbus/kit@3a5f964c80052fe19a002d4f4cc50f2333c2f168" {
+	if manifest.Bin != nil || len(manifest.Dependencies) != 1 || manifest.Dependencies["@sessionbus/kit"] != "0.5.5" {
 		t.Fatal("wrong installed dependency or installer", manifest)
 	}
 	remove := exec.Command(filepath.Join(root, product+"-peer"), "--sessionbus-install", "--remove")

@@ -23,7 +23,7 @@ import (
 const (
 	peersModule             = "github.com/antst/sessionbus-peers"
 	sdkModule               = "github.com/antst/sessionbus/bus/sdk/go"
-	sdkVersion              = "v0.1.0-pre.2.0.20260919205916-3a5f964c8005"
+	sdkVersion              = "v0.5.5"
 	citationCount           = 259
 	citationReachabilitySHA = "92eda86500493840c3a6e234c6c7b5674ef5fb8a77b213757400c1311582a5be"
 	factsHeader             = "> Historical source note: citations to pre-split Sessionbus paths resolve in\n> the Forgejo `ai/sessionbus` repository through its `legacy-*` branches.\n> Citations to product source resolve in the external repository and full\n> commit recorded by the split archive manifest. Host evidence paths are\n> immutable external artifacts, not repository paths."
@@ -222,7 +222,7 @@ func testNativePackageBoundary(t *testing.T, product string) {
 	if manifest.Repository.Type != "git" || manifest.Repository.URL != "git+https://github.com/antst/sessionbus-peers.git" || manifest.Repository.Directory != product {
 		t.Errorf("Native repository metadata is invalid: %#v", manifest.Repository)
 	}
-	if len(manifest.Dependencies) != 1 || manifest.Dependencies["@sessionbus/kit"] != "https://pkg.pr.new/@sessionbus/kit@3a5f964c80052fe19a002d4f4cc50f2333c2f168" || strings.HasPrefix(manifest.Dependencies["@sessionbus/kit"], "file:") {
+	if len(manifest.Dependencies) != 1 || manifest.Dependencies["@sessionbus/kit"] != "0.5.5" || strings.HasPrefix(manifest.Dependencies["@sessionbus/kit"], "file:") {
 		t.Errorf("Native kit dependency is not exact: %q", manifest.Dependencies["@sessionbus/kit"])
 	}
 	workflow := read(t, ".github/workflows/pkg-pr-new.yml")

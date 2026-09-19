@@ -37,6 +37,6 @@
     "directory": "kilo"
   },
   "dependencies": {
-    "@sessionbus/kit": "https://pkg.pr.new/@sessionbus/kit@3a5f964c80052fe19a002d4f4cc50f2333c2f168"
+    "@sessionbus/kit": "0.5.5"
   }
 }
