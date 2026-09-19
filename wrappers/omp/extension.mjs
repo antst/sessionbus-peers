@@ -747,6 +747,13 @@ export function createOMPExtension({ launch, connect = connectBridge, createToke
       label: "Sessionbus",
       description: toolDescription,
       parameters: toolParameters(),
+      // The public action envelope has optional fields. Native providers must
+      // receive explicit non-strict mode rather than synthesize absent fields.
+      strict: false,
+      // Sessionbus includes mutating actions and delegation; keep the honest
+      // exec tier while granting only this tool in every managed factory.
+      loadMode: "essential",
+      approval: { tier: "exec", policy: "allow" },
       async execute(callID, params, signal, _onUpdate, ctx) {
         throwIfAborted(signal);
         const state = localState(factory, ctx);

@@ -475,6 +475,67 @@ func TestNativeOwnerInteractiveUsesTerminalAndExtensionReadiness(t *testing.T) {
 	}
 }
 
+func TestNativeOwnerBypassRetainsManagedExtension(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		lane bool
+		args []string
+	}{
+		{"lane", true, nil},
+		{"peer-yolo", false, []string{"--yolo"}},
+		{"peer-auto-approve", false, []string{"--auto-approve"}},
+		{"peer-approval-mode", false, []string{"--approval-mode=yolo"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			options, capturePath := nativeOwnerFixture(t, "")
+			var listener net.Listener
+			var err error
+			if test.lane {
+				options.Arguments, err = ompLaneArguments(kit.OpenOptions{PermissionMode: "bypassPermissions"}, "")
+				if err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				plan, passthrough, err := InteractivePlan(options.Native, test.args, nil)
+				if err != nil || passthrough {
+					t.Fatalf("plan = %#v, %t, %v", plan, passthrough, err)
+				}
+				options.Arguments = plan.Args[1:]
+				listener = ownerBusListener(t)
+				options.DaemonSocket = listener.Addr().String()
+				options.Topology = ownerTopologyInteractive
+				options.PrimaryCaller = nil
+				options.NativeObserver = nil
+			}
+			owner, err := StartNativeOwner(nativeOwnerTestContext(t), options)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if listener != nil {
+				conn, scanner := ownerAccept(t, listener)
+				ownerHello(t, conn, scanner)
+			}
+			waitNativeOwnerReady(t, owner)
+			if err = owner.Close(nativeOwnerTestContext(t)); err != nil {
+				t.Fatal(err)
+			}
+			var capture ompNativeOwnerCapture
+			body, err := os.ReadFile(capturePath)
+			if err != nil || json.Unmarshal(body, &capture) != nil {
+				t.Fatalf("capture = %q, %v", body, err)
+			}
+			want := []string{options.Native.RuntimePath, options.Native.EntryPath, "--extension", options.Extension}
+			if test.lane {
+				want = append(want, "--mode", "rpc-ui", "--allow-home")
+			}
+			want = append(want, options.Arguments...)
+			if !slices.Equal(capture.Args, want) {
+				t.Fatalf("argv = %#v, want %#v", capture.Args, want)
+			}
+		})
+	}
+}
+
 func TestNativeOwnerRequiresObserverOnlyForLane(t *testing.T) {
 	options, _ := nativeOwnerFixture(t, "")
 	options.NativeObserver = nil
