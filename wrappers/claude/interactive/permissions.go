@@ -27,7 +27,7 @@ func ValidateManagedToolArguments(arguments []string) error {
 			} else if index+1 < len(arguments) {
 				index++
 				values = append(values, arguments[index])
-				for arguments[index] != "--" && index+1 < len(arguments) && arguments[index+1] != "--" && !claudeOptionLike(arguments[index+1]) {
+				for index+1 < len(arguments) && !claudeOptionLike(arguments[index+1]) {
 					index++
 					values = append(values, arguments[index])
 				}
