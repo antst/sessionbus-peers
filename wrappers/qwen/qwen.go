@@ -297,7 +297,10 @@ func launchArguments(open sessionkit.OpenOptions) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	arguments := []string{"--acp"}
+	if err = validateManagedQwenArguments(extra); err != nil {
+		return nil, err
+	}
+	arguments := append([]string{"--acp"}, managedQwenGrant()...)
 	if open.PermissionMode == "bypassPermissions" {
 		arguments = append(arguments, "--yolo")
 	}
@@ -313,7 +316,7 @@ var argumentConflicts = map[string]string{
 	"-c": "session_id", "--continue": "session_id", "--session-id": "session_id",
 	"-p": "arguments", "--prompt": "arguments", "-i": "arguments", "--prompt-interactive": "arguments",
 	"-o": "arguments", "--output-format": "arguments", "-n": "name", "--name": "name", "--": "arguments",
-	"--safe-mode": "mcp", "--allowed-mcp-server-names": "mcp", "--mcp-config": "mcp", "--allowed-tools": "mcp",
+	"--safe-mode": "mcp", "--mcp-config": "mcp",
 	"--chat-recording": "session_id", "--json-fd": "stream", "--json-file": "stream", "--input-file": "stream",
 	"--fork-session": "session_id", "--worktree": "cwd",
 }

@@ -59,9 +59,10 @@ func TestInteractiveNativeOwnedAliases(t *testing.T) {
 	for _, args := range [][]string{{"--chatRecording=true"}, {"--chatRecording", "true"}, {"--chat-recording=true"}} {
 		plan, err := InteractivePlan(args, nil)
 		must(t, err)
-		check(t, strings.Join(plan.Args, "|") == strings.Join(args, "|"), "changed native true spelling: %q", plan.Args)
+		want := append(managedQwenGrant(), args...)
+		check(t, strings.Join(plan.Args, "|") == strings.Join(want, "|"), "changed native true spelling: %q", plan.Args)
 	}
 	plan, err := InteractivePlan([]string{"--", "--no-chat-recording", "--inputFile=x"}, nil)
 	must(t, err)
-	check(t, strings.Join(plan.Args, "|") == "--|--no-chat-recording|--inputFile=x", "changed literal post-boundary args")
+	check(t, strings.Join(plan.Args, "|") == "--allowed-tools|mcp__sessionbus__sessionbus|--|--no-chat-recording|--inputFile=x", "changed literal post-boundary args")
 }

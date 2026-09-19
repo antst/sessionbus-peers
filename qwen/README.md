@@ -32,8 +32,11 @@ The helper forwards the single public tool to that existing Caller.
 Call `mcp__sessionbus__sessionbus` with `{action, arguments}`. Qwen may defer
 the tool behind native `tool_search`; use `select:mcp__sessionbus__sessionbus`
 to discover it. Successful helper initialization proves helper startup only,
-not completed native tool discovery or permission to call a tool. Preserve
-native refusals; do not force a grant or change deferral to obtain success.
+not completed native tool discovery. Every managed peer and lane launch adds
+the exact native grant `--allowed-tools mcp__sessionbus__sessionbus`; it does
+not approve another tool or change sandbox and approval policy. Preserve an
+ambient native refusal and report it without replay rather than broadening the
+grant or changing tool deferral.
 
 Use `describe` with `product:"qwen-peer"` for supported Open fields, and
 `spawn` with a product, child name and explicit `open` object. The current
@@ -41,7 +44,13 @@ fields are cwd, permission_mode, model, reasoning_effort and arguments.
 Omitted/default permission uses native policy; bypassPermissions is an
 explicit caller choice. Model and supported effort values are passed through
 their native configuration paths. Unsupported values and arguments conflicting
-with owned lane controls are rejected. No default permission grant is added.
+with owned lane controls are rejected. Caller `--allowed-tools` entries remain
+additive. If caller arguments set the native immutable
+`--allowed-mcp-server-names` upper bound, it must include `sessionbus`; an
+`--exclude-tools` rule that matches the managed public tool is rejected. Other
+server bounds, tool exclusions, approval settings, and sandbox arguments remain
+native-owned. Explicit bypass keeps both the narrow grant and Qwen's native
+`--yolo` projection.
 
 `start` returns session_id/run_id; `run`, `status` and `wait` read without
 consuming. Receive a done result or report an unavailable reason before `ack`;
@@ -77,6 +86,8 @@ remain native arguments. Native subcommands and help/version pass through. Repea
 `-n`/`--name`/`--peer-name` are wrapper options before `--`; tokens after `--`
 remain untouched. No generated native ID or title resolver is used. Explicit
 native permission arguments remain unchanged and omitted policy stays omitted.
+`--yolo` coexists with the exact managed tool grant; it does not replace that
+grant or change the wrapper's handling of another tool.
 Headless input belongs in a lane. The wrapper reserves `--input-file`,
 `--json-file` and `--json-fd`, and requires native chat recording for titles.
 
@@ -86,7 +97,7 @@ Wrapped `mcpServers` and direct maps retain raw server values, numeric tokens an
 unknown fields. Both caller input and combined output are capped at 65536 UTF-8
 bytes. Duplicate flags, malformed input and an explicit caller `sessionbus`
 server fail clearly. Caller files are never edited. No second config flag,
-all-extension enablement, global toggle or permission grant is introduced.
+all-extension enablement, global toggle or broad permission grant is introduced.
 
 After MCP initialization, the helper reserves an empty exclusive launch claim
 after native env and live launch-ancestry validation, then asynchronously matches the first native
