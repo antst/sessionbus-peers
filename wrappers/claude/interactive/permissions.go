@@ -5,6 +5,7 @@ package interactive
 import (
 	"errors"
 	"strings"
+	"unicode"
 )
 
 var errManagedToolDenied = errors.New("Claude launch arguments cannot deny the managed Sessionbus tool")
@@ -55,7 +56,7 @@ func containsManagedToolRule(values []string) bool {
 		var rule strings.Builder
 		parenthesized := false
 		flush := func() bool {
-			managed := strings.TrimSpace(rule.String()) == PublicTool
+			managed := strings.TrimFunc(rule.String(), ecmaScriptWhitespace) == PublicTool
 			rule.Reset()
 			return managed
 		}
@@ -82,4 +83,15 @@ func containsManagedToolRule(values []string) bool {
 		}
 	}
 	return false
+}
+
+// ecmaScriptWhitespace matches String.prototype.trim: ECMAScript WhiteSpace
+// plus LineTerminator. It deliberately excludes Unicode whitespace such as
+// NEXT LINE that JavaScript leaves in an identifier.
+func ecmaScriptWhitespace(character rune) bool {
+	switch character {
+	case '\t', '\v', '\f', '\n', '\r', '\u2028', '\u2029', '\ufeff':
+		return true
+	}
+	return unicode.Is(unicode.Zs, character)
 }

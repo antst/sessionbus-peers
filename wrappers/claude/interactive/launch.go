@@ -143,19 +143,32 @@ func Launch(args []string) error {
 	return syscall.Exec(native, append([]string{native}, argv...), values)
 }
 
-// Required top-level values from the retained native Claude help (2026-09-08).
+// Required top-level values from Claude 2.1.276's native option scanner.
 // Optional values, including resume, are deliberately absent. Variadic options
 // protect their first required value; native Claude interprets the rest.
 func claudeOptionTakesValue(option string) bool {
 	switch option {
-	case "--add-dir", "--agent", "--agents", "--allowedTools", "--allowed-tools",
-		"--append-system-prompt", "--autocompact", "--betas", "--debug-file",
-		"--disallowedTools", "--disallowed-tools", "--effort", "--environment",
-		"--fallback-model", "--file", "--input-format", "--json-schema", "--max-budget-usd",
-		"--mcp-config", "--model", "--output-format", "--permission-mode", "--permission-prompts",
-		"--plugin-dir", "--plugin-url", "--remote-control-session-name-prefix", "--session-id",
-		"--setting-sources", "--settings", "--system-prompt", "--system-prompt-snapshot",
-		"--tools", "-n", "--name":
+	case "--prefill", "--prefill-b64", "--deep-link-repo", "--deep-link-last-fetch",
+		"--deep-link-cwd-b64", "--handle-uri", "--settings", "--managed-settings",
+		"--setting-sources", "--watch-artifact", "--watch-artifact-no-autoreact",
+		"--team-name", "--agent-id", "--agent-name", "--agent-color", "--parent-session-id",
+		"--agent-type", "--model", "--agent", "--routine", "--effort", "--permission-mode",
+		"--inherit-permission-mode", "--proactivity", "--debug-file", "--system-prompt",
+		"--system-prompt-file", "--append-system-prompt", "--append-system-prompt-file",
+		"--system-prompt-snapshot", "--append-subagent-system-prompt",
+		"--append-subagent-system-prompt-file", "--plan-mode-instructions",
+		"--permission-prompt-tool", "--permission-prompts", "--json-schema", "--fallback-model",
+		"--advisor", "--agents", "--name", "-n", "--allowedTools", "--allowed-tools",
+		"--disallowedTools", "--disallowed-tools", "--tools", "--add-dir", "--mcp-config",
+		"--betas", "--file", "--channels", "--dangerously-load-development-channels",
+		"--plugin-dir", "--plugin-dir-no-mcp", "--plugin-url",
+		"--remote-control-session-name-prefix", "--sdk-url", "--exec", "-m",
+		"--thinking", "--thinking-display", "--max-thinking-tokens", "--max-turns",
+		"--max-budget-usd", "--task-budget", "--autocompact", "--rewind-files",
+		"--resume-session-at", "--resume-drops-turn", "--workload", "--output-format",
+		"--input-format", "--teammate-mode", "--messaging-socket-path", "--session-id",
+		"--environment", "--pool", "--ref", "--on-branch", "--correlation-id",
+		"--forward-home-settings":
 		return true
 	}
 	return false

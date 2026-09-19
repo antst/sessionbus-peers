@@ -50,6 +50,12 @@ func TestManagedToolRuleSplitterMatchesNativeLists(t *testing.T) {
 	if containsManagedToolRule([]string{"OtherTool\t" + PublicTool}) {
 		t.Fatal("native literal-space splitter incorrectly treated a tab as a separator")
 	}
+	if !containsManagedToolRule([]string{"\ufeff" + PublicTool + "\ufeff"}) {
+		t.Fatal("native ECMAScript trim did not remove byte-order marks")
+	}
+	if containsManagedToolRule([]string{"\u0085" + PublicTool}) {
+		t.Fatal("native ECMAScript trim incorrectly removed NEXT LINE")
+	}
 }
 
 func TestInteractiveGuardUsesProjectedNativeArguments(t *testing.T) {
@@ -66,6 +72,36 @@ func TestInteractiveGuardUsesProjectedNativeArguments(t *testing.T) {
 		}
 		if _, _, err := LaunchPlan([]string{group, "team", "--disallowedTools", PublicTool}, nil, "/cwd", "/plugin", 1000); err == nil {
 			t.Fatalf("%s genuine native deny accepted", group)
+		}
+	}
+}
+
+func TestManagedToolGuardPreservesCurrentNativeRequiredValues(t *testing.T) {
+	for _, option := range []string{"--system-prompt-file", "--permission-prompt-tool", "--managed-settings"} {
+		arguments := []string{option, "--disallowedTools", PublicTool}
+		if err := ValidateManagedToolArguments(arguments); err != nil {
+			t.Fatalf("%s flag-looking value rejected: %v", option, err)
+		}
+		projected, _, err := LaunchPlan(arguments, nil, "/cwd", "/plugin", 1000)
+		if err != nil {
+			t.Fatalf("%s interactive value rejected: %v", option, err)
+		}
+		if got := projected[len(projected)-3:]; got[0] != option || got[1] != "--disallowedTools" || got[2] != PublicTool {
+			t.Fatalf("%s native values changed: %q", option, got)
+		}
+	}
+	for _, arguments := range [][]string{{"--channels", "--disallowedTools", PublicTool}} {
+		if err := ValidateManagedToolArguments(arguments); err != nil {
+			t.Fatalf("native values %q rejected: %v", arguments, err)
+		}
+	}
+	for _, arguments := range [][]string{
+		{"--channels", "server", "--disallowedTools", PublicTool},
+		{"--resume", "session", "--disallowedTools", PublicTool},
+		{"--resume", "--disallowedTools", PublicTool},
+	} {
+		if err := ValidateManagedToolArguments(arguments); err == nil {
+			t.Fatalf("genuine native deny accepted after %q", arguments)
 		}
 	}
 }
