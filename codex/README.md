@@ -107,7 +107,10 @@ entry
 `plugins.codex@sessionbus-peers.mcp_servers.sessionbus.tools.sessionbus.approval_mode="approve"`
 alongside plugin activation. The entry grants the one Sessionbus tool and all
 of its public actions; it does not change the approval policy, sandbox, or any
-other tool. Native `strict_auto_review` has a separate policy path.
+other tool. `--yolo` still maps to native
+`--dangerously-bypass-approvals-and-sandbox`, and that global caller choice is
+preserved alongside the fixed tool grant. Native `strict_auto_review` has a
+separate policy path.
 
 Caller config remains byte-preserved except for assignments that overlap the
 managed plugin feature, plugin activation, or native Sessionbus server controls

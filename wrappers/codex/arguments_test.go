@@ -91,6 +91,37 @@ func TestManagedConfigCannotBeReplacedInInteractiveLaunch(t *testing.T) {
 	}
 }
 
+func TestManagedGrantCoexistsWithYoloAndNativeBypass(t *testing.T) {
+	const bypass = "--dangerously-bypass-approvals-and-sandbox"
+	for _, test := range []struct {
+		arguments []string
+		native    []string
+	}{
+		{[]string{"--model", "native", "--yolo", "-c", `model="caller"`}, []string{"--model", "native", bypass, "-c", `model="caller"`}},
+		{[]string{"--model", "native", bypass, "-c", `model="caller"`}, []string{"--model", "native", bypass, "-c", `model="caller"`}},
+	} {
+		options, err := parseInteractiveOptions(test.arguments)
+		if err != nil {
+			t.Fatalf("interactive options arguments=%q err=%v", test.arguments, err)
+		}
+		got := append(ActivationArguments(), options.native...)
+		want := append(ActivationArguments(), test.native...)
+		if !slices.Equal(got, want) {
+			t.Fatalf("managed launch arguments=%q want=%q", got, want)
+		}
+	}
+
+	lane, err := processArguments([]string{"--model", "native", bypass, "-c", `model="caller"`})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := append(append([]string{"app-server", "--stdio"}, ActivationArguments()...), lane...)
+	want := append(append([]string{"app-server", "--stdio"}, ActivationArguments()...), "--model", "native", bypass, "-c", `model="caller"`)
+	if !slices.Equal(got, want) {
+		t.Fatalf("managed lane arguments=%q want=%q", got, want)
+	}
+}
+
 func TestPermissionAndName(t *testing.T) {
 	for _, test := range []struct{ input, approval, sandbox, failure string }{
 		{"", "", "", ""}, {"default", "default", "", ""},
