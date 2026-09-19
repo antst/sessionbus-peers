@@ -10,9 +10,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
-	"strconv"
 	"strings"
 
+	"github.com/BurntSushi/toml"
 	"github.com/antst/sessionbus-peers/wrappers/host"
 	sessionkit "github.com/antst/sessionbus/bus/sdk/go"
 )
@@ -118,7 +118,8 @@ func codexConfigAssignment(value string) ([]string, string, bool) {
 func compatibleManagedConfig(path []string, value string) bool {
 	switch strings.Join(path, ".") {
 	case "features.plugins", "plugins." + PluginID + ".enabled", "plugins." + PluginID + ".mcp_servers.sessionbus.enabled":
-		return value == "true"
+		enabled, ok := codexTOMLBool(value)
+		return ok && enabled
 	case "plugins." + PluginID + ".mcp_servers.sessionbus.enabled_tools":
 		tools, ok := tomlStringArray(value)
 		return ok && slices.Contains(tools, "sessionbus")
@@ -126,92 +127,38 @@ func compatibleManagedConfig(path []string, value string) bool {
 		tools, ok := tomlStringArray(value)
 		return ok && !slices.Contains(tools, "sessionbus")
 	case sessionbusApprovalConfigKey:
-		approval, ok := tomlString(value)
-		return ok && approval == "approve"
+		return codexTOMLString(value) == "approve"
 	}
 	return false
 }
 
-// tomlStringArray accepts the ordinary one-line TOML string arrays used by
-// Codex CLI overrides. Unrecognized TOML stays fail-closed for managed list
-// controls; native Codex continues to own it everywhere else.
+// tomlStringArray uses the same wrapped TOML shape as native Codex. Invalid
+// TOML falls back to a raw string natively, which cannot satisfy a list field.
 func tomlStringArray(value string) ([]string, bool) {
-	value = strings.TrimSpace(value)
-	if len(value) < 2 || value[0] != '[' || value[len(value)-1] != ']' {
-		return nil, false
+	var document struct {
+		Value []string `toml:"_x_"`
 	}
-	value = value[1 : len(value)-1]
-	result := []string{}
-	for {
-		value = trimTOMLArraySpace(value)
-		if value == "" {
-			return result, true
-		}
-		quote := value[0]
-		if quote != '\'' && quote != '"' {
-			return nil, false
-		}
-		end, escaped := 1, false
-		for ; end < len(value); end++ {
-			if quote == '"' && value[end] == '\\' && !escaped {
-				escaped = true
-				continue
-			}
-			if value[end] == quote && !escaped {
-				break
-			}
-			escaped = false
-		}
-		if end == len(value) {
-			return nil, false
-		}
-		item, ok := tomlString(value[:end+1])
-		if !ok {
-			return nil, false
-		}
-		result = append(result, item)
-		value = trimTOMLArraySpace(value[end+1:])
-		if value == "" {
-			return result, true
-		}
-		if value[0] != ',' {
-			return nil, false
-		}
-		value = value[1:]
-	}
+	_, err := toml.Decode("_x_ = "+value, &document)
+	return document.Value, err == nil
 }
 
-func trimTOMLArraySpace(value string) string {
-	for {
-		value = strings.TrimLeft(value, " \t\r\n")
-		if value == "" || value[0] != '#' {
-			return value
-		}
-		newline := strings.IndexByte(value, '\n')
-		if newline < 0 {
-			return ""
-		}
-		value = value[newline+1:]
+func codexTOMLBool(value string) (bool, bool) {
+	var document struct {
+		Value bool `toml:"_x_"`
 	}
+	_, err := toml.Decode("_x_ = "+value, &document)
+	return document.Value, err == nil
 }
 
-func tomlString(value string) (string, bool) {
-	value = strings.TrimSpace(value)
-	if len(value) < 2 || value[0] != value[len(value)-1] {
-		return "", false
+func codexTOMLString(value string) string {
+	var document struct {
+		Value string `toml:"_x_"`
 	}
-	switch value[0] {
-	case '\'':
-		if strings.ContainsAny(value[1:len(value)-1], "'\r\n") {
-			return "", false
-		}
-		return value[1 : len(value)-1], true
-	case '"':
-		decoded, err := strconv.Unquote(value)
-		return decoded, err == nil
-	default:
-		return "", false
+	if _, err := toml.Decode("_x_ = "+value, &document); err == nil {
+		return document.Value
 	}
+	// Native Codex falls back to a trimmed raw string when TOML parsing fails.
+	return strings.Trim(strings.TrimSpace(value), `"'`)
 }
 func permission(value string) (string, string, error) { return value, "", nil }
 

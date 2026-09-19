@@ -29,6 +29,21 @@ behavior are historical integration choices, not current Codex limitations.
   that directory's `SOURCE.json`). The managed installed rows cited here use
   the accepted `plugins` feature through `features.plugins=true`; therefore
   `--disable plugins` is the native spelling of `features.plugins=false`.
+- At that exact native commit, `codex-rs/config/src/mcp_types.rs:68-78`
+  defines `McpServerToolConfig` with only `approval_mode` and
+  `output_token_limit`. It has no `enabled` field. The official source is
+  `https://github.com/openai/codex/blob/3d2ee51ca2d5db578f328aa75e20aa22c0197c9a/codex-rs/config/src/mcp_types.rs`.
+  The managed argument guard therefore reserves the real approval control but
+  does not invent an `enabled` control for a per-tool entry.
+- Managed value checks mirror native `CliConfigOverrides`: decode the wrapped
+  `_x_ = <raw>` TOML value, then fall back to a whitespace-trimmed raw string
+  with leading/trailing quote characters removed when decoding fails
+  (`codex-rs/utils/cli/src/config_override.rs:47-102` at the same commit). The
+  Go implementation uses `github.com/BurntSushi/toml` v1.6.0, a pure-Go MIT
+  library (`COPYING` SHA-256
+  `d21cb1c60785d6d3a84a7059323ccafc45c645b1bbda281c76a62d66ad2d7dc3`).
+  It adds no transitive module, executable, service, configuration, or runtime
+  installation dependency.
 - On installed aaea430/native0.153.4, idle `thread/inject_items` staging received
   `queued_for_next_turn`; the marker appeared in native user history before any
   assistant response and was consumed in the following explicit run. The

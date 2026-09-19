@@ -41,6 +41,7 @@ func TestManagedConfigCannotBeReplacedByCaller(t *testing.T) {
 		{"--config", `plugins.codex@sessionbus-peers.mcp_servers.sessionbus={}`},
 		{"--config", `plugins.codex@sessionbus-peers.mcp_servers.sessionbus.enabled=false`},
 		{"--config", `plugins.codex@sessionbus-peers.mcp_servers.sessionbus.enabled_tools=[]`},
+		{"--config", `plugins.codex@sessionbus-peers.mcp_servers.sessionbus.enabled_tools=[sessionbus]`},
 		{"--config", `plugins.codex@sessionbus-peers.mcp_servers.sessionbus.disabled_tools=["sessionbus"]`},
 		{"--config", `plugins.codex@sessionbus-peers.mcp_servers.sessionbus.tools={}`},
 		{"--config", `plugins.codex@sessionbus-peers.mcp_servers.sessionbus.tools.sessionbus.approval_mode="deny"`},
@@ -77,16 +78,21 @@ func TestManagedConfigCannotBeReplacedByCaller(t *testing.T) {
 func TestManagedConfigPreservesEquivalentEnables(t *testing.T) {
 	for _, arguments := range [][]string{
 		{"-c", `features.plugins=true`},
+		{"-c", "features.plugins=true # retained enabling comment"},
 		{"--config", `plugins.codex@sessionbus-peers.enabled = true`},
 		{"--config", `plugins.codex@sessionbus-peers.mcp_servers.sessionbus.enabled=true`},
 		{"--config", `plugins.codex@sessionbus-peers.mcp_servers.sessionbus.enabled_tools=["other", "sessionbus"]`},
 		{"--config", `plugins.codex@sessionbus-peers.mcp_servers.sessionbus.enabled_tools=['sessionbus']`},
 		{"--config", "plugins.codex@sessionbus-peers.mcp_servers.sessionbus.enabled_tools=[\"other\", # retained\n\"sessionbus\",]"},
+		{"--config", `plugins.codex@sessionbus-peers.mcp_servers.sessionbus.enabled_tools=["sessionbus"] # retained enabling comment`},
 		{"--config", `plugins.codex@sessionbus-peers.mcp_servers.sessionbus.disabled_tools=[]`},
 		{"--config", `plugins.codex@sessionbus-peers.mcp_servers.sessionbus.disabled_tools=["other"]`},
 		{"--config", sessionbusApprovalConfigKey + `="approve"`},
 		{"--config", sessionbusApprovalConfigKey + `='approve'`},
 		{"--config", sessionbusApprovalConfigKey + `="appr\u006fve"`},
+		{"--config", sessionbusApprovalConfigKey + `="""approve"""`},
+		{"--config", sessionbusApprovalConfigKey + `=approve`},
+		{"--config", sessionbusApprovalConfigKey + `="approve`},
 	} {
 		got, err := processArguments(arguments)
 		if err != nil || !slices.Equal(got, arguments) {
