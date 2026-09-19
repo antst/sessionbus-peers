@@ -62,6 +62,23 @@ func TestOMPLaneArgumentsRejectTypedOwnerConflicts(t *testing.T) {
 	}
 }
 
+func TestOMPLaneExplicitBypassKeepsNativeArguments(t *testing.T) {
+	arguments, err := ompLaneArguments(sessionkit.OpenOptions{
+		PermissionMode: "bypassPermissions", Model: "provider/model",
+		Arguments: []string{"--system-prompt", "prompt", "--append-system-prompt=tail"},
+	}, "native-session")
+	want := []string{"--approval-mode=yolo", "--session", "native-session", "--model", "provider/model", "--system-prompt", "prompt", "--append-system-prompt=tail"}
+	if err != nil || !slices.Equal(arguments, want) {
+		t.Fatalf("explicit bypass = %#v, %v; want %#v", arguments, err, want)
+	}
+	for _, mode := range []string{"", "default"} {
+		arguments, err := ompLaneArguments(sessionkit.OpenOptions{PermissionMode: mode}, "")
+		if err != nil || len(arguments) != 0 {
+			t.Fatalf("inherited policy %q = %#v, %v", mode, arguments, err)
+		}
+	}
+}
+
 func TestOMPWrapperOpenResumeAndCloseUsesNativeOwner(t *testing.T) {
 	options, _ := nativeOwnerFixture(t, "")
 	wrapper := New(options.DaemonSocket, options.Provisional, options.Native, options.Extension)

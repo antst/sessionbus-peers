@@ -29,6 +29,30 @@ acceptance run.
 
 ## Historical product facts
 
+### Explicit bypass compatibility and earlier working implementation
+
+The earlier `ff81565:internal/products/omp/permission.go:15-23` mapped explicit
+`bypassPermissions` to `--approval-mode=yolo`. Its shared extension registered
+`agent_sessions` without a tool-owned approval declaration
+(`ff81565:integrations/pi/pifamily.mjs:100-115`). Retain the explicit bypass
+behavior; do not infer that this legacy path proved a narrow default grant.
+
+On native `3b3a6dc9bbd85102ce19d0b1c11bf6870915f6ec`,
+`packages/coding-agent/src/cli/args.ts:279-280` maps `--yolo` and
+`--auto-approve` to the same option. `cli/flag-tables.ts:226-234` accepts
+`--approval-mode=yolo`, and `main.ts:1524-1531` applies it only to the running
+session's settings. `tools/approval.ts:157-175` preserves an explicit tool-owned
+allow in yolo mode. The managed extension keeps its exec-tier allow in both
+ordinary and bypass launches. A lane's `permission_mode=bypassPermissions`
+selects `--approval-mode=yolo`; empty/default still injects no global mode.
+
+The UMKA help-only capture on 2026-09-19 confirms OMP 18.1.17 and
+`--auto-approve` / `--approval-mode` at lines 57-58 of `omp-help.stdout` in
+`umka-native-version-preflight-20260919` (evidence manifest SHA256
+`708fa0f5b37f28098c8d3fa08a75ad349a280e92c7d0b80a087768d931d5da78`).
+This is surface evidence. Installed send/receipt and receiver observations,
+including explicit bypass, remain outstanding.
+
 > Historical source note: citations to pre-split Sessionbus paths resolve in
 > the Forgejo `ai/sessionbus` repository through its `legacy-*` branches.
 > Citations to product source resolve in the external repository and full

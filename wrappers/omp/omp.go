@@ -321,7 +321,7 @@ func (p *Wrapper) finishStartup() {
 }
 
 func ompLaneArguments(open sessionkit.OpenOptions, resume string) ([]string, error) {
-	if open.PermissionMode != "" && open.PermissionMode != "default" {
+	if open.PermissionMode != "" && open.PermissionMode != "default" && open.PermissionMode != "bypassPermissions" {
 		return nil, fmt.Errorf("unsupported value permission_mode=%s", open.PermissionMode)
 	}
 	if resume != "" && !validOwnerID(resume) {
@@ -343,6 +343,9 @@ func ompLaneArguments(open sessionkit.OpenOptions, resume string) ([]string, err
 		return nil, err
 	}
 	arguments := make([]string, 0, len(forwarded)+6)
+	if open.PermissionMode == "bypassPermissions" {
+		arguments = append(arguments, "--approval-mode=yolo")
+	}
 	if resume != "" {
 		arguments = append(arguments, "--session", resume)
 	}
