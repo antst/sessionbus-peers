@@ -15,7 +15,16 @@ import (
 )
 
 func TestProcessArguments(t *testing.T) {
-	for _, args := range [][]string{{"--config", `model="gpt"`}, {"--unknown", "value", "--", "--literal"}, {"--enable"}, {"app-server", "arbitrary"}, {"-c", `mcp_servers.sessionbus.command=other`}} {
+	for _, args := range [][]string{
+		{"--config", `model="gpt"`},
+		{"--unknown", "value", "--", "--literal"},
+		{"--enable"},
+		{"app-server", "arbitrary"},
+		{"-c", `mcp_servers.sessionbus.command=other`},
+		{"--config", `plugins."other".enabled=false`},
+		{"--config", `plugins."codex@sessionbus-peers".mcp_servers.other.command="other"`},
+		{"--", "--config", `features.plugins=false`},
+	} {
 		got, err := processArguments(args)
 		if err != nil || !slices.Equal(got, args) {
 			t.Fatalf("args=%v got=%v err=%v", args, got, err)
@@ -23,15 +32,188 @@ func TestProcessArguments(t *testing.T) {
 	}
 }
 
-func TestPermissionAndName(t *testing.T) {
-	for _, test := range []struct{ input, approval, sandbox, failure string }{
-		{"", "", "", ""}, {"default", "default", "", ""},
-		{"bypassPermissions", "bypassPermissions", "", ""},
-		{"ask", "ask", "", ""},
+func TestManagedConfigCannotBeReplacedByCaller(t *testing.T) {
+	for _, arguments := range [][]string{
+		{"-c", `features.plugins=false`},
+		{`--config=plugins.codex@sessionbus-peers.enabled=false`},
+		{`-cplugins.codex@sessionbus-peers.mcp_servers.sessionbus.tools.sessionbus.approval_mode="deny"`},
+		{"--config", `plugins.codex@sessionbus-peers.mcp_servers={}`},
+		{"--config", `plugins.codex@sessionbus-peers.mcp_servers.sessionbus={}`},
+		{"--config", `plugins.codex@sessionbus-peers.mcp_servers.sessionbus.enabled=false`},
+		{"--config", `plugins.codex@sessionbus-peers.mcp_servers.sessionbus.enabled_tools=[]`},
+		{"--config", `plugins.codex@sessionbus-peers.mcp_servers.sessionbus.enabled_tools=[sessionbus]`},
+		{"--config", `plugins.codex@sessionbus-peers.mcp_servers.sessionbus.disabled_tools=["sessionbus"]`},
+		{"--config", `plugins.codex@sessionbus-peers.mcp_servers.sessionbus.tools={}`},
+		{"--config", `plugins.codex@sessionbus-peers.mcp_servers.sessionbus.tools.sessionbus.approval_mode="deny"`},
+		{"--disable", "plugins"},
+		{"--disable=plugins"},
 	} {
-		approval, sandbox, err := permission(test.input)
+		if _, err := processArguments(arguments); err == nil || !strings.Contains(err.Error(), "managed Sessionbus grant") {
+			t.Fatalf("arguments=%q err=%v", arguments, err)
+		}
+	}
+	for _, arguments := range [][]string{
+		{"--config", `features.plugins_extra=false`},
+		{"--config", `plugins."codex@sessionbus-peers".enabled=false`},
+		{"--config", `plugins.'codex@sessionbus-peers'.enabled=false`},
+		{"--config", `plugins."codex\u0040sessionbus-peers".enabled=false`},
+		{"--config", `plugins.codex@sessionbus-peers-other.enabled=false`},
+		{"--config", `plugins.codex@sessionbus-peers.mcp_servers.other.enabled=false`},
+		{"--config", `plugins.codex@sessionbus-peers.mcp_servers.sessionbus.command="other"`},
+		{"--config", `plugins.codex@sessionbus-peers.mcp_servers.sessionbus.default_tools_approval_mode="deny"`},
+		{"--config", `plugins.codex@sessionbus-peers.mcp_servers.sessionbus.tools.other.approval_mode="deny"`},
+		{"--config", `plugins.codex@sessionbus-peers.mcp_servers.sessionbus.tools.sessionbus.enabled=false`},
+		{"--config", `"plugins.codex@sessionbus-peers".enabled=false`},
+		{"-c", `mcp_servers.sessionbus.command=other`},
+		{"--disable", "web_search_request"},
+		{"--disable=unified_exec"},
+		{"--", "--config", `features.plugins=false`, "--disable", "plugins"},
+	} {
+		if got, err := processArguments(arguments); err != nil || !slices.Equal(got, arguments) {
+			t.Fatalf("unrelated arguments=%q got=%q err=%v", arguments, got, err)
+		}
+	}
+}
+
+func TestManagedConfigPreservesEquivalentEnables(t *testing.T) {
+	for _, arguments := range [][]string{
+		{"-c", `features.plugins=true`},
+		{"-c", "features.plugins=true # retained enabling comment"},
+		{"--config", `plugins.codex@sessionbus-peers.enabled = true`},
+		{"--config", `plugins.codex@sessionbus-peers.mcp_servers.sessionbus.enabled=true`},
+		{"--config", `plugins.codex@sessionbus-peers.mcp_servers.sessionbus.enabled_tools=["other", "sessionbus"]`},
+		{"--config", `plugins.codex@sessionbus-peers.mcp_servers.sessionbus.enabled_tools=['sessionbus']`},
+		{"--config", "plugins.codex@sessionbus-peers.mcp_servers.sessionbus.enabled_tools=[\"other\", # retained\n\"sessionbus\",]"},
+		{"--config", `plugins.codex@sessionbus-peers.mcp_servers.sessionbus.enabled_tools=["sessionbus"] # retained enabling comment`},
+		{"--config", `plugins.codex@sessionbus-peers.mcp_servers.sessionbus.disabled_tools=[]`},
+		{"--config", `plugins.codex@sessionbus-peers.mcp_servers.sessionbus.disabled_tools=["other"]`},
+		{"--config", sessionbusApprovalConfigKey + `="approve"`},
+		{"--config", sessionbusApprovalConfigKey + `='approve'`},
+		{"--config", sessionbusApprovalConfigKey + `="appr\u006fve"`},
+		{"--config", sessionbusApprovalConfigKey + `="""approve"""`},
+		{"--config", sessionbusApprovalConfigKey + `=approve`},
+		{"--config", sessionbusApprovalConfigKey + `="approve`},
+	} {
+		got, err := processArguments(arguments)
+		if err != nil || !slices.Equal(got, arguments) {
+			t.Fatalf("equivalent enabling arguments=%q got=%q err=%v", arguments, got, err)
+		}
+	}
+	for _, arguments := range [][]string{
+		{"-c", `features.plugins=true`},
+		{"-c", sessionbusApprovalConfig},
+	} {
+		interactive, err := parseInteractiveOptions(arguments)
+		if err != nil {
+			t.Fatalf("interactive equivalent enable arguments=%q err=%v", arguments, err)
+		}
+		if got := append(ActivationArguments(), interactive.native...); !slices.Contains(got, sessionbusApprovalConfig) {
+			t.Fatalf("interactive managed grant missing from %q", got)
+		}
+		lane, err := processArguments(arguments)
+		if err != nil {
+			t.Fatalf("lane equivalent enable arguments=%q err=%v", arguments, err)
+		}
+		if got := append(ActivationArguments(), lane...); !slices.Contains(got, sessionbusApprovalConfig) {
+			t.Fatalf("lane managed grant missing from %q", got)
+		}
+	}
+}
+
+func TestManagedConfigCannotBeReplacedInInteractiveLaunch(t *testing.T) {
+	for _, arguments := range [][]string{
+		{"--config", `plugins.codex@sessionbus-peers.enabled=false`},
+		{"--disable", "plugins"},
+	} {
+		if _, _, err := InteractivePlan(arguments, nil); err == nil || !strings.Contains(err.Error(), "managed Sessionbus grant") {
+			t.Fatalf("interactive plan arguments=%q err=%v", arguments, err)
+		}
+		if _, err := parseInteractiveOptions(arguments); err == nil || !strings.Contains(err.Error(), "managed Sessionbus grant") {
+			t.Fatalf("interactive launch arguments=%q parse err=%v", arguments, err)
+		}
+	}
+	literal := []string{"--", "--config", sessionbusApprovalConfigKey + `="deny"`}
+	if options, err := parseInteractiveOptions(literal); err != nil || !slices.Equal(options.native, literal) {
+		t.Fatalf("post-boundary literal options=%#v err=%v", options, err)
+	}
+}
+
+func TestManagedGrantCoexistsWithYoloAndNativeBypass(t *testing.T) {
+	const bypass = "--dangerously-bypass-approvals-and-sandbox"
+	for _, test := range []struct {
+		arguments []string
+		native    []string
+	}{
+		{[]string{"--model", "native", "--yolo", "-c", `model="caller"`}, []string{"--model", "native", bypass, "-c", `model="caller"`}},
+		{[]string{"--model", "native", bypass, "-c", `model="caller"`}, []string{"--model", "native", bypass, "-c", `model="caller"`}},
+	} {
+		options, err := parseInteractiveOptions(test.arguments)
+		if err != nil {
+			t.Fatalf("interactive options arguments=%q err=%v", test.arguments, err)
+		}
+		got := append(ActivationArguments(), options.native...)
+		want := append(ActivationArguments(), test.native...)
+		if !slices.Equal(got, want) {
+			t.Fatalf("managed launch arguments=%q want=%q", got, want)
+		}
+	}
+
+	for _, selected := range []string{"--yolo", bypass} {
+		lane, nativeBypass, err := laneArguments([]string{"--model", "native", selected, "-c", `model="caller"`})
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := append(append([]string{"app-server", "--stdio"}, ActivationArguments()...), lane...)
+		want := append(append([]string{"app-server", "--stdio"}, ActivationArguments()...), "--model", "native", "-c", `model="caller"`)
+		if !nativeBypass || !slices.Equal(got, want) {
+			t.Fatalf("managed lane selection=%q bypass=%t arguments=%q want=%q", selected, nativeBypass, got, want)
+		}
+		approval, sandbox, err := permission("", nativeBypass)
+		if err != nil || approval != "never" || sandbox != "danger-full-access" {
+			t.Fatalf("managed lane selection=%q policy=%q,%q err=%v", selected, approval, sandbox, err)
+		}
+	}
+}
+
+func TestLaneBypassPreservesValuesAndBoundary(t *testing.T) {
+	const bypass = "--dangerously-bypass-approvals-and-sandbox"
+	for _, test := range []struct {
+		arguments []string
+		want      []string
+		bypass    bool
+	}{
+		{[]string{"--model", bypass, "--enable", "feature"}, []string{"--model", bypass, "--enable", "feature"}, false},
+		{[]string{"--model=native", bypass, "--enable", "feature"}, []string{"--model=native", "--enable", "feature"}, true},
+		{[]string{"--", bypass, "--yolo"}, []string{"--", bypass, "--yolo"}, false},
+		{[]string{bypass + "=true"}, []string{bypass + "=true"}, false},
+	} {
+		got, selected, err := laneArguments(test.arguments)
+		if err != nil || selected != test.bypass || !slices.Equal(got, test.want) {
+			t.Fatalf("laneArguments(%q) = %q, %t, %v; want %q, %t", test.arguments, got, selected, err, test.want, test.bypass)
+		}
+	}
+}
+
+func TestPermissionAndName(t *testing.T) {
+	for _, test := range []struct {
+		input, approval, sandbox, failure string
+		bypass                            bool
+	}{
+		{input: ""}, {input: "default"},
+		{input: "bypassPermissions", approval: "never", sandbox: "danger-full-access"},
+		{input: "", bypass: true, approval: "never", sandbox: "danger-full-access"},
+		{input: "never", approval: "never"},
+		{input: "never", bypass: true, approval: "never", sandbox: "danger-full-access"},
+		{input: "on-request", approval: "on-request"},
+		{input: "untrusted", approval: "untrusted"},
+		{input: "on-request", bypass: true, failure: "permission_mode=on-request conflicts with " + codexNativeBypass},
+	} {
+		approval, sandbox, err := permission(test.input, test.bypass)
 		if approval != test.approval || sandbox != test.sandbox || (err != nil && err.Error() != test.failure) {
-			t.Fatalf("permission(%q) = %q, %q, %v", test.input, approval, sandbox, err)
+			t.Fatalf("permission(%q, %t) = %q, %q, %v", test.input, test.bypass, approval, sandbox, err)
+		}
+		if test.failure != "" && err == nil {
+			t.Fatalf("permission(%q, %t) unexpectedly succeeded", test.input, test.bypass)
 		}
 	}
 	if got, err := namePart("parent/leaf@host"); err != nil || got != "parent/leaf" {

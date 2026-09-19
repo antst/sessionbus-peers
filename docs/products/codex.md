@@ -20,6 +20,42 @@ behavior are historical integration choices, not current Codex limitations.
   has a different quote-aware key parser. The original failed no-input Open and
   corrected successful Open are preserved in `dev1-lane-open-{ebd5c0a,aaea430}`
   under `/home/antst/codex-architecture-20260909/`.
+- Retained native 0.153.4 source commit
+  `3d2ee51ca2d5db578f328aa75e20aa22c0197c9a` defines repeatable
+  `--disable FEATURE` as equivalent to `-c features.<name>=false`, validates the
+  feature name, and folds the generated override into the same root config
+  overrides (`sources/native-01534/codex-rs/cli/src/main.rs:959-1006,1052-1059`
+  under `/home/antst/codex-architecture-20260909/`; commit and file hash are in
+  that directory's `SOURCE.json`). The managed installed rows cited here use
+  the accepted `plugins` feature through `features.plugins=true`; therefore
+  `--disable plugins` is the native spelling of `features.plugins=false`.
+- At that exact native commit, `codex-rs/config/src/mcp_types.rs:68-78`
+  defines `McpServerToolConfig` with only `approval_mode` and
+  `output_token_limit`. It has no `enabled` field. The official source is
+  `https://github.com/openai/codex/blob/3d2ee51ca2d5db578f328aa75e20aa22c0197c9a/codex-rs/config/src/mcp_types.rs`.
+  The managed argument guard therefore reserves the real approval control but
+  does not invent an `enabled` control for a per-tool entry.
+- Managed value checks mirror native `CliConfigOverrides`: decode the wrapped
+  `_x_ = <raw>` TOML value, then fall back to a whitespace-trimmed raw string
+  with leading/trailing quote characters removed when decoding fails
+  (`codex-rs/utils/cli/src/config_override.rs:47-102` at the same commit). The
+  Go implementation uses `github.com/BurntSushi/toml` v1.6.0, a pure-Go MIT
+  library (`COPYING` SHA-256
+  `d21cb1c60785d6d3a84a7059323ccafc45c645b1bbda281c76a62d66ad2d7dc3`).
+  It adds no transitive module, executable, service, configuration, or runtime
+  installation dependency.
+- Native 0.153.4 `AppServerCommand` does not define the TUI
+  `--dangerously-bypass-approvals-and-sandbox` flag
+  (`codex-rs/cli/src/main.rs:546-595`). The TUI maps that flag to approval
+  `Never` and sandbox `DangerFullAccess` separately (`main.rs:2212-2225`). App
+  Server accepts those settings on `thread/start` and converts them to native
+  config overrides
+  (`codex-rs/app-server/src/request_processors/thread_processor.rs:1116-1192,1604-1631`).
+  The 0.4.0 lane likewise canonicalized the raw flag to `bypassPermissions`
+  before dispatch and mapped bypass to `never` plus `danger-full-access`
+  (`ff81565:cmd/agent-sessions/lane.go:280` and
+  `ff81565:internal/products/codex/lane.go:156`). Current lanes retain that
+  policy projection and never pass the TUI flag to App Server.
 - On installed aaea430/native0.153.4, idle `thread/inject_items` staging received
   `queued_for_next_turn`; the marker appeared in native user history before any
   assistant response and was consumed in the following explicit run. The

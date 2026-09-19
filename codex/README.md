@@ -69,8 +69,8 @@ A managed launch prefixes `-c features.plugins=true` and
 `-c plugins.codex@sessionbus-peers.enabled=true` to enable the plugin. CLI keys
 split on dots without unquoting segments; the quotes used by the separate
 config-write API must not be embedded in this CLI key. The launcher
-keeps the caller's native arguments in order. Caller overrides retain native
-precedence; disabling the required tool can make lane Open unavailable.
+keeps the caller's native arguments in order, except that a caller cannot
+disable or replace the managed plugin and its Sessionbus tool.
 There is one generic `sessionbus` skill and public tool, shared across products.
 
 Repeat the same archive install to update the permanent installation. Reinstall
@@ -94,28 +94,40 @@ consuming and acknowledged separately. Persistence, automatic close and idle
 message policy are independent; see the installed generic skill for their exact
 fields and collection rules.
 
-Omitted `permission_mode` inherits Codex policy. An explicit value is passed as
-the native approval-policy string, without substituting `never` or a sandbox
-policy. A headless lane has no human approval recipient; unsupported native
+Omitted or `default` `permission_mode` inherits Codex policy. Other native
+approval-policy strings pass through without changing the inherited sandbox.
+The explicit `bypassPermissions` value, lane `--yolo`, and lane
+`--dangerously-bypass-approvals-and-sandbox` select App Server approval `never`
+and sandbox `danger-full-access`; the TUI-only flags are consumed before the
+App Server process is launched. Combining a raw bypass flag with a different
+explicit policy is rejected as contradictory. A headless lane has no human
+approval recipient; unsupported native
 approval requests fail truthfully. Normal close ends stdin, drains native output
 and waits for the direct native process. Hard failure uses forced cleanup; this
 does not promise containment of arbitrary native tool descendants.
 
-`never` prevents approval prompts; it does not grant MCP tool access. On the
-installed candidate, an inherited-policy call was rejected, and a call with
-`permission_mode:"never"` reported that the tool still required approval.
-A caller can explicitly grant the generic Sessionbus tool through native open
-arguments, without changing the installation or activation defaults:
+`never` prevents approval prompts; by itself it does not grant MCP tool access.
+Every managed Codex peer and lane therefore projects the exact native policy
+entry
+`plugins.codex@sessionbus-peers.mcp_servers.sessionbus.tools.sessionbus.approval_mode="approve"`
+alongside plugin activation. The entry grants the one Sessionbus tool and all
+of its public actions; it does not change the approval policy, sandbox, or any
+other tool. `--yolo` still maps to native
+`--dangerously-bypass-approvals-and-sandbox`, and that global caller choice is
+preserved alongside the fixed tool grant. Lanes project the equivalent policy
+through App Server's thread and turn fields because its command does not accept
+the TUI flag. Native `strict_auto_review` has a separate policy path.
 
-```json
-{"permission_mode":"never","arguments":["-c","plugins.codex@sessionbus-peers.mcp_servers.sessionbus.tools.sessionbus.approval_mode=\"approve\""]}
-```
-
-This grants that tool's actions, not only its read-only `list` action. Use it
-only when that access is intended. The installed acceptance exercised `list`;
-the grant is a native policy choice, not an approval added by the adapter.
-It does not enable a disabled plugin, server or tool, or override managed
-requirements. Native `strict_auto_review` has a separate policy path.
+Caller config remains byte-preserved. Assignments that disable plugin
+activation, remove Sessionbus from `enabled_tools`, add it to `disabled_tools`,
+replace an ancestor table, or change the exact tool policy away from `approve`
+are rejected. Equivalent `true`/`approve` assignments and safe tool lists remain
+valid. A server default approval setting also remains caller-owned because the
+native field applies only when no exact tool override exists. `--disable
+plugins` is rejected because it disables managed activation. Native CLI config
+keys split literally on dots; quoted segments remain different keys. Other
+plugins, servers, tool policies, feature flags, and values after native `--`
+remain untouched.
 
 ## Interactive launch
 
