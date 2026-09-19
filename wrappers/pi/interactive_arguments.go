@@ -72,7 +72,7 @@ func InteractivePlan(arguments, environment []string) (host.ExecPlan, bool, erro
 // Attached long values are not part of that native grammar.
 func validateManagedToolArguments(arguments []string) error {
 	var allowed, excluded []string
-	var allowedSet, excludedSet bool
+	var noTools, allowedSet, excludedSet bool
 	for index := 0; index < len(arguments); index++ {
 		argument := arguments[index]
 		if argument == "--" {
@@ -80,7 +80,7 @@ func validateManagedToolArguments(arguments []string) error {
 		}
 		switch argument {
 		case "--no-tools", "-nt":
-			return errors.New("argument disables managed Pi Sessionbus tool: " + argument)
+			noTools = true
 		case "--tools", "-t":
 			if index+1 < len(arguments) {
 				index++
@@ -105,6 +105,9 @@ func validateManagedToolArguments(arguments []string) error {
 	}
 	if excludedSet && slices.Contains(excluded, "sessionbus") {
 		return errors.New("argument disables managed Pi Sessionbus tool: --exclude-tools contains sessionbus")
+	}
+	if noTools && !allowedSet {
+		return errors.New("argument disables managed Pi Sessionbus tool: --no-tools")
 	}
 	return nil
 }

@@ -164,6 +164,8 @@ func TestInteractivePlanRejectsManagedToolDisable(t *testing.T) {
 		{"--exclude-tools", "read, sessionbus ,bash"},
 		{"-xt", "sessionbus"},
 		{"--tools", "sessionbus", "--exclude-tools", "sessionbus"},
+		{"--no-tools", "--tools", "read"},
+		{"--tools", "read", "--no-tools"},
 	} {
 		if _, native, err := InteractivePlan(args, nil); err == nil || native ||
 			!strings.Contains(err.Error(), "disables managed Pi Sessionbus tool") {
@@ -182,6 +184,8 @@ func TestInteractivePlanPreservesEffectiveManagedToolSelection(t *testing.T) {
 		{"--no-builtin-tools"},
 		{"--tools", "read", "--tools", "sessionbus"},
 		{"--exclude-tools", "sessionbus", "--exclude-tools", "read"},
+		{"--no-tools", "--tools", "sessionbus"},
+		{"--tools", "sessionbus", "--no-tools"},
 		{"--tools=read"},
 		{"--exclude-tools=sessionbus"},
 		{"--model", "--no-tools"},
