@@ -79,7 +79,7 @@ func InteractivePlan(arguments, environment []string) (host.ExecPlan, error) {
 	if err := validateManagedQwenArguments(native); err != nil {
 		return host.ExecPlan{}, err
 	}
-	native = append(managedQwenGrant(), native...)
+	native = appendManagedQwenGrant(native)
 	encoded, _ := json.Marshal(groups)
 	env = append(env, host.GroupsEnv+"="+string(encoded), host.NameEnv+"="+name, host.SocketEnv+"="+first(environmentValue(environment, host.SocketEnv), kit.Socket()), InteractiveEnv+"=launch")
 	return host.ExecPlan{Path: "qwen", Args: native, Env: env}, nil

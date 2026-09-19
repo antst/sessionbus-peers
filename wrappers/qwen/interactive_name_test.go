@@ -59,7 +59,7 @@ func TestInteractiveNativeOwnedAliases(t *testing.T) {
 	for _, args := range [][]string{{"--chatRecording=true"}, {"--chatRecording", "true"}, {"--chat-recording=true"}} {
 		plan, err := InteractivePlan(args, nil)
 		must(t, err)
-		want := append(managedQwenGrant(), args...)
+		want := append(append([]string(nil), args...), managedQwenGrant()...)
 		check(t, strings.Join(plan.Args, "|") == strings.Join(want, "|"), "changed native true spelling: %q", plan.Args)
 	}
 	plan, err := InteractivePlan([]string{"--", "--no-chat-recording", "--inputFile=x"}, nil)

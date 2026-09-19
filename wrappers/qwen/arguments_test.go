@@ -15,7 +15,10 @@ func TestManagedQwenArgumentsPreserveAdditiveNativePolicy(t *testing.T) {
 		{"--allowed-tools", "other", "--allowed-tools=mcp__other__tool"},
 		{"--allowed-mcp-server-names", "other, sessionbus"},
 		{"--allowed-mcp-server-names=other", "--allowed-mcp-server-names", "sessionbus"},
+		{"--allowed-mcp-server-names", "other", "sessionbus"},
+		{"--allowedMcpServerNames=other", "sessionbus"},
 		{"--exclude-tools", "other,mcp__other__tool"},
+		{"--excludeTools", "other", "mcp__other__tool"},
 		{"--exclude-tools", managedQwenTool + "(scope)"},
 		{"--exclude-tools", managedQwenTool + "( )"},
 		{"--exclude-tools", managedQwenTool + "("},
@@ -40,7 +43,8 @@ func TestManagedQwenArgumentsRejectDirectDisable(t *testing.T) {
 		{[]string{"--exclude-tools=mcp__sessionbus"}, "cannot disable"},
 		{[]string{"--exclude-tools", "mcp__sessionbus__*"}, "cannot disable"},
 		{[]string{"--exclude-tools", "other,mcp__sessionbus__session*"}, "cannot disable"},
-		{[]string{"--exclude-tools"}, "requires a value"},
+		{[]string{"--exclude-tools", "other", managedQwenTool}, "cannot disable"},
+		{[]string{"--excludeTools=other", managedQwenTool}, "cannot disable"},
 	} {
 		err := validateManagedQwenArguments(test.arguments)
 		if err == nil || !strings.Contains(err.Error(), test.want) {
@@ -52,7 +56,7 @@ func TestManagedQwenArgumentsRejectDirectDisable(t *testing.T) {
 func TestManagedQwenGrantAndYoloCoexistInBothModes(t *testing.T) {
 	plan, err := InteractivePlan([]string{"--yolo", "--approval-mode", "yolo", "--sandbox"}, nil)
 	must(t, err)
-	wantPeer := []string{"--allowed-tools", managedQwenTool, "--yolo", "--approval-mode", "yolo", "--sandbox"}
+	wantPeer := []string{"--yolo", "--approval-mode", "yolo", "--sandbox", "--allowed-tools", managedQwenTool}
 	check(t, reflect.DeepEqual(plan.Args, wantPeer), "interactive arguments = %q", plan.Args)
 
 	lane, err := launchArguments(sessionkit.OpenOptions{
@@ -65,6 +69,20 @@ func TestManagedQwenGrantAndYoloCoexistInBothModes(t *testing.T) {
 
 	_, err = launchArguments(sessionkit.OpenOptions{Arguments: []string{"--yolo"}})
 	check(t, err != nil && strings.Contains(err.Error(), "permission_mode"), "raw lane yolo error = %v", err)
+}
+
+func TestManagedQwenGrantPreservesInteractivePositionalsAndBoundary(t *testing.T) {
+	plan, err := InteractivePlan([]string{"fix", "the bug"}, nil)
+	must(t, err)
+	check(t, reflect.DeepEqual(plan.Args, []string{"fix", "the bug", "--allowed-tools", managedQwenTool}), "positional arguments = %q", plan.Args)
+
+	plan, err = InteractivePlan([]string{"fix", "--", "--literal"}, nil)
+	must(t, err)
+	check(t, reflect.DeepEqual(plan.Args, []string{"fix", "--allowed-tools", managedQwenTool, "--", "--literal"}), "boundary arguments = %q", plan.Args)
+
+	plan, err = InteractivePlan([]string{"--allowed-tools", "other", "caller positional"}, nil)
+	must(t, err)
+	check(t, reflect.DeepEqual(plan.Args, []string{"--allowed-tools", "other", "caller positional", "--allowed-tools", managedQwenTool}), "caller array semantics changed = %q", plan.Args)
 }
 
 func TestManagedQwenLaunchesRejectDirectDisableBeforeStart(t *testing.T) {

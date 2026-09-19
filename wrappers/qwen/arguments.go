@@ -3,6 +3,7 @@ package qwen
 
 import (
 	"errors"
+	"regexp"
 	"strconv"
 	"strings"
 	"unicode/utf16"
@@ -13,8 +14,28 @@ const (
 	managedQwenTool   = "mcp__sessionbus__sessionbus"
 )
 
+var qwenNegativeNumber = regexp.MustCompile(`^-([0-9]+(\.[0-9]+)?|\.[0-9]+)$`)
+
 func managedQwenGrant() []string {
 	return []string{"--allowed-tools", managedQwenTool}
+}
+
+// appendManagedQwenGrant puts the native array option after every caller
+// argument and immediately before the native literal boundary. Qwen greedily
+// consumes consecutive non-option tokens into array flags, so prefixing this
+// grant would silently absorb a leading positional prompt.
+func appendManagedQwenGrant(arguments []string) []string {
+	position := len(arguments)
+	for index, argument := range arguments {
+		if argument == "--" {
+			position = index
+			break
+		}
+	}
+	result := make([]string, 0, len(arguments)+2)
+	result = append(result, arguments[:position]...)
+	result = append(result, managedQwenGrant()...)
+	return append(result, arguments[position:]...)
 }
 
 // validateManagedQwenArguments rejects only caller controls that would make
@@ -31,31 +52,59 @@ func validateManagedQwenArguments(arguments []string) error {
 			break
 		}
 		name, value, attached := strings.Cut(argument, "=")
+		managedArray := qwenManagedArrayOption(name)
+		if managedArray != "" {
+			values := []string{}
+			if attached {
+				values = append(values, qwenArrayValue(value)...)
+			}
+			for index+1 < len(arguments) && qwenArrayArgument(arguments[index+1]) {
+				index++
+				values = append(values, qwenArrayValue(arguments[index])...)
+			}
+			switch managedArray {
+			case "--allowed-mcp-server-names":
+				serverBound = true
+				for _, candidate := range values {
+					serverAllowed = serverAllowed || candidate == managedQwenServer
+				}
+			case "--exclude-tools":
+				for _, pattern := range values {
+					if qwenMCPPatternMatches(pattern, managedQwenTool) {
+						return errors.New("--exclude-tools cannot disable the managed Sessionbus tool")
+					}
+				}
+			}
+			continue
+		}
 		if !attached && containsQwenOption(qwenRequiredValueOptions, name) {
 			if index+1 == len(arguments) {
 				return errors.New(argument + " requires a value")
 			}
 			index++
-			value = arguments[index]
-		}
-		switch name {
-		case "--allowed-mcp-server-names":
-			serverBound = true
-			for _, candidate := range qwenArrayValue(value) {
-				serverAllowed = serverAllowed || candidate == managedQwenServer
-			}
-		case "--exclude-tools":
-			for _, pattern := range qwenArrayValue(value) {
-				if qwenMCPPatternMatches(pattern, managedQwenTool) {
-					return errors.New("--exclude-tools cannot disable the managed Sessionbus tool")
-				}
-			}
 		}
 	}
 	if serverBound && !serverAllowed {
 		return errors.New("--allowed-mcp-server-names must include sessionbus for a managed launch")
 	}
 	return nil
+}
+
+func qwenManagedArrayOption(name string) string {
+	switch name {
+	case "--allowed-mcp-server-names", "--allowedMcpServerNames":
+		return "--allowed-mcp-server-names"
+	case "--allowed-tools", "--allowedTools":
+		return "--allowed-tools"
+	case "--exclude-tools", "--excludeTools":
+		return "--exclude-tools"
+	default:
+		return ""
+	}
+}
+
+func qwenArrayArgument(argument string) bool {
+	return argument != "--" && (!strings.HasPrefix(argument, "-") || qwenNegativeNumber.MatchString(argument))
 }
 
 func containsQwenOption(options []string, wanted string) bool {
