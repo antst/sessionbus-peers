@@ -1,0 +1,75 @@
+# Sessionbus-only native tool grant
+
+Status: design checkpoint, 2026-09-19. No runtime edits are authorized by this
+document. Source base: `c058a021530a915d7a696705c0c76011b90749b9`.
+
+## Requirement
+
+Every launch managed by a Sessionbus peer or lane must make the one public
+Sessionbus tool callable without a native approval prompt. The grant is always
+present. There is no opt-out field, flag, environment variable, or inverse
+configuration: an ordinary native launch is the no-comms path.
+
+The grant must not change the native approval mode, sandbox, permissions for
+any other tool, or installation-wide policy. Global bypasses, wildcard grants,
+and broad server grants are not substitutes. A managed launch that cannot
+establish its narrow grant must fail truthfully. Tests and documentation must
+not claim launch-time detection that the native product does not expose.
+
+The public protocol remains unchanged. The Go SDK's closed `OpenOptions` and
+`HelloDescription` schemas have no comms-policy member
+(`bus/sdk/go/protocol/types.go`, module pin in `go.mod`), and the policy has no
+caller choice to describe. `describe` continues to report supported Open fields
+and native extra arguments. Honest visibility is the documented invariant,
+deterministic launch/config projection, native readiness checks where exposed,
+and a real first-call acceptance cell for each mode.
+
+## Product design table
+
+| Product | Current peer and lane mechanism | Source facts and current default | Narrow design | Required real acceptance | Gap before implementation |
+|---|---|---|---|---|---|
+| Claude | Peer prefixes the managed plugin and exact qualified allow rule; lane does the same before print/stream flags. | `wrappers/claude/interactive/launch.go:17,88`; `wrappers/claude/claude.go:197-214`. Exact tool is `mcp__plugin_sessionbus_sessionbus__sessionbus`. This is the only adapter with an unconditional positive rule, but its current generic native argv can still carry a conflicting exact disallow. | Preserve the existing prefix and reject an exact `--disallowedTools`/`--disallowed-tools` entry for the qualified Sessionbus tool. Keep every unrelated permission and sandbox argument byte-for-byte. Do not reject or rewrite disallows for other tools. | Peer and lane each publish the exact tool, call `list` without an approval request, and retain a separately selected native approval/sandbox mode. A direct Sessionbus disallow fails launch; a non-Sessionbus mutating tool still follows that mode. | Bind the native list grammar used by the disallow flags so rejection is exact and does not misclassify another tool. |
+| Codex | Both modes enable the installed Sessionbus plugin with `ActivationArguments`; lane uses App Server and peer uses the TUI plus broker App Server. | `wrappers/codex/package.go:20-24`; `wrappers/codex/codex.go:135-157`; `wrappers/codex/interactive_launch.go:143,212`; `wrappers/codex/lane_tools.go:40-166`. `codex/README.md:104-118` records the installed native policy key and proves `permission_mode=never` alone does not grant the tool. | Extend the fixed managed activation prefix with the documented per-plugin/per-server/per-tool override `plugins.codex@sessionbus-peers.mcp_servers.sessionbus.tools.sessionbus.approval_mode="approve"`. Use it in both existing activation sites. Do not set or default global `approval_policy`, `permission_mode`, sandbox, or `dangerously-bypass-*`. Reserve/reject a caller override of this exact managed key rather than relying on last-write precedence. | Peer and lane each show the connected `sessionbus` server and invoke `mcp__sessionbus__sessionbus`/the broker's exact qualified equivalent without approval while an unrelated command/file request still follows inherited policy. A malformed or rejected managed config must fail Open/startup. | Confirm the exact CLI quoting/value form against the current pinned Codex binary; the installed evidence cited by the README used this key but only a lane-style call. |
+| Grok | A private leader owns both managed TUI sessions and lane ACP sessions; each session receives an MCP server named `sessionbus`, exposed as `sessionbus__sessionbus`. | `wrappers/grok/grok.go:203-214,255-276,800-825`; `wrappers/grok/peer.go:43-98,296-313`; current test explicitly asserts absence at `wrappers/grok/grok_test.go:340`. Historical native evidence records `--allow MCPTool(sessionbus__*)` and successful invocation of the only exposed tool, `sessionbus__sessionbus` (`docs/products/grok.md:41,58`). `--always-approve` is global and forbidden here. | Prefer the exact matcher `--allow`, `MCPTool(sessionbus__sessionbus)` after current-native validation; use the historical server wildcard only if source/help proves exact matching unsupported and the managed server still exposes exactly one tool. Apply it once to the private leader used by lane and peer modes. Preserve explicit caller permission mode, sandbox, allow, and deny arguments except for a detectable deny that matches the managed Sessionbus tool, which must fail launch. The leader is the shared policy authority, so do not duplicate the grant on observer/ACP helper processes. | Peer and lane each invoke `sessionbus__sessionbus` once under ordinary default policy with no approval. An unrelated MCP/native tool remains subject to existing policy. Exercise unrelated caller allow/deny and detectable direct Sessionbus-deny rejection without broadening the managed rule. | Capture current `grok --help` and validate exact `MCPTool(sessionbus__sessionbus)` matching before code. The 1.0.13 server wildcard is source-proven but is not accepted as the final rule without that check. |
+| Qwen | Peer composes one per-launch MCP config; lane passes one `sessionbus` MCP server in ACP `session/new`/`session/resume`. | `wrappers/qwen/interactive_launch.go:94-139`; `wrappers/qwen/qwen.go:160-170,224-225,289-318`; native 0.23.0 help says `--allowed-tools` bypasses confirmation and separately lists `--allowed-mcp-server-names` (`docs/products/qwen-0.23.0-help.txt:49-51`). Exact public name is `mcp__sessionbus__sessionbus` (`qwen/README.md:32-44`). Current lane cancels every ACP permission request (`wrappers/qwen/delivery.go:103-107`). | Prefix the exact tool-scoped CLI grant `--allowed-tools mcp__sessionbus__sessionbus` in both modes. Do not trust the whole MCP server and do not switch approval mode/yolo. Reserve the managed exact tool grant from caller replacement while preserving additional caller allowed-tools entries. Keep the lane permission handler fail-closed for every other request; it should not be the primary grant mechanism. | Peer and lane each discover and call the exact MCP tool without `session/request_permission`; a different tool still triggers/cancels under ordinary policy. Validate array accumulation/precedence with caller `--allowed-tools`, model, sandbox, and approval-mode flags. | Bind current native parsing of repeated `--allowed-tools` and exact ACP MCP tool naming in a no-model fixture before implementation. If the ACP path ignores the CLI allowlist, use the typed permission request only after proving it identifies the exact Sessionbus tool; never allow an unidentified request. |
+| OpenCode | Managed plugin registers a native custom tool named `sessionbus` in both peer and lane server processes. Lane readiness requires that exact tool ID. | `wrappers/opencodefamily/plugin/server.mjs:35-68`; `wrappers/opencodefamily/client.go:70-99`; upstream 1.18.30 converts plugin tools without an implicit `ctx.ask` (`packages/opencode/src/tool/registry.ts:120-171` in `/home/antst/opencode-architecture-20260910/upstream-v1.18.30`). The wildcard lane permission rule exists only for explicit `bypassPermissions`; it must not be reused (`client.go:78-81`). | Treat the custom tool's direct execution as the native narrow grant; add no permission rule and no wildcard. Strengthen readiness/acceptance to prove the exact tool executes under default policy. Preserve all unrelated session/agent permission rules. If current native source or runtime produces a permission request for this plugin tool, stop and return a blocker rather than auto-approving a wildcard. | Peer and lane each call `sessionbus` under default policy with no `permission.asked`; an unrelated `bash`/write request still asks or rejects. Lane Open must continue to fail if `sessionbus` is absent. | Peer default-policy native cell is required. Prior six-product evidence used bypass for OpenCode and does not isolate this property. |
+| Kilo | Same managed custom-tool plugin and lane readiness boundary as OpenCode, with Kilo's native server paths. | `wrappers/opencodefamily/plugin/server.mjs:35-68`; `wrappers/opencodefamily/client.go:70-99`; Kilo 7.6.2 plugin conversion likewise calls plugin `execute` without an implicit ask (`packages/opencode/src/tool/registry.ts:160-220` in `/home/antst/kilocode-architecture-20260911/upstream-v7.6.2`). Wildcard bypass is unsupported for current Kilo lane and is not a candidate grant. | Treat direct custom-tool execution as the narrow native grant. Add no wildcard/session permission rule. Preserve Kilo sandbox and all unrelated permission handling. | Peer and lane call `sessionbus` under default policy with no permission event; a separate mutating native tool retains its prompt/rejection. | Lane default-policy first-call proof is needed even though the earlier installed first-contact peer row succeeded under default policy. |
+| Pi | Managed extension registers one custom tool named `sessionbus`; lane loads the absolute extension in RPC mode and peer loads it in the owned TUI process. Pi has tool enablement but no per-tool approval gate. | `wrappers/pi/extension.mjs:301+`; `wrappers/pi/arguments.go:47-91`; `wrappers/pi/interactive_launch.go`; pinned Pi help records `--tools` as an allowlist over built-in, extension, and custom tools and `--no-tools`/`--exclude-tools` as disable controls (`installed-native-dev1-corrected/capture/pi-help.stdout:30-40`). Upstream Pi proves configured `defaultTools` still keeps extension/custom tools enabled, but explicit CLI allow/exclude/no-tools wins (`packages/coding-agent/test/default-tools-setting.test.ts:55-125` in `/home/antst/pi-omp-architecture-20260911/upstream-root/pi-source`). | The registered tool is inherently callable, so do not add an approval or sandbox flag. Lane already rejects caller-owned tool controls. For managed peer launches, reject only combinations that disable `sessionbus`: `--no-tools`, an explicit `--tools` list lacking it, or `--exclude-tools` containing it. Preserve all other enabled tools and project-trust flags. An allowlist containing `sessionbus` stays intact. | Peer and lane call `sessionbus` with no UI approval. Test default settings, a restrictive built-in `defaultTools`, explicit allowlist containing Sessionbus, and truthful launch rejection for the three disabling forms. Other Pi tools remain exactly as configured. | Confirm current Pi spelling/case normalization for tool lists; do not infer from comma splitting in wrapper code because it currently only classifies argument ownership. |
+| OMP | Managed extension registers `sessionbus` for primary and child factories in both TUI and RPC topologies. OMP has a real per-tool approval engine. | `wrappers/omp/extension.mjs:677+`; `wrappers/omp/native_owner.go:73-94`; upstream OMP documents tool declarations with `approval` and `tools.approval.<tool>` policy (`docs/custom-tools.md:152-159`, `docs/settings.md:153,511-512`, and `packages/coding-agent/src/tools/approval.ts:56-214` in `/home/antst/pi-omp-architecture-20260911/upstream-root/omp-source`). `--auto-approve`/yolo are global and forbidden. `--trusted-extension` changes extension loading and is not a per-tool grant. | Add the honest tool-owned approval decision `{tier:"exec", policy:"allow"}` to the one `sessionbus` registration. It applies in lane, primary TUI, and Task-child factories without changing approval mode or other tools. Reject a detectable caller argument that directly denies this tool. An ambient native setting that the launch cannot inspect may still refuse at runtime; surface it truthfully with no replay. Do not translate `--trusted-extension` or global yolo. | Primary peer, Task child, and lane call `sessionbus` under `always-ask` with no UI request despite the honest exec tier. A separate exec/write tool still emits approval. Any native refusal is terminal for that call and produces no Sessionbus action. | Bind the installed OMP version's extension SDK propagation of the object approval decision, including xdev-dispatched presentation. If tool-owned `policy:"allow"` is not honored for exec tier, report the product gap instead of relabeling it read-only or enabling global yolo. |
+
+## Cross-product implementation rules
+
+1. Managed fixed arguments are inserted before the caller's native `--`
+   boundary. Native arguments keep their order and byte values otherwise.
+2. A caller cannot remove or replace the managed one-tool grant through the
+   generic `arguments` field. Caller controls for unrelated tools remain valid.
+3. Readiness proves tool registration/connection only where the product exposes
+   such a check. It is not relabeled as proof of effective approval.
+4. A direct deny or disable of the managed Sessionbus tool is rejected during
+   argument projection or managed startup; it is not an opt-out. Denies and
+   approval rules for every other tool remain native-owned. No adapter retries
+   a denied or uncertain tool call.
+5. No install-time global permission edit is introduced. Managed grant state is
+   process/session local and disappears with the managed launch.
+
+## Test and acceptance matrix
+
+Every changed adapter needs deterministic tests for (a) exact managed grant
+projection, (b) preservation of unrelated approval/sandbox arguments, (c)
+rejection or preservation of caller arguments that conflict with the managed
+tool, and (d) startup/close cleanup on native rejection. Existing lifecycle,
+reconnect, delivery, and no-replay tests remain unchanged.
+
+UMKA acceptance uses the permanent installed build and real user
+home/config/PATH/service. For each peer and lane mode, one prompt first requests
+the exact Sessionbus `list` action to bind tool identity and `self_info`, then
+uses the same tool to `send` a unique marker to a controlled receiver. The
+capture requires the real delivery receipt and receiver observation, absence of
+an approval interaction, terminal result, and joined cleanup. A paired
+native-policy observation demonstrates that one unrelated mutating tool retains
+its ordinary approval/sandbox behavior. Pi and OMP remain preview products and
+use their existing acceptance ownership rules.
+
+Implementation order after design approval: Codex, Grok, Qwen, OMP, then the
+Pi managed-disable guard; Claude and OpenCode/Kilo receive proof/tests and docs
+unless their required native cells contradict the source-backed inherent grant.
