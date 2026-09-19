@@ -202,6 +202,11 @@ func permission(value string, nativeBypass bool) (string, string, error) {
 		return "", "", nil
 	case "bypassPermissions":
 		return "never", "danger-full-access", nil
+	case "never":
+		if nativeBypass {
+			return "never", "danger-full-access", nil
+		}
+		return "never", "", nil
 	default:
 		if nativeBypass {
 			return "", "", fmt.Errorf("permission_mode=%s conflicts with %s", value, codexNativeBypass)

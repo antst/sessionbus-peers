@@ -203,9 +203,10 @@ func TestPermissionAndName(t *testing.T) {
 		{input: "bypassPermissions", approval: "never", sandbox: "danger-full-access"},
 		{input: "", bypass: true, approval: "never", sandbox: "danger-full-access"},
 		{input: "never", approval: "never"},
+		{input: "never", bypass: true, approval: "never", sandbox: "danger-full-access"},
 		{input: "on-request", approval: "on-request"},
 		{input: "untrusted", approval: "untrusted"},
-		{input: "never", bypass: true, failure: "permission_mode=never conflicts with " + codexNativeBypass},
+		{input: "on-request", bypass: true, failure: "permission_mode=on-request conflicts with " + codexNativeBypass},
 	} {
 		approval, sandbox, err := permission(test.input, test.bypass)
 		if approval != test.approval || sandbox != test.sandbox || (err != nil && err.Error() != test.failure) {
