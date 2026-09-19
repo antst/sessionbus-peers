@@ -105,7 +105,7 @@ actions, so bursts can reject further work. The resident bridge has eight
 connections and finite frame/write/work bounds. Native SDK response parsing and
 native histories remain native-owned allocations. Common source is staged into
 each self-contained product package; the only JS dependency is the immutable
-Sessionbus kit at `0b35c99`, with no plugin SDK, Effect or Solid package added.
+Sessionbus kit at `3a5f964c80052fe19a002d4f4cc50f2333c2f168`, with no plugin SDK, Effect or Solid package added.
 
 Local package installation (`--plugin-dir` or a validated `file:` package directory)
 registers the bundled generic Sessionbus skill through native `skills.paths`.
