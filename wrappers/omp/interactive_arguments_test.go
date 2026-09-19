@@ -14,6 +14,19 @@ var argumentTestNative = NativeExecutable{
 	Path: "/front/omp", EntryPath: "/package/dist/cli.js", RuntimePath: "/runtime/bun", PackageRoot: "/package",
 }
 
+func TestOMPInteractiveBypassPreservesNativeOrder(t *testing.T) {
+	for _, bypass := range [][]string{{"--yolo"}, {"--auto-approve"}, {"--approval-mode", "yolo"}, {"--approval-mode=yolo"}} {
+		input := append([]string{"--model", "provider/model"}, bypass...)
+		input = append(input, "-g", "team", "prompt")
+		plan, passthrough, err := InteractivePlan(argumentTestNative, input, nil)
+		want := append([]string{argumentTestNative.EntryPath, "--model", "provider/model"}, bypass...)
+		want = append(want, "prompt")
+		if err != nil || passthrough || !reflect.DeepEqual(plan.Args, want) {
+			t.Fatalf("bypass %v = %#v, passthrough %t, %v; want %#v", bypass, plan, passthrough, err, want)
+		}
+	}
+}
+
 func TestOMPInteractivePlanProjectsIdentityAfterNativeValues(t *testing.T) {
 	input := []string{"--model", "deepseek/model", "-g", "one", "--peer-name", "named", "hello"}
 	environment := []string{

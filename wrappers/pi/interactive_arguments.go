@@ -49,6 +49,10 @@ func InteractivePlan(arguments, environment []string) (host.ExecPlan, bool, erro
 		if argument == "--" {
 			break
 		}
+		if argument == "--yolo" {
+			plan.Args[index] = "--approve"
+			continue
+		}
 		name, _, attached := strings.Cut(argument, "=")
 		if name == "--mode" {
 			return host.ExecPlan{}, false, errors.New("argument conflicts with managed Pi topology: --mode")
@@ -57,10 +61,69 @@ func InteractivePlan(arguments, environment []string) (host.ExecPlan, bool, erro
 			index++
 		}
 	}
+	if err = validateManagedToolArguments(plan.Args); err != nil {
+		return host.ExecPlan{}, false, err
+	}
 	if interactiveEnvironmentValue(plan.Env, host.SocketEnv) == "" {
 		plan.Env = setInteractiveEnvironment(plan.Env, host.SocketEnv, sessionkit.Socket())
 	}
 	return plan, false, nil
+}
+
+// validateManagedToolArguments mirrors native d981de1 cli/args.ts tool-list
+// parsing. Pi's explicit lists are comma-separated, whitespace-trimmed,
+// case-sensitive names; repeated list options use the last supplied value.
+// Attached long values are not part of that native grammar.
+func validateManagedToolArguments(arguments []string) error {
+	var allowed, excluded []string
+	var noTools, allowedSet, excludedSet bool
+	for index := 0; index < len(arguments); index++ {
+		argument := arguments[index]
+		if argument == "--" {
+			break
+		}
+		switch argument {
+		case "--no-tools", "-nt":
+			noTools = true
+		case "--tools", "-t":
+			if index+1 < len(arguments) {
+				index++
+				allowed = nativeToolList(arguments[index])
+				allowedSet = true
+			}
+			continue
+		case "--exclude-tools", "-xt":
+			if index+1 < len(arguments) {
+				index++
+				excluded = nativeToolList(arguments[index])
+				excludedSet = true
+			}
+			continue
+		}
+		if slices.Contains(interactiveValueOptions, argument) && index+1 < len(arguments) {
+			index++
+		}
+	}
+	if allowedSet && !slices.Contains(allowed, "sessionbus") {
+		return errors.New("argument disables managed Pi Sessionbus tool: --tools must include sessionbus")
+	}
+	if excludedSet && slices.Contains(excluded, "sessionbus") {
+		return errors.New("argument disables managed Pi Sessionbus tool: --exclude-tools contains sessionbus")
+	}
+	if noTools && !allowedSet {
+		return errors.New("argument disables managed Pi Sessionbus tool: --no-tools")
+	}
+	return nil
+}
+
+func nativeToolList(value string) []string {
+	result := make([]string, 0, strings.Count(value, ",")+1)
+	for item := range strings.SplitSeq(value, ",") {
+		if item = strings.TrimSpace(item); item != "" {
+			result = append(result, item)
+		}
+	}
+	return result
 }
 
 func nativeNonTUI(arguments []string) (bool, error) {

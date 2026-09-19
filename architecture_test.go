@@ -24,8 +24,8 @@ const (
 	peersModule             = "github.com/antst/sessionbus-peers"
 	sdkModule               = "github.com/antst/sessionbus/bus/sdk/go"
 	sdkVersion              = "v0.1.0-pre.2.0.20260914122556-69c1024f6dba"
-	citationCount           = 257
-	citationReachabilitySHA = "2c392d35ba7c137e338ea0037cf5e8bc46f8dfb44f6bcd5349ed160dd20f3089"
+	citationCount           = 259
+	citationReachabilitySHA = "92eda86500493840c3a6e234c6c7b5674ef5fb8a77b213757400c1311582a5be"
 	factsHeader             = "> Historical source note: citations to pre-split Sessionbus paths resolve in\n> the Forgejo `ai/sessionbus` repository through its `legacy-*` branches.\n> Citations to product source resolve in the external repository and full\n> commit recorded by the split archive manifest. Host evidence paths are\n> immutable external artifacts, not repository paths."
 )
 
@@ -34,7 +34,8 @@ func TestRepositoryBoundary(t *testing.T) {
 		".forgejo": true, ".git": true,
 		".github": true, ".gitignore": true,
 		".golangci.yml": true, "LICENSE": true, "README.md": true,
-		"architecture_test.go": true, "claude": true, "codex": true, "cmd": true,
+		"RELEASE_VERSION":      true,
+		"architecture_test.go": true, "version_test.go": true, "claude": true, "codex": true, "cmd": true,
 		"docs": true, "go.mod": true, "go.sum": true, "grok": true,
 		"internal": true, "kilo": true, "omp": true, "opencode": true, "pi": true, "qwen": true, "scripts": true, "wrappers": true,
 	}
@@ -57,8 +58,8 @@ func TestRepositoryBoundary(t *testing.T) {
 	if !equalStrings(gotCommands, wantCommands) {
 		t.Errorf("peer command roots = %v, want %v", gotCommands, wantCommands)
 	}
-	if got := directoryNames(t, "internal"); !equalStrings(got, []string{"cmd", "pluginstage", "testsocket"}) {
-		t.Errorf("internal roots = %v, want [cmd pluginstage testsocket]", got)
+	if got := directoryNames(t, "internal"); !equalStrings(got, []string{"cmd", "peerversion", "pluginstage", "testsocket"}) {
+		t.Errorf("internal roots = %v, want [cmd peerversion pluginstage testsocket]", got)
 	}
 	if got := directoryNames(t, "internal/cmd"); !equalStrings(got, []string{"gen-opencode-tool", "stage-native-plugin"}) {
 		t.Errorf("internal commands = %v, want the shared native declaration generator and build stager", got)
@@ -323,7 +324,7 @@ func TestRetainedManifestCommandReachability(t *testing.T) {
 	if err := json.Unmarshal(read(t, "claude/.claude-plugin/plugin.json"), &plugin); err != nil {
 		t.Fatal(err)
 	}
-	if plugin.Name != "sessionbus" || plugin.Version != "0.5.0" || !strings.Contains(plugin.Description, "Claude lanes") {
+	if plugin.Name != "sessionbus" || plugin.Version != strings.TrimSpace(string(read(t, "RELEASE_VERSION"))) || !strings.Contains(plugin.Description, "Claude lanes") {
 		t.Errorf("Claude native plugin metadata is inconsistent with both modes: %#v", plugin)
 	}
 	pack := read(t, "scripts/package-claude")

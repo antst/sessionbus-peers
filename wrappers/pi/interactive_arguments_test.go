@@ -4,6 +4,7 @@ package pi
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/antst/sessionbus-peers/wrappers/host"
@@ -36,13 +37,13 @@ func TestInteractivePlanNativeValueAndBoundaryProtectWrapperFlags(t *testing.T) 
 	for _, args := range [][]string{
 		{"--model", "-g", "prompt"},
 		{"--model", "--mode", "prompt"},
-		{"-t", "-g", "prompt"},
+		{"-t", "-g,sessionbus", "prompt"},
 		{"-xt", "--peer-name", "prompt"},
 		{"--tui-mode", "-g", "prompt"},
 		{"--model=-g", "prompt"},
 		{"--tools=--peer-name", "prompt"},
 		{"--model", "-g", "--"},
-		{"-t", "--peer-name", "--"},
+		{"-t", "--peer-name,sessionbus", "--"},
 		{"--", "-g", "--mode"},
 	} {
 		plan, passthrough, err := InteractivePlan(args, nil)
@@ -146,6 +147,86 @@ func TestInteractivePlanRejectsTopologyOverride(t *testing.T) {
 	for _, args := range [][]string{{"--mode", "rpc"}, {"--mode=json"}} {
 		if _, native, err := InteractivePlan(args, nil); err == nil || native {
 			t.Fatalf("%#v accepted: native=%v err=%v", args, native, err)
+		}
+	}
+}
+
+func TestInteractivePlanRejectsManagedToolDisable(t *testing.T) {
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+	for _, args := range [][]string{
+		{"--no-tools"},
+		{"-nt"},
+		{"--tools", "read,bash"},
+		{"-t", "-g"},
+		{"-t", "--peer-name"},
+		{"-t", "read, SessionBus"},
+		{"--tools", " , "},
+		{"--exclude-tools", "read, sessionbus ,bash"},
+		{"-xt", "sessionbus"},
+		{"--tools", "sessionbus", "--exclude-tools", "sessionbus"},
+		{"--no-tools", "--tools", "read"},
+		{"--tools", "read", "--no-tools"},
+	} {
+		if _, native, err := InteractivePlan(args, nil); err == nil || native ||
+			!strings.Contains(err.Error(), "disables managed Pi Sessionbus tool") {
+			t.Fatalf("%#v accepted: native=%v err=%v", args, native, err)
+		}
+	}
+}
+
+func TestInteractivePlanPreservesEffectiveManagedToolSelection(t *testing.T) {
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+	for _, args := range [][]string{
+		{"--tools", "read, sessionbus ,write"},
+		{"-t", "sessionbus"},
+		{"--exclude-tools", "read,bash"},
+		{"-xt", "read"},
+		{"--no-builtin-tools"},
+		{"--tools", "read", "--tools", "sessionbus"},
+		{"--exclude-tools", "sessionbus", "--exclude-tools", "read"},
+		{"--no-tools", "--tools", "sessionbus"},
+		{"--tools", "sessionbus", "--no-tools"},
+		{"--tools=read"},
+		{"--exclude-tools=sessionbus"},
+		{"--model", "--no-tools"},
+		{"--", "--no-tools", "--tools", "read", "--exclude-tools", "sessionbus"},
+	} {
+		plan, passthrough, err := InteractivePlan(args, nil)
+		if err != nil || passthrough || !reflect.DeepEqual(plan.Args, args) {
+			t.Fatalf("%#v -> %#v passthrough=%v err=%v", args, plan.Args, passthrough, err)
+		}
+	}
+}
+
+func TestInteractivePlanKeepsNativeNoPromptToolControls(t *testing.T) {
+	for _, args := range [][]string{
+		{"--no-tools", "-p", "prompt"},
+		{"--tools", "read", "--print", "prompt"},
+		{"--exclude-tools", "sessionbus", "-p", "prompt"},
+	} {
+		environment := []string{"KEEP=value"}
+		plan, passthrough, err := InteractivePlan(args, environment)
+		if err != nil || !passthrough || !reflect.DeepEqual(plan.Args, args) || !reflect.DeepEqual(plan.Env, environment) {
+			t.Fatalf("%#v -> %#v passthrough=%v err=%v", args, plan, passthrough, err)
+		}
+	}
+}
+
+func TestInteractivePlanYoloCoexistsWithManagedToolSelection(t *testing.T) {
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+	for _, test := range []struct {
+		args []string
+		want []string
+	}{
+		{[]string{"--tools", "sessionbus", "--yolo"}, []string{"--tools", "sessionbus", "--approve"}},
+		{[]string{"--yolo", "--tools", "read,sessionbus"}, []string{"--approve", "--tools", "read,sessionbus"}},
+		{[]string{"--approve", "--tools", "sessionbus"}, []string{"--approve", "--tools", "sessionbus"}},
+		{[]string{"--model", "--yolo", "--tools", "sessionbus"}, []string{"--model", "--yolo", "--tools", "sessionbus"}},
+		{[]string{"--tools", "sessionbus", "--", "--yolo", "--approve"}, []string{"--tools", "sessionbus", "--", "--yolo", "--approve"}},
+	} {
+		plan, passthrough, err := InteractivePlan(test.args, nil)
+		if err != nil || passthrough || !reflect.DeepEqual(plan.Args, test.want) {
+			t.Fatalf("%#v -> %#v passthrough=%v err=%v, want %#v", test.args, plan.Args, passthrough, err, test.want)
 		}
 	}
 }

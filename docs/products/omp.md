@@ -6,6 +6,117 @@
 > commit recorded by the split archive manifest. Host evidence paths are
 > immutable external artifacts, not repository paths.
 
+## OMP 18.1.17 tool approval source audit (2026-09-19)
+
+The following facts come from native commit
+`3b3a6dc9bbd85102ce19d0b1c11bf6870915f6ec`; they do not claim a new installed
+acceptance run.
+
+- `ToolDefinition.approval` accepts an approval decision. The extension loader
+  stores the definition intact, and both registered-tool and approval wrappers
+  proxy its properties. Thus `{tier: "exec", policy: "allow"}` reaches native
+  resolution without an SDK conversion dropping it. Sources:
+  `packages/coding-agent/src/extensibility/extensions/types.ts:642`,
+  `extensions/loader.ts:180`, `extensions/wrapper.ts:47,166`, and
+  `extensibility/tool-proxy.ts:6` under the same source tree.
+- `resolveApproval` honors tool-owned `policy: "allow"` before the mode tier
+  comparison, including under `always-ask`. An explicit native per-tool deny
+  takes precedence. Source: `packages/coding-agent/src/tools/approval.ts:132-214`.
+- OMP's ordinary CLI `--tools` and `--no-tools` set `options.toolNames`, but
+  non-hidden extension tools are still included in unrestricted sessions.
+  Do not infer Pi's exclusion behavior for OMP or reject these flags merely
+  because their names match. Sources: `packages/coding-agent/src/main.ts:1343-1348`
+  and `packages/coding-agent/src/sdk.ts:3293-3305`. The managed lane already
+  reserves its tool-selection arguments.
+- The installed results below verify primary peer, native Task child and lane
+  communication under ordinary policy and preserve an unrelated mutating
+  tool's approval. Source inspection alone does not establish those results.
+
+### Native device transport and the first installed grant check
+
+The first ordinary interactive check of `5beacab` on UMKA failed under
+`always-ask`: the model invoked `write` on `xd://sessionbus`, and native Write
+approval prevented the Sessionbus call. No list/send result or receiver marker
+was observed. The denial and cleanup remain part of that check's evidence;
+the lane default and explicit bypass message checks passed separately.
+
+This route is native behavior. On the same 18.1.17 source,
+`tools/write.ts:518-554` uses the mounted tool's tier and a device policy key,
+but `tools/approval.ts:96-98` returns only the tier, dropping its declared
+`policy: "allow"` at the outer Write gate. An inner tool grant therefore does
+not establish unattended use through this device transport under always-ask.
+
+Register Sessionbus with the native `loadMode: "essential"` so it is exposed
+directly. `extensibility/extensions/types.ts:634-636` documents this choice,
+`extensions/wrapper.ts:47-48` preserves it, and `tools/xdev.ts:84-87` plus
+`sdk.ts:3350-3362` keep essential tools top-level. Other tools retain their
+native presentation and policy. The exec-tier allow remains unchanged. The fresh installed checks below verify the correction;
+the previous failed attempt is not relabeled or replayed.
+
+The first direct-tool lane check of `817879c` exposed a separate schema issue:
+native `openai-codex/gpt-5.5` supplied defaults for all optional union argument
+fields. The public validator rejected those foreign fields; no message was
+delivered. Preserve that failure separately from the earlier approval failure.
+
+Declare `strict: false` on this tool. Native
+`extensibility/extensions/types.ts:643-645` documents explicit false as distinct
+from omission, and the wrappers forward the property. In the same source,
+`packages/ai/src/providers/openai-codex-responses.ts:4744-4752` emits explicit
+`strict: false` only when the definition supplies it (unless the native global
+strict-field suppression is selected). `packages/ai/src/utils/schema/CONSTRAINTS.md:56`
+records optional-field overfill on backends when the flag is omitted. This
+tool-local setting preserves the public optional-field schema and validation;
+it does not remove unexpected arguments or change any other tool. Registration
+tests cover lane, primary and Task-child definitions.
+
+## Installed communication checks (2026-09-19)
+
+Candidate `d84c4e1c27a89b14a94882a29d054b869ca9f396` was installed through
+its ordinary archive installer into UMKA's permanent installation, with native
+OMP 18.1.17 and `openai-codex/gpt-5.5`. Ordinary lane, primary peer and native
+Task-child calls listed their identities and sent unique markers with settled
+`injected` receipts and direct receiver observation. Calls used top-level
+`sessionbus` with sparse action arguments. An unrelated native write still
+prompted under `always-ask`; declining it returned `Tool call denied by user:
+write`, and the file was absent. Explicit bypass lane and primary `--yolo`
+checks also delivered their markers. This does not claim a Task-child bypass
+check on this final candidate.
+
+The earlier Write-transport approval failure, optional-field overfill failure,
+and an earlier bypass primary/Task check with no shared receiver group remain
+recorded separately. No successful delivery is attributed to those failed
+checks. All owned sessions and processes were cleaned up; the daemon stayed
+healthy. Evidence is sealed at `omp-comms-grant-installed-20260919`:
+`SHA256SUMS` SHA256
+`79909c0a7661bcb06463ade2a7f6f74017edfa80eac8735f16e609577172ed93`;
+`OBSERVATIONS.json` SHA256
+`d4816f982810ddaa3105d5eddd5e4de6e23f701967bb8b08136ed14224e17d47`.
+
+## Historical product facts
+
+### Explicit bypass compatibility and earlier working implementation
+
+The earlier `ff81565:internal/products/omp/permission.go:15-23` mapped explicit
+`bypassPermissions` to `--approval-mode=yolo`. Its shared extension registered
+its then-current public tool without a tool-owned approval declaration
+(`ff81565:integrations/pi/pifamily.mjs:100-115`). Retain the explicit bypass
+behavior; do not infer that this legacy path proved a narrow default grant.
+
+On native `3b3a6dc9bbd85102ce19d0b1c11bf6870915f6ec`,
+`packages/coding-agent/src/cli/args.ts:279-280` maps `--yolo` and
+`--auto-approve` to the same option. `cli/flag-tables.ts:226-234` accepts
+`--approval-mode=yolo`, and `main.ts:1524-1531` applies it only to the running
+session's settings. `tools/approval.ts:157-175` preserves an explicit tool-owned
+allow in yolo mode. The managed extension keeps its exec-tier allow in both
+ordinary and bypass launches. A lane's `permission_mode=bypassPermissions`
+selects `--approval-mode=yolo`; empty/default still injects no global mode.
+
+The UMKA help-only capture on 2026-09-19 confirms OMP 18.1.17 and
+`--auto-approve` / `--approval-mode` at lines 57-58 of `omp-help.stdout` in
+`umka-native-version-preflight-20260919` (evidence manifest SHA256
+`708fa0f5b37f28098c8d3fa08a75ad349a280e92c7d0b80a087768d931d5da78`).
+This capture is surface evidence; the installed communication checks above are separate.
+
 Current integration: see [Pi/OMP design](../designs/pi-omp-0.5.0/DESIGN.md) and
 [acceptance status](../designs/pi-omp-0.5.0/ACCEPTANCE.md) for native 18.1.17.
 The facts and `UNVERIFIED` questions below describe the older source snapshot;

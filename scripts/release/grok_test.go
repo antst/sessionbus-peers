@@ -24,7 +24,7 @@ func TestGrokReinstallUsesNativeRepositoryInventory(t *testing.T) {
 		}
 	}
 	put(filepath.Join(src, "install"), string(script))
-	for _, f := range []string{"LICENSE", "THIRD-PARTY-NOTICES.txt", "README.md", "grok-peer", "plugin/manifest"} {
+	for _, f := range []string{"LICENSE", "SOURCE.txt", "THIRD-PARTY-NOTICES.txt", "README.md", "grok-peer", "plugin/manifest"} {
 		put(filepath.Join(src, f), "fixture")
 	}
 	put(filepath.Join(src, "ROLE"), "grok")
