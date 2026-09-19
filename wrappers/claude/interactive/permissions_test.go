@@ -51,3 +51,21 @@ func TestManagedToolRuleSplitterMatchesNativeLists(t *testing.T) {
 		t.Fatal("native literal-space splitter incorrectly treated a tab as a separator")
 	}
 }
+
+func TestInteractiveGuardUsesProjectedNativeArguments(t *testing.T) {
+	for _, group := range []string{"-g", "--group"} {
+		arguments, values, err := LaunchPlan([]string{group, "--disallowedTools", PublicTool}, nil, "/cwd", "/plugin", 1000)
+		if err != nil {
+			t.Fatalf("%s flag-looking group value rejected: %v", group, err)
+		}
+		if got := Environment(values)["SESSIONBUS_GROUPS"]; got != `["--disallowedTools"]` {
+			t.Fatalf("%s groups = %s", group, got)
+		}
+		if got := arguments[len(arguments)-1]; got != PublicTool {
+			t.Fatalf("%s native positional = %q", group, got)
+		}
+		if _, _, err := LaunchPlan([]string{group, "team", "--disallowedTools", PublicTool}, nil, "/cwd", "/plugin", 1000); err == nil {
+			t.Fatalf("%s genuine native deny accepted", group)
+		}
+	}
+}

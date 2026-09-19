@@ -46,9 +46,6 @@ func LaunchPlan(args []string, env map[string]string, cwd, root string, uid int)
 	if env["SESSIONBUS_LAUNCH_TOKEN"] != "" {
 		return nil, nil, errors.New("interactive entry cannot consume a lane launch token")
 	}
-	if err := ValidateManagedToolArguments(args); err != nil {
-		return nil, nil, err
-	}
 	groups := []string{}
 	native := make([]string, 0, len(args))
 	for i := 0; i < len(args); i++ {
@@ -79,6 +76,9 @@ func LaunchPlan(args []string, env map[string]string, cwd, root string, uid int)
 				}
 			}
 		}
+	}
+	if err := ValidateManagedToolArguments(native); err != nil {
+		return nil, nil, err
 	}
 	encoded, _ := json.Marshal(groups)
 	values := make([]string, 0, len(env)+2)
