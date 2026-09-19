@@ -101,21 +101,18 @@ approval requests fail truthfully. Normal close ends stdin, drains native output
 and waits for the direct native process. Hard failure uses forced cleanup; this
 does not promise containment of arbitrary native tool descendants.
 
-`never` prevents approval prompts; it does not grant MCP tool access. On the
-installed candidate, an inherited-policy call was rejected, and a call with
-`permission_mode:"never"` reported that the tool still required approval.
-A caller can explicitly grant the generic Sessionbus tool through native open
-arguments, without changing the installation or activation defaults:
+`never` prevents approval prompts; by itself it does not grant MCP tool access.
+Every managed Codex peer and lane therefore projects the exact native policy
+entry
+`plugins.codex@sessionbus-peers.mcp_servers.sessionbus.tools.sessionbus.approval_mode="approve"`
+alongside plugin activation. The entry grants the one Sessionbus tool and all
+of its public actions; it does not change the approval policy, sandbox, or any
+other tool. Native `strict_auto_review` has a separate policy path.
 
-```json
-{"permission_mode":"never","arguments":["-c","plugins.codex@sessionbus-peers.mcp_servers.sessionbus.tools.sessionbus.approval_mode=\"approve\""]}
-```
-
-This grants that tool's actions, not only its read-only `list` action. Use it
-only when that access is intended. The installed acceptance exercised `list`;
-the grant is a native policy choice, not an approval added by the adapter.
-It does not enable a disabled plugin, server or tool, or override managed
-requirements. Native `strict_auto_review` has a separate policy path.
+Caller config remains byte-preserved except for assignments that could replace
+the managed plugin feature, plugin activation, or exact Sessionbus approval
+path. Those assignments fail launch instead of silently disabling comms.
+Unrelated plugin/config keys and values after native `--` remain untouched.
 
 ## Interactive launch
 

@@ -155,10 +155,15 @@ func TestPackageRegistersAbsoluteAliasAndReturnedNativePath(t *testing.T) {
 		t.Fatal("missing actual native plugin accepted")
 	}
 }
-func TestActivationPrefixPreservesCallerOverride(t *testing.T) {
-	native := []string{"-c", `plugins.codex@sessionbus-peers.enabled=false`, "--", "operand"}
+func TestActivationPrefixIncludesExactToolGrant(t *testing.T) {
+	native := []string{"-c", `model="native"`, "--", "operand"}
 	actual := append(ActivationArguments(), native...)
-	want := []string{"-c", "features.plugins=true", "-c", `plugins.codex@sessionbus-peers.enabled=true`, "-c", `plugins.codex@sessionbus-peers.enabled=false`, "--", "operand"}
+	want := []string{
+		"-c", "features.plugins=true",
+		"-c", `plugins.codex@sessionbus-peers.enabled=true`,
+		"-c", `plugins.codex@sessionbus-peers.mcp_servers.sessionbus.tools.sessionbus.approval_mode="approve"`,
+		"-c", `model="native"`, "--", "operand",
+	}
 	if !reflect.DeepEqual(actual, want) {
 		t.Fatal(actual)
 	}

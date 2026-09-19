@@ -15,11 +15,60 @@ import (
 )
 
 func TestProcessArguments(t *testing.T) {
-	for _, args := range [][]string{{"--config", `model="gpt"`}, {"--unknown", "value", "--", "--literal"}, {"--enable"}, {"app-server", "arbitrary"}, {"-c", `mcp_servers.sessionbus.command=other`}} {
+	for _, args := range [][]string{
+		{"--config", `model="gpt"`},
+		{"--unknown", "value", "--", "--literal"},
+		{"--enable"},
+		{"app-server", "arbitrary"},
+		{"-c", `mcp_servers.sessionbus.command=other`},
+		{"--config", `plugins."other".enabled=false`},
+		{"--config", `plugins."codex@sessionbus-peers".mcp_servers.other.command="other"`},
+		{"--", "--config", `features.plugins=false`},
+	} {
 		got, err := processArguments(args)
 		if err != nil || !slices.Equal(got, args) {
 			t.Fatalf("args=%v got=%v err=%v", args, got, err)
 		}
+	}
+}
+
+func TestManagedConfigCannotBeReplacedByCaller(t *testing.T) {
+	for _, arguments := range [][]string{
+		{"-c", `features.plugins=false`},
+		{"--config", `"features" . plugins = false`},
+		{`--config=plugins."codex@sessionbus-peers".enabled=false`},
+		{"--config", `plugins.'codex@sessionbus-peers'.enabled=false`},
+		{`-cplugins.codex@sessionbus-peers.mcp_servers.sessionbus.tools.sessionbus.approval_mode="deny"`},
+		{"--config", `plugins."codex@sessionbus-peers".mcp_servers.sessionbus={}`},
+		{"--config", `plugins."codex\u0040sessionbus-peers"={}`},
+	} {
+		if _, err := processArguments(arguments); err == nil || !strings.Contains(err.Error(), "managed Sessionbus grant") {
+			t.Fatalf("arguments=%q err=%v", arguments, err)
+		}
+	}
+	for _, arguments := range [][]string{
+		{"--config", `features.plugins_extra=false`},
+		{"--config", `plugins."codex@sessionbus-peers-other".enabled=false`},
+		{"--config", `plugins."codex@sessionbus-peers".mcp_servers.sessionbus.tools.other.approval_mode="deny"`},
+		{"--config", `"plugins.codex@sessionbus-peers".enabled=false`},
+	} {
+		if got, err := processArguments(arguments); err != nil || !slices.Equal(got, arguments) {
+			t.Fatalf("unrelated arguments=%q got=%q err=%v", arguments, got, err)
+		}
+	}
+}
+
+func TestManagedConfigCannotBeReplacedInInteractiveLaunch(t *testing.T) {
+	arguments := []string{"--config", `plugins."codex@sessionbus-peers".enabled=false`}
+	if _, _, err := InteractivePlan(arguments, nil); err == nil || !strings.Contains(err.Error(), "managed Sessionbus grant") {
+		t.Fatalf("interactive plan err=%v", err)
+	}
+	if _, err := parseInteractiveOptions(arguments); err == nil || !strings.Contains(err.Error(), "managed Sessionbus grant") {
+		t.Fatalf("interactive launch parse err=%v", err)
+	}
+	literal := []string{"--", "--config", sessionbusApprovalConfigKey + `="deny"`}
+	if options, err := parseInteractiveOptions(literal); err != nil || !slices.Equal(options.native, literal) {
+		t.Fatalf("post-boundary literal options=%#v err=%v", options, err)
 	}
 }
 

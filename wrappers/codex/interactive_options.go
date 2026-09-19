@@ -16,6 +16,9 @@ type interactiveOptions struct {
 // wrapper flags. The explicitly selected -c value exception remains separate.
 func parseInteractiveOptions(args []string) (interactiveOptions, error) {
 	out := interactiveOptions{groups: []string{}}
+	if err := validateManagedConfig(args); err != nil {
+		return out, err
+	}
 	addGroups := func(value string) {
 		if value != "" {
 			out.groups = append(out.groups, strings.Split(value, ",")...)
