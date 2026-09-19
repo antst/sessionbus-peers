@@ -747,6 +747,9 @@ export function createOMPExtension({ launch, connect = connectBridge, createToke
       label: "Sessionbus",
       description: toolDescription,
       parameters: toolParameters(),
+      // Sessionbus includes mutating actions and delegation; keep the honest
+      // exec tier while granting only this tool in every managed factory.
+      approval: { tier: "exec", policy: "allow" },
       async execute(callID, params, signal, _onUpdate, ctx) {
         throwIfAborted(signal);
         const state = localState(factory, ctx);

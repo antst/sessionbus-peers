@@ -16,3 +16,10 @@ command-line arguments. The lane exposes the standard Sessionbus tool from the
 real native OMP session through the same per-launch extension. Installation
 does not register a global OMP extension, create a native session, or make a
 model request.
+
+Every managed factory declares the one `sessionbus` tool with OMP's
+`{tier: "exec", policy: "allow"}` approval. This covers the lane, interactive
+primary and native Task-child factories without changing the approval mode or
+any other tool's policy. The exec tier reflects that Sessionbus includes
+messaging, delegation and lane controls. An ambient native per-tool denial
+remains a native refusal; it is not bypassed or retried.

@@ -1,5 +1,34 @@
 # Oh My Pi product facts
 
+## OMP 18.1.17 tool approval source audit (2026-09-19)
+
+The following facts come from native commit
+`3b3a6dc9bbd85102ce19d0b1c11bf6870915f6ec`; they do not claim a new installed
+acceptance run.
+
+- `ToolDefinition.approval` accepts an approval decision. The extension loader
+  stores the definition intact, and both registered-tool and approval wrappers
+  proxy its properties. Thus `{tier: "exec", policy: "allow"}` reaches native
+  resolution without an SDK conversion dropping it. Sources:
+  `packages/coding-agent/src/extensibility/extensions/types.ts:642`,
+  `extensions/loader.ts:180`, `extensions/wrapper.ts:47,166`, and
+  `extensibility/tool-proxy.ts:6` under the same source tree.
+- `resolveApproval` honors tool-owned `policy: "allow"` before the mode tier
+  comparison, including under `always-ask`. An explicit native per-tool deny
+  takes precedence. Source: `packages/coding-agent/src/tools/approval.ts:132-214`.
+- OMP's ordinary CLI `--tools` and `--no-tools` set `options.toolNames`, but
+  non-hidden extension tools are still included in unrestricted sessions.
+  Do not infer Pi's exclusion behavior for OMP or reject these flags merely
+  because their names match. Sources: `packages/coding-agent/src/main.ts:1343-1348`
+  and `packages/coding-agent/src/sdk.ts:3293-3305`. The managed lane already
+  reserves its tool-selection arguments.
+- The installed gate remains outstanding: primary peer, native Task child and
+  lane must send a marker with a receipt and receiver observation under
+  `always-ask`, while an unrelated mutating tool still requires approval.
+  Source inspection and registration tests alone do not establish that result.
+
+## Historical product facts
+
 > Historical source note: citations to pre-split Sessionbus paths resolve in
 > the Forgejo `ai/sessionbus` repository through its `legacy-*` branches.
 > Citations to product source resolve in the external repository and full
