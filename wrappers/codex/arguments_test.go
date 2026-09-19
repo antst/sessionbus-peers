@@ -40,11 +40,10 @@ func TestManagedConfigCannotBeReplacedByCaller(t *testing.T) {
 		{"--config", `plugins.codex@sessionbus-peers.mcp_servers={}`},
 		{"--config", `plugins.codex@sessionbus-peers.mcp_servers.sessionbus={}`},
 		{"--config", `plugins.codex@sessionbus-peers.mcp_servers.sessionbus.enabled=false`},
-		{"--config", `plugins.codex@sessionbus-peers.mcp_servers.sessionbus.default_tools_approval_mode="deny"`},
 		{"--config", `plugins.codex@sessionbus-peers.mcp_servers.sessionbus.enabled_tools=[]`},
 		{"--config", `plugins.codex@sessionbus-peers.mcp_servers.sessionbus.disabled_tools=["sessionbus"]`},
 		{"--config", `plugins.codex@sessionbus-peers.mcp_servers.sessionbus.tools={}`},
-		{"--config", `plugins.codex@sessionbus-peers.mcp_servers.sessionbus.tools.sessionbus.enabled=false`},
+		{"--config", `plugins.codex@sessionbus-peers.mcp_servers.sessionbus.tools.sessionbus.approval_mode="deny"`},
 		{"--disable", "plugins"},
 		{"--disable=plugins"},
 	} {
@@ -60,7 +59,9 @@ func TestManagedConfigCannotBeReplacedByCaller(t *testing.T) {
 		{"--config", `plugins.codex@sessionbus-peers-other.enabled=false`},
 		{"--config", `plugins.codex@sessionbus-peers.mcp_servers.other.enabled=false`},
 		{"--config", `plugins.codex@sessionbus-peers.mcp_servers.sessionbus.command="other"`},
+		{"--config", `plugins.codex@sessionbus-peers.mcp_servers.sessionbus.default_tools_approval_mode="deny"`},
 		{"--config", `plugins.codex@sessionbus-peers.mcp_servers.sessionbus.tools.other.approval_mode="deny"`},
+		{"--config", `plugins.codex@sessionbus-peers.mcp_servers.sessionbus.tools.sessionbus.enabled=false`},
 		{"--config", `"plugins.codex@sessionbus-peers".enabled=false`},
 		{"-c", `mcp_servers.sessionbus.command=other`},
 		{"--disable", "web_search_request"},
@@ -69,6 +70,46 @@ func TestManagedConfigCannotBeReplacedByCaller(t *testing.T) {
 	} {
 		if got, err := processArguments(arguments); err != nil || !slices.Equal(got, arguments) {
 			t.Fatalf("unrelated arguments=%q got=%q err=%v", arguments, got, err)
+		}
+	}
+}
+
+func TestManagedConfigPreservesEquivalentEnables(t *testing.T) {
+	for _, arguments := range [][]string{
+		{"-c", `features.plugins=true`},
+		{"--config", `plugins.codex@sessionbus-peers.enabled = true`},
+		{"--config", `plugins.codex@sessionbus-peers.mcp_servers.sessionbus.enabled=true`},
+		{"--config", `plugins.codex@sessionbus-peers.mcp_servers.sessionbus.enabled_tools=["other", "sessionbus"]`},
+		{"--config", `plugins.codex@sessionbus-peers.mcp_servers.sessionbus.enabled_tools=['sessionbus']`},
+		{"--config", "plugins.codex@sessionbus-peers.mcp_servers.sessionbus.enabled_tools=[\"other\", # retained\n\"sessionbus\",]"},
+		{"--config", `plugins.codex@sessionbus-peers.mcp_servers.sessionbus.disabled_tools=[]`},
+		{"--config", `plugins.codex@sessionbus-peers.mcp_servers.sessionbus.disabled_tools=["other"]`},
+		{"--config", sessionbusApprovalConfigKey + `="approve"`},
+		{"--config", sessionbusApprovalConfigKey + `='approve'`},
+		{"--config", sessionbusApprovalConfigKey + `="appr\u006fve"`},
+	} {
+		got, err := processArguments(arguments)
+		if err != nil || !slices.Equal(got, arguments) {
+			t.Fatalf("equivalent enabling arguments=%q got=%q err=%v", arguments, got, err)
+		}
+	}
+	for _, arguments := range [][]string{
+		{"-c", `features.plugins=true`},
+		{"-c", sessionbusApprovalConfig},
+	} {
+		interactive, err := parseInteractiveOptions(arguments)
+		if err != nil {
+			t.Fatalf("interactive equivalent enable arguments=%q err=%v", arguments, err)
+		}
+		if got := append(ActivationArguments(), interactive.native...); !slices.Contains(got, sessionbusApprovalConfig) {
+			t.Fatalf("interactive managed grant missing from %q", got)
+		}
+		lane, err := processArguments(arguments)
+		if err != nil {
+			t.Fatalf("lane equivalent enable arguments=%q err=%v", arguments, err)
+		}
+		if got := append(ActivationArguments(), lane...); !slices.Contains(got, sessionbusApprovalConfig) {
+			t.Fatalf("lane managed grant missing from %q", got)
 		}
 	}
 }

@@ -112,12 +112,16 @@ other tool. `--yolo` still maps to native
 preserved alongside the fixed tool grant. Native `strict_auto_review` has a
 separate policy path.
 
-Caller config remains byte-preserved except for assignments that overlap the
-managed plugin feature, plugin activation, or native Sessionbus server controls
-that can disable, exclude, or downgrade its one tool. `--disable plugins` is
-rejected for the same reason. Native CLI config keys split literally on dots;
-quoted segments remain different keys. Other plugins, servers, tool policies,
-feature flags, and values after native `--` remain untouched.
+Caller config remains byte-preserved. Assignments that disable plugin
+activation, remove Sessionbus from `enabled_tools`, add it to `disabled_tools`,
+replace an ancestor table, or change the exact tool policy away from `approve`
+are rejected. Equivalent `true`/`approve` assignments and safe tool lists remain
+valid. A server default approval setting also remains caller-owned because the
+native field applies only when no exact tool override exists. `--disable
+plugins` is rejected because it disables managed activation. Native CLI config
+keys split literally on dots; quoted segments remain different keys. Other
+plugins, servers, tool policies, feature flags, and values after native `--`
+remain untouched.
 
 ## Interactive launch
 

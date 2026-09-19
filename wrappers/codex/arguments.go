@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/antst/sessionbus-peers/wrappers/host"
@@ -30,10 +31,9 @@ var managedConfigPaths = [][]string{
 	{"features", "plugins"},
 	{"plugins", PluginID, "enabled"},
 	{"plugins", PluginID, "mcp_servers", "sessionbus", "enabled"},
-	{"plugins", PluginID, "mcp_servers", "sessionbus", "default_tools_approval_mode"},
 	{"plugins", PluginID, "mcp_servers", "sessionbus", "enabled_tools"},
 	{"plugins", PluginID, "mcp_servers", "sessionbus", "disabled_tools"},
-	{"plugins", PluginID, "mcp_servers", "sessionbus", "tools", "sessionbus"},
+	{"plugins", PluginID, "mcp_servers", "sessionbus", "tools", "sessionbus", "approval_mode"},
 }
 
 // validateManagedConfig rejects only arguments that can disable or replace the
@@ -72,12 +72,15 @@ func validateManagedConfig(arguments []string) error {
 		if !found {
 			continue
 		}
-		path, ok := codexConfigPath(value)
+		path, configValue, ok := codexConfigAssignment(value)
 		if !ok {
 			continue // Native Codex owns malformed and non-assignment config values.
 		}
 		for _, managed := range managedConfigPaths {
 			if pathPrefix(path, managed) || pathPrefix(managed, path) {
+				if slices.Equal(path, managed) && compatibleManagedConfig(path, configValue) {
+					break
+				}
 				return fmt.Errorf("configuration %q conflicts with the managed Sessionbus grant", strings.Join(path, "."))
 			}
 		}
@@ -97,15 +100,118 @@ func pathPrefix(path, target []string) bool {
 	return true
 }
 
-// codexConfigPath mirrors native CLI override parsing: split once on '=', trim
-// the whole key, and split it literally on dots. Quote bytes remain key bytes.
-func codexConfigPath(value string) ([]string, bool) {
-	key, _, found := strings.Cut(value, "=")
+// codexConfigAssignment mirrors native CLI override parsing: split once on
+// '=', trim the whole key, and split it literally on dots. Quote bytes remain
+// key bytes; the value remains TOML source for the narrow compatibility checks.
+func codexConfigAssignment(value string) ([]string, string, bool) {
+	key, configValue, found := strings.Cut(value, "=")
 	key = strings.TrimSpace(key)
 	if !found || key == "" {
+		return nil, "", false
+	}
+	return strings.Split(key, "."), strings.TrimSpace(configValue), true
+}
+
+// compatibleManagedConfig preserves previously valid callers that repeat an
+// enabling setting. Parent table assignments still conflict because they can
+// erase the fixed leaf written earlier on the native command line.
+func compatibleManagedConfig(path []string, value string) bool {
+	switch strings.Join(path, ".") {
+	case "features.plugins", "plugins." + PluginID + ".enabled", "plugins." + PluginID + ".mcp_servers.sessionbus.enabled":
+		return value == "true"
+	case "plugins." + PluginID + ".mcp_servers.sessionbus.enabled_tools":
+		tools, ok := tomlStringArray(value)
+		return ok && slices.Contains(tools, "sessionbus")
+	case "plugins." + PluginID + ".mcp_servers.sessionbus.disabled_tools":
+		tools, ok := tomlStringArray(value)
+		return ok && !slices.Contains(tools, "sessionbus")
+	case sessionbusApprovalConfigKey:
+		approval, ok := tomlString(value)
+		return ok && approval == "approve"
+	}
+	return false
+}
+
+// tomlStringArray accepts the ordinary one-line TOML string arrays used by
+// Codex CLI overrides. Unrecognized TOML stays fail-closed for managed list
+// controls; native Codex continues to own it everywhere else.
+func tomlStringArray(value string) ([]string, bool) {
+	value = strings.TrimSpace(value)
+	if len(value) < 2 || value[0] != '[' || value[len(value)-1] != ']' {
 		return nil, false
 	}
-	return strings.Split(key, "."), true
+	value = value[1 : len(value)-1]
+	result := []string{}
+	for {
+		value = trimTOMLArraySpace(value)
+		if value == "" {
+			return result, true
+		}
+		quote := value[0]
+		if quote != '\'' && quote != '"' {
+			return nil, false
+		}
+		end, escaped := 1, false
+		for ; end < len(value); end++ {
+			if quote == '"' && value[end] == '\\' && !escaped {
+				escaped = true
+				continue
+			}
+			if value[end] == quote && !escaped {
+				break
+			}
+			escaped = false
+		}
+		if end == len(value) {
+			return nil, false
+		}
+		item, ok := tomlString(value[:end+1])
+		if !ok {
+			return nil, false
+		}
+		result = append(result, item)
+		value = trimTOMLArraySpace(value[end+1:])
+		if value == "" {
+			return result, true
+		}
+		if value[0] != ',' {
+			return nil, false
+		}
+		value = value[1:]
+	}
+}
+
+func trimTOMLArraySpace(value string) string {
+	for {
+		value = strings.TrimLeft(value, " \t\r\n")
+		if value == "" || value[0] != '#' {
+			return value
+		}
+		newline := strings.IndexByte(value, '\n')
+		if newline < 0 {
+			return ""
+		}
+		value = value[newline+1:]
+	}
+}
+
+func tomlString(value string) (string, bool) {
+	value = strings.TrimSpace(value)
+	if len(value) < 2 || value[0] != value[len(value)-1] {
+		return "", false
+	}
+	switch value[0] {
+	case '\'':
+		if strings.ContainsAny(value[1:len(value)-1], "'\r\n") {
+			return "", false
+		}
+		return value[1 : len(value)-1], true
+	case '"':
+		decoded, err := strconv.Unquote(value)
+		return decoded, err == nil
+	default:
+		return "", false
+	}
 }
 func permission(value string) (string, string, error) { return value, "", nil }
 
