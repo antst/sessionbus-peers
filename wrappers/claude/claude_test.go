@@ -31,6 +31,47 @@ func TestNativeArgumentsPreserveCallerSuffix(t *testing.T) {
 		t.Fatalf("argv %#v", actual)
 	}
 }
+func TestNativeArgumentsKeepGrantWithBypass(t *testing.T) {
+	for name, request := range map[string]kit.OpenRequest{
+		"native": func() kit.OpenRequest {
+			var value kit.OpenRequest
+			value.Open.Arguments = []string{"--dangerously-skip-permissions", "--model", "native-model"}
+			return value
+		}(),
+		"typed": func() kit.OpenRequest {
+			var value kit.OpenRequest
+			value.Open.PermissionMode = "bypassPermissions"
+			return value
+		}(),
+	} {
+		if err := interactive.ValidateManagedToolArguments(request.Open.Arguments); err != nil {
+			t.Fatal(err)
+		}
+		actual := launchArguments(request, "/installed plugin", "/owned settings")
+		if actual[0] != "--allowedTools" || actual[1] != interactive.PublicTool {
+			t.Fatalf("managed grant absent with %s bypass: %q", name, actual)
+		}
+		if name == "native" && !reflect.DeepEqual(actual[len(actual)-3:], []string{"--dangerously-skip-permissions", "--model", "native-model"}) {
+			t.Fatalf("native bypass order changed: %q", actual)
+		}
+		if name == "typed" && !reflect.DeepEqual(actual[len(actual)-2:], []string{"--permission-mode", "bypassPermissions"}) {
+			t.Fatalf("typed bypass projection changed: %q", actual)
+		}
+	}
+}
+func TestOpenRejectsManagedToolDenyBeforeLifetime(t *testing.T) {
+	p := New(t.TempDir())
+	request := kit.OpenRequest{}
+	request.Open.Arguments = []string{"--disallowed-tools", interactive.PublicTool}
+	if _, err := p.Open(context.Background(), request); err == nil {
+		t.Fatal("managed tool deny accepted")
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.ctx != nil || p.endpoint != nil || p.closing {
+		t.Fatalf("rejected launch changed lifetime: ctx=%v endpoint=%v closing=%v", p.ctx, p.endpoint, p.closing)
+	}
+}
 func TestRequiredToolsNeedsConnectedPresence(t *testing.T) {
 	for _, tc := range []struct {
 		value string
