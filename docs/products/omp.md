@@ -115,7 +115,7 @@ The UMKA help-only capture on 2026-09-19 confirms OMP 18.1.17 and
 `--auto-approve` / `--approval-mode` at lines 57-58 of `omp-help.stdout` in
 `umka-native-version-preflight-20260919` (evidence manifest SHA256
 `708fa0f5b37f28098c8d3fa08a75ad349a280e92c7d0b80a087768d931d5da78`).
-This capture is surface evidence; the installed results below are separate.
+This capture is surface evidence; the installed communication checks above are separate.
 
 Current integration: see [Pi/OMP design](../designs/pi-omp-0.5.0/DESIGN.md) and
 [acceptance status](../designs/pi-omp-0.5.0/ACCEPTANCE.md) for native 18.1.17.
