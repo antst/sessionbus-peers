@@ -212,6 +212,25 @@ func TestInteractivePlanKeepsNativeNoPromptToolControls(t *testing.T) {
 	}
 }
 
+func TestInteractivePlanYoloCoexistsWithManagedToolSelection(t *testing.T) {
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+	for _, test := range []struct {
+		args []string
+		want []string
+	}{
+		{[]string{"--tools", "sessionbus", "--yolo"}, []string{"--tools", "sessionbus", "--approve"}},
+		{[]string{"--yolo", "--tools", "read,sessionbus"}, []string{"--approve", "--tools", "read,sessionbus"}},
+		{[]string{"--approve", "--tools", "sessionbus"}, []string{"--approve", "--tools", "sessionbus"}},
+		{[]string{"--model", "--yolo", "--tools", "sessionbus"}, []string{"--model", "--yolo", "--tools", "sessionbus"}},
+		{[]string{"--tools", "sessionbus", "--", "--yolo", "--approve"}, []string{"--tools", "sessionbus", "--", "--yolo", "--approve"}},
+	} {
+		plan, passthrough, err := InteractivePlan(test.args, nil)
+		if err != nil || passthrough || !reflect.DeepEqual(plan.Args, test.want) {
+			t.Fatalf("%#v -> %#v passthrough=%v err=%v, want %#v", test.args, plan.Args, passthrough, err, test.want)
+		}
+	}
+}
+
 func TestInteractivePlanRejectsInvalidWrapperValue(t *testing.T) {
 	for _, args := range [][]string{{"-g"}, {"-g", ""}, {"-g", "--"}, {"--peer-name="}, {"-n", "--"}} {
 		if _, native, err := InteractivePlan(args, nil); err == nil || native {

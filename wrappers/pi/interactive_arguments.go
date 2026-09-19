@@ -49,6 +49,10 @@ func InteractivePlan(arguments, environment []string) (host.ExecPlan, bool, erro
 		if argument == "--" {
 			break
 		}
+		if argument == "--yolo" {
+			plan.Args[index] = "--approve"
+			continue
+		}
 		name, _, attached := strings.Cut(argument, "=")
 		if name == "--mode" {
 			return host.ExecPlan{}, false, errors.New("argument conflicts with managed Pi topology: --mode")

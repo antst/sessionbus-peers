@@ -33,6 +33,8 @@ The wrapper therefore rejects an effective tool selection that removes it:
 explicit `--tools` list that omits it, or `--exclude-tools` containing it.
 Other tool selections and project-trust arguments remain native-owned and
 unchanged. These checks do not apply to the direct native paths above.
+For managed interactive launches, the wrapper alias `--yolo` selects Pi's
+native `--approve`; an explicit native `--approve` remains unchanged.
 
 Daemon-owned lanes are selected by the Sessionbus launch token and accept no
 command-line arguments. The lane exposes the standard Sessionbus tool from the
