@@ -255,10 +255,6 @@ func (p *Wrapper) openSession(ctx context.Context, primary *acpClient, request s
 	return p.endpoint.waitReady(ctx)
 }
 
-func (p *Wrapper) startLeader(cwd, permission string) (*nativeProcess, error) {
-	return startLeader(p.ctx, p.socket, p.key, cwd, permission, nativeEnvironment())
-}
-
 func startLeader(ctx context.Context, socket, key, cwd, permission string, environment []string) (*nativeProcess, error) {
 	arguments := sessionbusLeaderPolicy()
 	if permission != "" {
