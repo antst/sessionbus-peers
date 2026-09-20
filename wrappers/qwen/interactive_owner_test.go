@@ -223,14 +223,15 @@ func TestInteractivePlanPreservesNativeSelectorsAndOwnedGroups(t *testing.T) {
 		args := append(slicesForTest(selector), "-g", "a,b", "-n", "chosen", "--group=c", "--", "-g", "literal")
 		plan, e := InteractivePlan(args, []string{"KEEP=value"})
 		must(t, e)
-		want := append(slicesForTest(selector), "--", "-g", "literal")
+		want := append(slicesForTest(selector), managedQwenGrant()...)
+		want = append(want, "--", "-g", "literal")
 		check(t, reflect.DeepEqual(plan.Args, want), "native argv changed: %q", plan.Args)
 		check(t, environmentValue(plan.Env, "SESSIONBUS_GROUPS") == `["a","b","c"]`, "groups=%q", plan.Env)
 		check(t, environmentValue(plan.Env, "SESSIONBUS_SESSION_ID") == "", "invented identity")
 	}
 	plan, e := InteractivePlan([]string{"--yolo", "--approval-mode", "plan", "--resume", "--name", "N"}, nil)
 	must(t, e)
-	check(t, reflect.DeepEqual(plan.Args, []string{"--yolo", "--approval-mode", "plan", "--resume"}), "policy bytes changed")
+	check(t, reflect.DeepEqual(plan.Args, []string{"--yolo", "--approval-mode", "plan", "--resume", "--allowed-tools", managedQwenTool}), "policy bytes changed")
 	for _, arg := range []string{"--input-file=x", "--json-file=x", "--json-fd=3", "--chat-recording=false"} {
 		_, e = InteractivePlan([]string{arg}, nil)
 		check(t, e != nil, "accepted reserved %s", arg)

@@ -226,7 +226,7 @@ func exercisePackagedInteractiveLaunch(t *testing.T, public string) {
 		check(t, capture.Binding.Directory != "" && capture.Binding.Directory != previous, "runtime directory reused")
 		previous = capture.Binding.Directory
 		wantPrefix := []string{"--chat-recording=true", "--input-file", filepath.Join(previous, "input.jsonl"), "--json-file", filepath.Join(previous, "events.fifo"), "--resume", "native title", "--approval-mode", "plan", "--mcp-config"}
-		check(t, len(capture.Args) == 14 && reflect.DeepEqual(capture.Args[:10], wantPrefix) && strings.Contains(capture.Args[10], "9007199254740993") && reflect.DeepEqual(capture.Args[11:], []string{"--", "-g", "native-literal"}), "actual native argv=%q", capture.Args)
+		check(t, len(capture.Args) == 16 && reflect.DeepEqual(capture.Args[:10], wantPrefix) && strings.Contains(capture.Args[10], "9007199254740993") && reflect.DeepEqual(capture.Args[11:], []string{"--allowed-tools", managedQwenTool, "--", "-g", "native-literal"}), "actual native argv=%q", capture.Args)
 		if attempt == 0 {
 			must(t, syscall.Kill(-command.Process.Pid, syscall.SIGINT))
 			waitFileCondition(t, watch, func() bool {
