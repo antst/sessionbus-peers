@@ -54,6 +54,14 @@ func RunInteractive(ctx context.Context, plan host.ExecPlan) error {
 	if err != nil {
 		return err
 	}
+	policy, err := interactivePolicy(plan.Args)
+	if err != nil {
+		return err
+	}
+	nativeEnv := peerNativeEnvironment(plan.Env)
+	if err = ensureSessionbusPermission(nativeEnv, cwd); err != nil {
+		return err
+	}
 	if err = os.MkdirAll(filepath.Dir(socket), 0700); err != nil {
 		return err
 	}
@@ -66,7 +74,8 @@ func RunInteractive(ctx context.Context, plan host.ExecPlan) error {
 	privateSocket, key := filepath.Join(runtime, "presence.sock"), "native"
 	leaderPath := leaderSocket(privateSocket, key)
 	plan.Env = setEnvironment(plan.Env, ManagedEnv, leaderPath)
-	leader, err := startLeaderWithPolicy(ctx, privateSocket, key, cwd, interactivePolicy(plan.Args), peerNativeEnvironment(plan.Env))
+	nativeEnv = setEnvironment(nativeEnv, ManagedEnv, leaderPath)
+	leader, err := startLeaderWithPolicy(ctx, privateSocket, key, cwd, policy, nativeEnv)
 	if err != nil {
 		return err
 	}
@@ -105,7 +114,7 @@ func RunInteractive(ctx context.Context, plan host.ExecPlan) error {
 }
 
 func peerNativeEnvironment(environment []string) []string {
-	result := nativeEnvironment()
+	result := nativeEnvironmentFrom(environment)
 	for _, name := range []string{host.SocketEnv, host.GroupsEnv, host.NameEnv, ManagedEnv} {
 		if value := environmentValue(environment, name); value != "" {
 			result = setEnvironment(result, name, value)
@@ -272,6 +281,9 @@ func InteractivePlan(arguments, environment []string) (host.ExecPlan, error) {
 			return host.ExecPlan{}, errors.New("grok-peer owns its private native leader; caller leader selection conflicts")
 		}
 	}
+	if _, err := interactivePolicy(native); err != nil {
+		return host.ExecPlan{}, err
+	}
 	raw, _ := json.Marshal(groups)
 	env = setEnvironment(env, host.GroupsEnv, string(raw))
 	env = setEnvironment(env, host.NameEnv, name)
@@ -291,29 +303,6 @@ func interactiveCwd(arguments []string) (string, error) {
 	return cwd, err
 }
 
-// Mirror only the caller's explicit policy switches to its private leader.
-// Native Grok interprets their precedence; the wrapper does not choose a mode.
-func interactivePolicy(arguments []string) []string {
-	policy := []string{}
-	for i := 0; i < len(arguments); i++ {
-		arg := arguments[i]
-		if arg == "--" {
-			break
-		}
-		key, _, attached := strings.Cut(arg, "=")
-		if key == "--always-approve" {
-			policy = append(policy, arg)
-		}
-		if key == "--permission-mode" {
-			policy = append(policy, arg)
-			if !attached && i+1 < len(arguments) {
-				i++
-				policy = append(policy, arguments[i])
-			}
-		}
-	}
-	return policy
-}
 func nativeOption(arguments []string, target string) string {
 	value := ""
 	for i, arg := range arguments {

@@ -34,6 +34,11 @@ func TestMain(m *testing.M) {
 		fakeGrok()
 		os.Exit(0)
 	}
+	home, err := os.MkdirTemp("", "sessionbus-grok-test-home-")
+	if err != nil {
+		panic(err)
+	}
+	_ = os.Setenv("GROK_HOME", home)
 	_ = os.Setenv("GROK_TEST_CHILD", "1")
 	command = func(_ string, arguments ...string) *exec.Cmd {
 		args := append([]string{"-test.run=^$", "--"}, arguments...)
@@ -41,14 +46,16 @@ func TestMain(m *testing.M) {
 		cmd.Env = append(os.Environ(), "GROK_TEST_CHILD=1")
 		return cmd
 	}
-	os.Exit(m.Run())
+	code := m.Run()
+	_ = os.RemoveAll(home)
+	os.Exit(code)
 }
 
 func fakeGrok() {
 	index := slices.Index(os.Args, "--")
 	arguments := os.Args[index+1:]
 	cwd, _ := os.Getwd()
-	record("START", map[string]any{"pid": os.Getpid(), "arguments": arguments, "cwd": cwd, "laneSocket": os.Getenv("SESSIONBUS_LANE_SOCKET"), "environment": map[string]string{host.SocketEnv: os.Getenv(host.SocketEnv), host.GroupsEnv: os.Getenv(host.GroupsEnv)}})
+	record("START", map[string]any{"pid": os.Getpid(), "arguments": arguments, "cwd": cwd, "laneSocket": os.Getenv("SESSIONBUS_LANE_SOCKET"), "environment": map[string]string{host.SocketEnv: os.Getenv(host.SocketEnv), host.GroupsEnv: os.Getenv(host.GroupsEnv), ManagedEnv: os.Getenv(ManagedEnv)}})
 	if path := os.Getenv("GROK_TEST_INTERACTIVE_STARTED"); path != "" && slices.Contains(arguments, "--leader") && !slices.Contains(arguments, "stdio") {
 		publishTestFile(path, []byte("started"))
 	}
@@ -300,6 +307,8 @@ func TestFreshLaneNativeLifecycle(t *testing.T) {
 	check(t, !exists(filepath.Join(root, "locks")), "adapter session lock recreated")
 	frames := records(t, recordPath)
 	check(t, containsStart(frames, "--permission-mode", "bypassPermissions", "--reasoning-effort", "low", "-m", "grok-4.6", "--disable-web-search"), "typed argv not preserved")
+	check(t, containsStart(frames, "--allow", "MCPTool(sessionbus__sessionbus)", "--relay-on-demand"), "lane leader omitted exact Sessionbus grant")
+	check(t, countStartsContaining(frames, "--allow", "MCPTool(sessionbus__sessionbus)") == 1, "Sessionbus grant escaped the one private leader")
 	check(t, containsStart(frames, "--relay-on-demand") && !containsStart(frames, "--no-exit-on-disconnect"), "leader argv did not preserve relay-on-demand")
 	check(t, allStartsContain(frames, "--no-auto-update"), "an ACP client omitted --no-auto-update")
 	check(t, countFrames(frames, "initialize") == 3, "authenticated startup hold absent: %d handshakes", countFrames(frames, "initialize"))
@@ -337,7 +346,7 @@ func TestInterruptAndResume(t *testing.T) {
 	load := findFrame(frames, "session/load")
 	check(t, strings.Contains(string(load), `"sessionId":"`+testSessionID+`"`), "resume load = %s", load)
 	check(t, !containsStart(frames, "--resume", testSessionID), "resume was selected in both argv and session/load")
-	check(t, !containsStart(frames, "--allow", "MCPTool(sessionbus__*)"), "implicit native MCP grant")
+	check(t, containsStart(frames, "--allow", "MCPTool(sessionbus__sessionbus)", "--relay-on-demand"), "resumed lane leader omitted exact Sessionbus grant")
 	must(t, p.Close(context.Background(), sessionkit.SessionCloseRequest{}))
 }
 
@@ -420,6 +429,41 @@ func TestArgumentsAndHello(t *testing.T) {
 	for _, test := range []struct{ argument, want string }{{"--model=x", "model"}, {"--resume=x", "session_id"}, {"--leader", "leader"}, {"text", "unsupported argument"}} {
 		_, err := extraArguments([]string{test.argument})
 		check(t, err != nil && strings.Contains(err.Error(), test.want), "%s error = %v", test.argument, err)
+	}
+}
+
+func TestLaneArgumentValidationPrecedesConfigWrite(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("GROK_HOME", home)
+	p := New(filepath.Join(testsocket.Directory(t), "sessionbus.sock"), "token")
+	p.SetCall(func(context.Context, string, any) (json.RawMessage, error) { return nil, nil })
+	_, err := p.Open(context.Background(), sessionkit.OpenRequest{
+		Name: "lane@local",
+		Open: sessionkit.OpenOptions{Arguments: []string{"--unsupported"}},
+	})
+	if err == nil || !strings.Contains(err.Error(), "unsupported argument") {
+		t.Fatalf("invalid arguments accepted: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(home, grokConfigFile)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("config written before argument validation: %v", err)
+	}
+}
+
+func TestLaneConfigFailurePrecedesEndpointAndNativeStart(t *testing.T) {
+	home, recordPath := t.TempDir(), filepath.Join(t.TempDir(), "record")
+	t.Setenv("GROK_HOME", home)
+	t.Setenv("GROK_TEST_RECORD", recordPath)
+	if err := os.WriteFile(filepath.Join(home, grokConfigFile), []byte("token = PRIVATE_VALUE @\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	p := New(filepath.Join(testsocket.Directory(t), "sessionbus.sock"), "token")
+	p.SetCall(func(context.Context, string, any) (json.RawMessage, error) { return nil, nil })
+	_, err := p.Open(context.Background(), sessionkit.OpenRequest{Name: "lane@local"})
+	if err == nil || strings.Contains(err.Error(), "PRIVATE_VALUE") || !strings.Contains(err.Error(), "invalid TOML at line") {
+		t.Fatalf("config failure = %v", err)
+	}
+	if _, err := os.Stat(recordPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("native started before config validation: %v", err)
 	}
 }
 
@@ -720,6 +764,21 @@ func containsStart(records []json.RawMessage, values ...string) bool {
 		return true
 	}
 	return false
+}
+
+func countStartsContaining(records []json.RawMessage, values ...string) int {
+	count := 0
+	for _, raw := range records {
+		if !strings.Contains(string(raw), `"kind":"START"`) {
+			continue
+		}
+		body := string(raw)
+		if slices.ContainsFunc(values, func(value string) bool { return !strings.Contains(body, value) }) {
+			continue
+		}
+		count++
+	}
+	return count
 }
 
 func allStartsContain(records []json.RawMessage, value string) bool {

@@ -121,6 +121,14 @@ func (p *Wrapper) Open(ctx context.Context, request sessionkit.OpenRequest) (res
 	if err != nil {
 		return sessionkit.OpenResult{}, err
 	}
+	primaryArgs, err := launchArguments(request, leaderSocket(p.socket, p.key))
+	if err != nil {
+		return sessionkit.OpenResult{}, err
+	}
+	nativeEnv := nativeEnvironment()
+	if err = ensureSessionbusPermission(nativeEnv, request.Open.Cwd); err != nil {
+		return sessionkit.OpenResult{}, err
+	}
 	endpoint, err := newGrokEndpoint(p)
 	if err != nil {
 		return result, err
@@ -129,7 +137,7 @@ func (p *Wrapper) Open(ctx context.Context, request sessionkit.OpenRequest) (res
 	p.endpoint = endpoint
 	p.mu.Unlock()
 
-	leader, err := p.startLeader(request.Open.Cwd, request.Open.PermissionMode)
+	leader, err := startLeader(p.ctx, p.socket, p.key, request.Open.Cwd, request.Open.PermissionMode, nativeEnv)
 	if err != nil {
 		return result, err
 	}
@@ -147,13 +155,9 @@ func (p *Wrapper) Open(ctx context.Context, request sessionkit.OpenRequest) (res
 		stopAux(leader)
 		return cause
 	}
-	primaryArgs, err := launchArguments(request, leaderSocket(p.socket, p.key))
-	if err != nil {
-		return sessionkit.OpenResult{}, fail(err)
-	}
 	primaryCommand := command("grok", primaryArgs...)
 	primaryCommand.Dir, primaryCommand.Stderr = request.Open.Cwd, os.Stderr
-	primaryCommand.Env = nativeEnvironment()
+	primaryCommand.Env = nativeEnv
 	child, input, output, err := startACPProcess(primaryCommand)
 	if err != nil {
 		return sessionkit.OpenResult{}, fail(fmt.Errorf("start Grok primary: %w", err))
@@ -251,12 +255,8 @@ func (p *Wrapper) openSession(ctx context.Context, primary *acpClient, request s
 	return p.endpoint.waitReady(ctx)
 }
 
-func (p *Wrapper) startLeader(cwd, permission string) (*nativeProcess, error) {
-	return startLeader(p.ctx, p.socket, p.key, cwd, permission, nativeEnvironment())
-}
-
 func startLeader(ctx context.Context, socket, key, cwd, permission string, environment []string) (*nativeProcess, error) {
-	arguments := []string{}
+	arguments := sessionbusLeaderPolicy()
 	if permission != "" {
 		arguments = append(arguments, "--permission-mode", permission)
 	}
@@ -838,7 +838,11 @@ func extraArguments(arguments []string) ([]string, error) {
 }
 
 func nativeEnvironment() []string {
-	return slices.DeleteFunc(os.Environ(), func(value string) bool {
+	return nativeEnvironmentFrom(os.Environ())
+}
+
+func nativeEnvironmentFrom(environment []string) []string {
+	return slices.DeleteFunc(slices.Clone(environment), func(value string) bool {
 		name, _, _ := strings.Cut(value, "=")
 		return slices.Contains([]string{host.SocketEnv, host.LocalKeyEnv, host.TokenEnv, host.SessionIDEnv, host.NameEnv, host.GroupsEnv, mcp.LaneSocketEnv, ManagedEnv}, name)
 	})
