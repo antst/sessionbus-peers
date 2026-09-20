@@ -80,6 +80,46 @@ func TestInteractivePlan(t *testing.T) {
 	check(t, slices.Equal(policy, sessionbusLeaderPolicy()), "post-delimiter operand selected policy: %#v", policy)
 }
 
+func TestManagedInteractiveConfigFailurePrecedesNativeStart(t *testing.T) {
+	root, home := testsocket.Directory(t), t.TempDir()
+	recordPath := filepath.Join(t.TempDir(), "record")
+	if err := os.WriteFile(filepath.Join(home, grokConfigFile), []byte("token = PRIVATE_VALUE @\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	plan := host.ExecPlan{
+		Path: "grok",
+		Env: []string{
+			ManagedEnv + "=launch",
+			host.SocketEnv + "=" + filepath.Join(root, "sessionbus.sock"),
+			"GROK_HOME=" + home,
+			"GROK_TEST_RECORD=" + recordPath,
+		},
+	}
+	err := RunInteractive(context.Background(), plan)
+	if err == nil || strings.Contains(err.Error(), "PRIVATE_VALUE") || !strings.Contains(err.Error(), "invalid TOML at line") {
+		t.Fatalf("config failure = %v", err)
+	}
+	if _, err := os.Stat(recordPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("native started before config validation: %v", err)
+	}
+}
+
+func TestManagedInteractiveDenyValidationPrecedesConfigWrite(t *testing.T) {
+	home := t.TempDir()
+	plan := host.ExecPlan{
+		Path: "grok",
+		Args: []string{"--deny", sessionbusNativeRule},
+		Env:  []string{ManagedEnv + "=launch", "GROK_HOME=" + home},
+	}
+	err := RunInteractive(context.Background(), plan)
+	if err == nil || !strings.Contains(err.Error(), "disables the managed Sessionbus tool") {
+		t.Fatalf("deny accepted: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(home, grokConfigFile)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("config written before deny validation: %v", err)
+	}
+}
+
 func TestManagedDenyRejectedBeforeNativeStart(t *testing.T) {
 	root := testsocket.Directory(t)
 	recordPath := filepath.Join(t.TempDir(), "record")
@@ -421,6 +461,7 @@ func TestInteractiveLauncherOwnsLeaderHoldAndTUI(t *testing.T) {
 	check(t, len(clients) == 1 && slices.Equal(peerClientMethods(frames, clients[0]), []string{"initialize", "authenticate"}), "startup hold was not the only quiet ACP client: %#v", frames)
 	check(t, countFrames(frames, "_x.ai/sessions/list") == 0, "launcher queried the roster")
 	check(t, containsStartEnv(frames, "leader", host.SocketEnv, socket) && containsStartEnv(frames, "leader", host.GroupsEnv, `["team"]`), "leader did not inherit helper bus identity")
+	check(t, leaderManagedMarkerMatchesSocket(frames), "leader did not receive its computed socket as the managed marker")
 	check(t, !containsStart(frames, "SESSIONBUS_LANE_SOCKET"), "interactive launcher published a private action endpoint")
 	leaderPidfd, holdPidfd, tuiPidfd := interactivePidfd(t, leaderPID), interactivePidfd(t, holdPID), interactivePidfd(t, tuiPID)
 	defer closeProcessHandle(leaderPidfd)
@@ -812,6 +853,24 @@ func containsStartEnv(rows []json.RawMessage, argument, name, value string) bool
 		if json.Unmarshal(raw, &record) == nil && record.Kind == "START" && slices.Contains(record.Value.Arguments, argument) && record.Value.Environment[name] == value {
 			return true
 		}
+	}
+	return false
+}
+
+func leaderManagedMarkerMatchesSocket(rows []json.RawMessage) bool {
+	for _, raw := range rows {
+		var record struct {
+			Kind  string `json:"kind"`
+			Value struct {
+				Arguments   []string          `json:"arguments"`
+				Environment map[string]string `json:"environment"`
+			} `json:"value"`
+		}
+		if json.Unmarshal(raw, &record) != nil || record.Kind != "START" || !slices.Contains(record.Value.Arguments, "leader") {
+			continue
+		}
+		index := slices.Index(record.Value.Arguments, "--leader-socket")
+		return index >= 0 && index+1 < len(record.Value.Arguments) && record.Value.Environment[ManagedEnv] == record.Value.Arguments[index+1]
 	}
 	return false
 }

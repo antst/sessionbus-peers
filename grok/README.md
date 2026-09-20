@@ -45,15 +45,26 @@ sessions keep their native names. Renaming happens after MCP initialization and
 must be confirmed natively. Failed naming does not transfer to later sessions.
 Blank native names stay blank; native title events update the same bus owner.
 
-The wrapper puts the exact native rule
-`--allow MCPTool(sessionbus__sessionbus)` on its one private leader in both
-interactive and lane mode. It does not grant another tool. Interactive caller
-allow, deny, permission-mode and bypass controls are mirrored to that leader
-without removing them from the TUI argv. A caller deny which native Grok would
-apply to the managed Sessionbus tool is rejected before launch because native
-deny wins over allow; unrelated native rules retain their bytes and order.
-`--yolo`/`--always-approve` and the exact Sessionbus grant coexist. This does
-not assert a wrapper-defined precedence between other conflicting switches.
+Before a managed interactive or lane launch, the wrapper idempotently ensures
+one exact global Grok permission rule for
+`MCPTool(sessionbus__sessionbus)` in the real `GROK_HOME/config.toml` (or
+the resolved user home's `.grok/config.toml`). This persistent config update is
+the native surface that applies to private-leader sessions. It preserves every
+other config byte, uses Grok's active compact or structured permission
+representation, follows a config-file symlink, and publishes atomically while
+serializing concurrent wrapper starts through Grok's `.config-init.lock`. An
+invalid or unsupported config shape fails the launch without rewriting the
+file. Native deny and ask rules remain present, and Grok evaluates deny before
+ask before allow.
+
+The wrapper retains the exact `--allow` projection on its private leader for
+compatibility, although public Grok 1.0.13 through 1.0.38 do not forward those
+top-level rules into leader sessions. Interactive caller allow, deny,
+permission-mode and bypass controls retain their bytes and order. A caller
+deny which the bridged native parser applies to the managed Sessionbus tool is
+rejected before the config write or any native launch; unrelated rules remain
+native-owned. `--yolo`/`--always-approve` and the config grant coexist. Help,
+version, and native subcommand passthrough do not touch the config.
 
 Grok leader mode currently ignores per-process `--plugin-dir`. Consequently
 the plugin is globally registered: ordinary `grok` discovers the generic skill

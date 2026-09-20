@@ -10,7 +10,7 @@
 
 The rewrite starts at peers eb727701 and retains the native evidence below as historical knowledge. Current implementation and installation are described in [Grok README](../../grok/README.md) and the [implementation contract](../designs/grok-0.5.0/CONTRACT.md), with activation, naming and delivery amendments alongside it. The source boundary below observed native Grok 1.0.34 in the real permanent UMKA installation.
 
-Current behavior supersedes historical wrapper choices below: no generated native IDs or native selector resolver; repeated mixed -g/--group before --; no session lock, reconnect loop, broad server-wildcard permission grant or forced autoMode; native titles including empty names update the same owner connection. The managed private leader receives only the exact `MCPTool(sessionbus__sessionbus)` grant. The private MCP alias shares one Go binary with launcher and lane, and only the generic Sessionbus skill is installed. Ordinary Grok still discovers that global plugin and starts its inert, zero-tool helper because native leader mode rejects per-launch plugin-dir.
+Current behavior supersedes historical wrapper choices below: no generated native IDs or native selector resolver; repeated mixed -g/--group before --; no session lock, reconnect loop, broad server-wildcard permission grant or forced autoMode; native titles including empty names update the same owner connection. Managed launches maintain only the exact `MCPTool(sessionbus__sessionbus)` global permission grant. The private MCP alias shares one Go binary with launcher and lane, and only the generic Sessionbus skill is installed. Ordinary Grok still discovers that global plugin and starts its inert, zero-tool helper because native leader mode rejects per-launch plugin-dir.
 
 The shared Worker owns message-seeded runs and nonconsuming result cursors with explicit ack. Persistence means owner-exit lifetime, not durable storage. Grok stage keeps only never-submitted messages in bounded worker memory. Attempted deliveries never replay; actor admission stays injected across a native terminal. A product-created continuation remains in the original shared Run until its matched native completion, with bounded aggregate output. No wrapper database, result journal or restart recovery exists.
 
@@ -26,17 +26,38 @@ files differ. Both pin Rust `glob` 0.3.3. The retained source bridge, hashes
 and exact-version parser/glob oracle are recorded in
 `/home/antst/sessionbus-evidence/grok-comms-grant-design-refined-dev1-20260919`.
 
-Managed interactive peers and ACP lanes put the exact native rule
-`--allow MCPTool(sessionbus__sessionbus)` on the one private leader. Followers
-and helpers receive no duplicate rule because native leader mode ignores their
-per-process rules. Interactive caller allow/deny, permission mode and bypass
-controls retain native ownership; the wrapper rejects only a deny which the
-bridged native parser and Rust glob semantics apply to the managed tool. Empty
-comma members remain tool-wide denies, ASCII matching is case-insensitive,
-Unicode ranges retain rune semantics, invalid glob patterns remain nonmatches,
-and `--disallowed-tools` is not treated as the separate MCP deny alias
-`--disallowedTools`. The exact grant stays present with explicit bypass. Native
-installed acceptance is tracked separately from this source boundary.
+Public Grok 1.0.13 through 1.0.38 declare `--allow` and `--deny` on the pager
+command, but the `agent leader` dispatch does not copy those rule vectors into
+leader session configuration. The sole source-backed narrow native surface is
+the global user config: non-empty `GROK_HOME`, otherwise the resolved user home
+plus `.grok`, with no cwd fallback when neither home resolves. Every session
+spawn reads its global permission rules. Native parsing selects compact
+`deny`/`allow`/`ask` arrays if any one is an array and otherwise uses structured
+`permission.rules`; mixing the forms therefore requires updating the compact
+form. Both forms enter the same order-independent evaluator, where deny wins
+over ask and allow.
+
+Managed peer and lane launches now ensure the exact Sessionbus allow in that
+active representation after argument validation and before native start. The
+edit preserves unrelated bytes and rule values, refuses invalid or unsupported
+TOML without rewriting it, follows a leaf config symlink, preserves mode and
+owner, and uses a same-directory fsynced temporary file plus rename. The
+native `.config-init.lock` serializes cooperating wrapper starts. A final
+identity and byte comparison refuses a detected concurrent in-place native
+edit, without claiming that the advisory lock eliminates every native writer
+race. Help, version and native subcommand passthrough remain read-only.
+
+The existing private-leader `--allow MCPTool(sessionbus__sessionbus)` argv is
+retained as a compatibility projection but is inert in the bracketed public
+versions. Interactive caller allow/deny, permission mode and bypass controls
+retain native ownership; the wrapper still rejects a caller deny which the
+bridged native parser and Rust glob semantics apply to the managed tool before
+the persistent ensure. Empty comma members remain tool-wide denies, ASCII
+matching is case-insensitive, Unicode ranges retain rune semantics, invalid
+glob patterns remain nonmatches, and `--disallowed-tools` is not the separate
+MCP deny alias `--disallowedTools`. A future launch-scoped replacement is
+tracked in peers issue 55. Installed acceptance remains separate from this
+source boundary.
 
 ## Historical native captures and earlier wrapper behavior
 

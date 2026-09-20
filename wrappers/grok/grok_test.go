@@ -34,6 +34,11 @@ func TestMain(m *testing.M) {
 		fakeGrok()
 		os.Exit(0)
 	}
+	home, err := os.MkdirTemp("", "sessionbus-grok-test-home-")
+	if err != nil {
+		panic(err)
+	}
+	_ = os.Setenv("GROK_HOME", home)
 	_ = os.Setenv("GROK_TEST_CHILD", "1")
 	command = func(_ string, arguments ...string) *exec.Cmd {
 		args := append([]string{"-test.run=^$", "--"}, arguments...)
@@ -41,14 +46,16 @@ func TestMain(m *testing.M) {
 		cmd.Env = append(os.Environ(), "GROK_TEST_CHILD=1")
 		return cmd
 	}
-	os.Exit(m.Run())
+	code := m.Run()
+	_ = os.RemoveAll(home)
+	os.Exit(code)
 }
 
 func fakeGrok() {
 	index := slices.Index(os.Args, "--")
 	arguments := os.Args[index+1:]
 	cwd, _ := os.Getwd()
-	record("START", map[string]any{"pid": os.Getpid(), "arguments": arguments, "cwd": cwd, "laneSocket": os.Getenv("SESSIONBUS_LANE_SOCKET"), "environment": map[string]string{host.SocketEnv: os.Getenv(host.SocketEnv), host.GroupsEnv: os.Getenv(host.GroupsEnv)}})
+	record("START", map[string]any{"pid": os.Getpid(), "arguments": arguments, "cwd": cwd, "laneSocket": os.Getenv("SESSIONBUS_LANE_SOCKET"), "environment": map[string]string{host.SocketEnv: os.Getenv(host.SocketEnv), host.GroupsEnv: os.Getenv(host.GroupsEnv), ManagedEnv: os.Getenv(ManagedEnv)}})
 	if path := os.Getenv("GROK_TEST_INTERACTIVE_STARTED"); path != "" && slices.Contains(arguments, "--leader") && !slices.Contains(arguments, "stdio") {
 		publishTestFile(path, []byte("started"))
 	}
@@ -422,6 +429,41 @@ func TestArgumentsAndHello(t *testing.T) {
 	for _, test := range []struct{ argument, want string }{{"--model=x", "model"}, {"--resume=x", "session_id"}, {"--leader", "leader"}, {"text", "unsupported argument"}} {
 		_, err := extraArguments([]string{test.argument})
 		check(t, err != nil && strings.Contains(err.Error(), test.want), "%s error = %v", test.argument, err)
+	}
+}
+
+func TestLaneArgumentValidationPrecedesConfigWrite(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("GROK_HOME", home)
+	p := New(filepath.Join(testsocket.Directory(t), "sessionbus.sock"), "token")
+	p.SetCall(func(context.Context, string, any) (json.RawMessage, error) { return nil, nil })
+	_, err := p.Open(context.Background(), sessionkit.OpenRequest{
+		Name: "lane@local",
+		Open: sessionkit.OpenOptions{Arguments: []string{"--unsupported"}},
+	})
+	if err == nil || !strings.Contains(err.Error(), "unsupported argument") {
+		t.Fatalf("invalid arguments accepted: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(home, grokConfigFile)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("config written before argument validation: %v", err)
+	}
+}
+
+func TestLaneConfigFailurePrecedesEndpointAndNativeStart(t *testing.T) {
+	home, recordPath := t.TempDir(), filepath.Join(t.TempDir(), "record")
+	t.Setenv("GROK_HOME", home)
+	t.Setenv("GROK_TEST_RECORD", recordPath)
+	if err := os.WriteFile(filepath.Join(home, grokConfigFile), []byte("token = PRIVATE_VALUE @\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	p := New(filepath.Join(testsocket.Directory(t), "sessionbus.sock"), "token")
+	p.SetCall(func(context.Context, string, any) (json.RawMessage, error) { return nil, nil })
+	_, err := p.Open(context.Background(), sessionkit.OpenRequest{Name: "lane@local"})
+	if err == nil || strings.Contains(err.Error(), "PRIVATE_VALUE") || !strings.Contains(err.Error(), "invalid TOML at line") {
+		t.Fatalf("config failure = %v", err)
+	}
+	if _, err := os.Stat(recordPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("native started before config validation: %v", err)
 	}
 }
 

@@ -54,6 +54,14 @@ func RunInteractive(ctx context.Context, plan host.ExecPlan) error {
 	if err != nil {
 		return err
 	}
+	policy, err := interactivePolicy(plan.Args)
+	if err != nil {
+		return err
+	}
+	nativeEnv := peerNativeEnvironment(plan.Env)
+	if err = ensureSessionbusPermission(nativeEnv, cwd); err != nil {
+		return err
+	}
 	if err = os.MkdirAll(filepath.Dir(socket), 0700); err != nil {
 		return err
 	}
@@ -66,11 +74,8 @@ func RunInteractive(ctx context.Context, plan host.ExecPlan) error {
 	privateSocket, key := filepath.Join(runtime, "presence.sock"), "native"
 	leaderPath := leaderSocket(privateSocket, key)
 	plan.Env = setEnvironment(plan.Env, ManagedEnv, leaderPath)
-	policy, err := interactivePolicy(plan.Args)
-	if err != nil {
-		return err
-	}
-	leader, err := startLeaderWithPolicy(ctx, privateSocket, key, cwd, policy, peerNativeEnvironment(plan.Env))
+	nativeEnv = setEnvironment(nativeEnv, ManagedEnv, leaderPath)
+	leader, err := startLeaderWithPolicy(ctx, privateSocket, key, cwd, policy, nativeEnv)
 	if err != nil {
 		return err
 	}
@@ -109,7 +114,7 @@ func RunInteractive(ctx context.Context, plan host.ExecPlan) error {
 }
 
 func peerNativeEnvironment(environment []string) []string {
-	result := nativeEnvironment()
+	result := nativeEnvironmentFrom(environment)
 	for _, name := range []string{host.SocketEnv, host.GroupsEnv, host.NameEnv, ManagedEnv} {
 		if value := environmentValue(environment, name); value != "" {
 			result = setEnvironment(result, name, value)
