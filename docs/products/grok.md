@@ -56,8 +56,26 @@ the persistent ensure. Empty comma members remain tool-wide denies, ASCII
 matching is case-insensitive, Unicode ranges retain rune semantics, invalid
 glob patterns remain nonmatches, and `--disallowed-tools` is not the separate
 MCP deny alias `--disallowedTools`. A future launch-scoped replacement is
-tracked in peers issue 55. Installed acceptance remains separate from this
-source boundary.
+tracked in peers issue 55.
+
+Installed acceptance on UMKA used signed source
+`e26da0b885126589d30ff5ac715b3b214fc33c97` and native Grok 1.0.34. The first
+managed start appended exactly the compact permission block to a config with
+no prior permission representation, preserved its mode and owner, and left
+one active exact allow with no active deny or ask. The bypass lane and both
+interactive peers then left the post-update bytes and metadata unchanged,
+demonstrating idempotence in the real home. Ordinary and bypass lanes plus
+ordinary and `--yolo` peers each completed exact list/send with a settled
+receipt and direct receiver observation; no Sessionbus approval interaction
+was observed. The exact managed deny still rejected before config or native
+changes, and final roster/process cleanup was empty. Evidence:
+`/home/antst/sessionbus-evidence/grok-config-grant-installed-dev1-20260920`,
+`SHA256SUMS` SHA-256
+`1707f8e1cb8496bf192fabde2765c42198bf88b8836c9f0d1a67fa74ee1d1bed`
+(90 payloads). The intervening signed source
+`8c9768cada7df8477549488e6109b00cbbd2dd9f` only removes an unused four-line
+method, so no native rerun is attributed to that source-only cleanup or this
+evidence-only documentation update.
 
 ## Historical native captures and earlier wrapper behavior
 
