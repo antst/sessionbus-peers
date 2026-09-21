@@ -39,6 +39,9 @@ function nativeFixture(sessionID = "native-main", mode = "rpc", cwd = "/work/mai
   let currentName = name;
   let aborts = 0;
   let shutdowns = 0;
+  let sendError;
+  let resetSequence = 0;
+  const entries = [];
   const scheduled = [];
   const ctx = {
     mode,
@@ -46,6 +49,7 @@ function nativeFixture(sessionID = "native-main", mode = "rpc", cwd = "/work/mai
     sessionManager: {
       getSessionId: () => currentID,
       getSessionName: () => currentName,
+      getEntries: () => structuredClone(entries),
     },
     abort: () => { aborts += 1; },
     shutdown: () => { shutdowns += 1; },
@@ -59,7 +63,8 @@ function nativeFixture(sessionID = "native-main", mode = "rpc", cwd = "/work/mai
     },
     registerTool(tool) { this.tool = tool; },
     sendMessage(message, options) {
-      assert.deepEqual(options, { deliverAs: "nextTurn", triggerTurn: true });
+      assert.deepEqual(options, { deliverAs: "steer", triggerTurn: true });
+      if (sendError) throw sendError;
       scheduled.push(structuredClone(message));
     },
   };
@@ -77,6 +82,8 @@ function nativeFixture(sessionID = "native-main", mode = "rpc", cwd = "/work/mai
     },
     setSessionID(value) { currentID = value; },
     setName(value) { currentName = value; },
+    addResetBoundary(id = `reset-${++resetSequence}`) { entries.push({ type: "reset_boundary", id }); },
+    throwOnSend(error) { sendError = error; },
     aborts: () => aborts,
     shutdowns: () => shutdowns,
     scheduled: () => structuredClone(scheduled),
@@ -335,7 +342,7 @@ test("invalid managed factory mode fails closed before retaining a binding", asy
   assert.deepEqual(owner.calls, []);
 });
 
-test("interactive FIFO claims one bounded batch and confirms exact native message chronology", async () => {
+test("interactive delivery tracks independent batches through one coalesced native context", async () => {
   const owner = new FakeOwner();
   const native = nativeFixture("interactive-main", "tui");
   const extension = createOMPExtension({
@@ -353,46 +360,120 @@ test("interactive FIFO claims one bounded batch and confirms exact native messag
   assert.deepEqual(await owner.native("native.stage", {
     owner_token: token, session_id: "interactive-main", message_id: "message-three", body: "third body",
   }), { owner_token: token, session_id: "interactive-main", message_id: "message-three", queued: false, reason: "queue_full" });
-  // The first batch is claimed and scheduled immediately, while the original
-  // turn can still emit context that does not contain it.
+  assert.equal(native.scheduled().length, 2);
+  // Both batches are claimed and submitted independently. The original turn
+  // can still emit context that does not contain either one.
   await native.emit("context", { type: "context", messages: [{ role: "user", content: "original turn" }] }, native.context());
 
-  const queuedStats = extension.stats();
-
-  const injected = await native.emit("before_agent_start", { type: "before_agent_start", prompt: "ordinary user prompt" }, native.context());
-  assert.equal(injected.message.customType, deliveryMessageType);
-  assert.equal(injected.message.content, "first body");
-  assert.deepEqual(injected.message.details.message_ids, [" message one "]);
-  await owner.waitFor((calls) => calls.filter((call) => call.method === "delivery.observe").length === 1);
-  assert.equal(extension.stats().retainedBytes, queuedStats.retainedBytes);
-  const message = nativeCustom(injected.message);
-  await native.emit("message_start", { type: "message_start", message }, native.context());
-  await native.emit("message_end", { type: "message_end", message }, native.context());
-  await native.emit("context", { type: "context", messages: [{ role: "user", content: "ordinary" }, message] }, native.context());
-  await owner.waitFor((calls) => calls.filter((call) => call.method === "delivery.observe").length === 4);
+  const first = await native.emit("before_agent_start", { type: "before_agent_start", prompt: "ordinary user prompt" }, native.context());
+  const second = await native.emit("before_agent_start", { type: "before_agent_start", prompt: "next native prompt" }, native.context());
+  assert.equal(first.message.customType, deliveryMessageType);
+  assert.equal(first.message.content, "first body");
+  assert.deepEqual(first.message.details.message_ids, [" message one "]);
+  assert.equal(second.message.content, "second body");
+  assert.deepEqual(second.message.details.message_ids, ["message-two"]);
+  await owner.waitFor((calls) => calls.filter((call) => call.method === "delivery.observe").length === 2);
+  const firstMessage = nativeCustom(first.message);
+  const secondMessage = nativeCustom(second.message);
+  await native.emit("message_start", { type: "message_start", message: firstMessage }, native.context());
+  await native.emit("message_end", { type: "message_end", message: firstMessage }, native.context());
+  await native.emit("message_start", { type: "message_start", message: secondMessage }, native.context());
+  await native.emit("message_end", { type: "message_end", message: secondMessage }, native.context());
+  await native.emit("context", {
+    type: "context", messages: [{ role: "user", content: "ordinary" }, firstMessage, secondMessage],
+  }, native.context());
+  await owner.waitFor((calls) => calls.filter((call) => call.method === "delivery.observe").length === 8);
   const reports = owner.calls.filter((call) => call.method === "delivery.observe").map((call) => call.params);
-  assert.deepEqual(reports.map((report) => [report.report_sequence, report.phase, report.message_ids]), [
-    [1, "claimed", [" message one "]],
-    [2, "message_start", [" message one "]],
-    [3, "message_end", [" message one "]],
-    [4, "context", [" message one "]],
-  ]);
+  for (const messageID of [" message one ", "message-two"]) {
+    assert.deepEqual(
+      reports.filter((report) => report.message_ids.includes(messageID)).map((report) => report.phase),
+      ["claimed", "message_start", "message_end", "context"],
+    );
+  }
 
   assert.equal((await owner.native("native.stage", {
     owner_token: token, session_id: "interactive-main", message_id: "message-three", body: "third body",
   })).queued, true);
-  // Finishing batch one automatically claims and schedules batch two. A
-  // repeated context snapshot for batch one must not fail that pre-start batch.
-  await native.emit("context", { type: "context", messages: [message] }, native.context());
-  const second = await native.emit("before_agent_start", { type: "before_agent_start", prompt: "next natural prompt" }, native.context());
-  assert.equal(second.message.content, "second body");
-  assert.deepEqual(second.message.details.message_ids, ["message-two"]);
-  const secondMessage = nativeCustom(second.message);
-  await native.emit("message_start", { type: "message_start", message: secondMessage }, native.context());
-  await native.emit("message_end", { type: "message_end", message: secondMessage }, native.context());
-  await native.emit("context", { type: "context", messages: [message, secondMessage] }, native.context());
-  await owner.waitFor((calls) => calls.filter((call) => call.method === "delivery.observe").length >= 9);
+  // Later native context can repeat already-completed history without
+  // resurrecting either removed batch.
+  await native.emit("context", { type: "context", messages: [firstMessage, secondMessage] }, native.context());
   assert.equal(owner.calls.some((call) => call.method === "run.preflight"), false);
+});
+
+test("interactive later batch can complete before an older claimed batch", async () => {
+  const owner = new FakeOwner();
+  const native = nativeFixture("interactive-main", "tui");
+  const extension = createOMPExtension({
+    launch: launch("interactive"), connect: owner.connect, createToken: deterministicTokens(),
+  });
+  await start(extension, native, owner);
+  const token = owner.calls[0].params.owner_token;
+  for (const [messageID, body] of [["older", "older body"], ["later", "later body"]]) {
+    assert.equal((await owner.native("native.stage", {
+      owner_token: token, session_id: "interactive-main", message_id: messageID, body,
+    })).queued, true);
+  }
+  const older = nativeCustom((await native.emit("before_agent_start", { type: "before_agent_start", prompt: "older" })).message);
+  const later = nativeCustom((await native.emit("before_agent_start", { type: "before_agent_start", prompt: "later" })).message);
+  await native.emit("message_start", { type: "message_start", message: later });
+  await native.emit("message_end", { type: "message_end", message: later });
+  await native.emit("context", { type: "context", messages: [later] });
+  await owner.waitFor((calls) => calls.some((call) =>
+    call.method === "delivery.observe" && call.params.phase === "context" && call.params.message_ids.includes("later")));
+  // A repeated snapshot for the removed later batch is harmless while the
+  // older batch has not emitted its own message events.
+  await native.emit("context", { type: "context", messages: [later] });
+  await native.emit("message_start", { type: "message_start", message: older });
+  await native.emit("message_end", { type: "message_end", message: older });
+  await native.emit("context", { type: "context", messages: [older, later] });
+  await owner.waitFor((calls) => calls.some((call) =>
+    call.method === "delivery.observe" && call.params.phase === "context" && call.params.message_ids.includes("older")));
+  assert.equal(native.aborts(), 0);
+});
+
+test("interactive scheduling failure retires the owner and releases the claimed batch", async () => {
+  const owner = new FakeOwner();
+  const native = nativeFixture("interactive-main", "tui");
+  const extension = createOMPExtension({
+    launch: launch("interactive"), connect: owner.connect, createToken: deterministicTokens(),
+  });
+  await start(extension, native, owner);
+  const token = owner.calls[0].params.owner_token;
+  native.throwOnSend(new Error("native send binding rejected the message"));
+  await assert.rejects(owner.native("native.stage", {
+    owner_token: token, session_id: "interactive-main", message_id: "message-one", body: "first body",
+  }), /native send binding rejected/);
+  assert.equal(native.scheduled().length, 0);
+  assert.equal(native.aborts(), 1);
+  assert.equal(native.shutdowns(), 1);
+  await assert.rejects(native.emit("session_shutdown", { type: "session_shutdown" }, native.context()),
+    /native send binding rejected/);
+  assert.deepEqual(extension.stats(), { bindings: 0, reports: 0, retainedBytes: 0 });
+});
+
+test("interactive claimed batch retires on a new durable reset boundary", async () => {
+  const owner = new FakeOwner();
+  const native = nativeFixture("interactive-main", "tui");
+  native.addResetBoundary("old-reset");
+  const extension = createOMPExtension({
+    launch: launch("interactive"), connect: owner.connect, createToken: deterministicTokens(),
+  });
+  await start(extension, native, owner);
+  const token = owner.calls[0].params.owner_token;
+  assert.equal((await owner.native("native.stage", {
+    owner_token: token, session_id: "interactive-main", message_id: "message-one", body: "first body",
+  })).queued, true);
+  // A reset already present when the batch was claimed is not a new loss
+  // witness, and unrelated context emitted during prompt preparation is valid.
+  await native.emit("context", { type: "context", messages: [{ role: "user", content: "original turn" }] }, native.context());
+  assert.equal(native.aborts(), 0);
+  native.addResetBoundary("new-reset");
+  await native.emit("context", { type: "context", messages: [] }, native.context());
+  assert.equal(native.aborts(), 1);
+  assert.equal(native.shutdowns(), 1);
+  await assert.rejects(owner.native("native.stage", {
+    owner_token: token, session_id: "interactive-main", message_id: "after-reset", body: "must not queue",
+  }), /deliverable factory/);
 });
 
 test("interactive FIFO enforces and releases its process retained-payload bound", async () => {
