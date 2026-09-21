@@ -315,8 +315,8 @@ func TestFreshLaneNativeLifecycle(t *testing.T) {
 	open := findFrame(frames, "session/new")
 	check(t, !strings.Contains(string(open), "--session-id") && strings.Contains(string(open), `"sessionbus"`) && strings.Contains(string(open), `"SESSIONBUS_LANE_SOCKET"`) && strings.Contains(string(open), `"yoloMode":true`), "fresh open = %s", open)
 	idle, err := p.Deliver(context.Background(), delivery("idle"), nil)
-	must(t, err)
-	check(t, idle.Disposition == "queued_for_next_turn", "idle = %#v", idle)
+	var notRunning *sessionkit.ProtocolError
+	check(t, errors.As(err, &notRunning) && notRunning.Code == -32004 && idle.Disposition == "", "idle = %#v, %v", idle, err)
 	check(t, countFrames(records(t, recordPath), "_x.ai/interject") == 0, "idle delivery started native work")
 	must(t, p.Close(context.Background(), sessionkit.SessionCloseRequest{}))
 	check(t, !exists(filepath.Join(root, "lanes", p.key+".sock")), "lane socket remains")
@@ -523,9 +523,8 @@ func TestIdleDeliveryJoinsOwnedPromptAndForeignChunksAreIgnored(t *testing.T) {
 	t.Setenv("GROK_TEST_FOREIGN_CHUNK", "1")
 	_, _, reader := startGrokWorker(t, root)
 	writeWorkerRequest(t, reader, 2, "message.deliver", delivery("idle-wire-token"))
-	var receipt sessionkit.DeliveryReceipt
-	must(t, json.Unmarshal(readWorkerResponse(t, reader, 2).Result, &receipt))
-	check(t, receipt.Disposition == "queued_for_next_turn", "idle receipt = %#v", receipt)
+	response := readWorkerResponse(t, reader, 2)
+	check(t, response.Error != nil && strings.Contains(string(response.Error), `"code":-32004`), "idle response = %+v", response)
 	check(t, countFrames(records(t, recordPath), "_x.ai/interject") == 0, "idle delivery used native interject")
 	writeWorkerRequest(t, reader, 3, "turn.execute", map[string]any{"session_id": testSessionID + "@local", "run_id": "g/1", "input": "caller-input"})
 	check(t, readWorkerResponse(t, reader, 3).Error == nil, "execute admission failed")
@@ -533,7 +532,7 @@ func TestIdleDeliveryJoinsOwnedPromptAndForeignChunksAreIgnored(t *testing.T) {
 	must(t, json.Unmarshal(readWorkerTerminal(t, reader, 3), &terminal))
 	check(t, terminal.Outcome == "completed" && terminal.Result == "answer", "terminal = %#v", terminal)
 	prompt := string(findFrame(records(t, recordPath), "session/prompt"))
-	check(t, strings.Index(prompt, "idle-wire-token") >= 0 && strings.Index(prompt, "idle-wire-token") < strings.Index(prompt, "caller-input"), "owned prompt = %s", prompt)
+	check(t, !strings.Contains(prompt, "idle-wire-token") && strings.Contains(prompt, "caller-input"), "owned prompt = %s", prompt)
 	writeWorkerRequest(t, reader, 4, "session.close", map[string]string{"session_id": testSessionID + "@local"})
 	closeResult := readWorkerResponse(t, reader, 4)
 	check(t, closeResult.Result != nil, "close response absent: %+v", closeResult)
@@ -820,37 +819,8 @@ func check(t *testing.T, ok bool, format string, args ...any) {
 
 var _ = syscall.SIGTERM
 
-func TestUnsubmittedOversizedCombinedPromptPreservesStaging(t *testing.T) {
-	root := testsocket.Directory(t)
-	recordPath := filepath.Join(t.TempDir(), "record")
-	t.Setenv("GROK_TEST_RECORD", recordPath)
-	_, _, reader := startGrokWorker(t, root)
-	for i := 0; i < 5; i++ {
-		d := delivery(strings.Repeat("\\", 100000))
-		d.MessageID = fmt.Sprintf("stage-%d", i)
-		writeWorkerRequest(t, reader, 10+i, "message.deliver", d)
-		check(t, readWorkerResponse(t, reader, 10+i).Error == nil, "stage refused")
-	}
-	writeWorkerRequest(t, reader, 20, "turn.execute", map[string]any{"session_id": testSessionID + "@local", "run_id": "g/1", "input": strings.Repeat("\\", 40000)})
-	check(t, readWorkerResponse(t, reader, 20).Error == nil, "worker rejected input")
-	check(t, readWorkerReadyID(t, reader, "g/1")["state"] == "unavailable", "oversized combined prompt not refused")
-	check(t, countFrames(records(t, recordPath), "session/prompt") == 0, "oversized prompt was submitted")
-	writeWorkerRequest(t, reader, 21, "turn.execute", map[string]any{"session_id": testSessionID + "@local", "run_id": "g/2", "input": "small"})
-	check(t, readWorkerResponse(t, reader, 21).Error == nil, "small run refused")
-	ready := readWorkerReadyID(t, reader, "g/2")
-	check(t, ready["state"] == "done", "small run did not complete: %#v", ready)
-	frames := records(t, recordPath)
-	check(t, countFrames(frames, "session/prompt") == 1, "unexpected prompt count")
-	prompt := string(findFrame(frames, "session/prompt"))
-	for i := 0; i < 5; i++ {
-		check(t, strings.Count(prompt, fmt.Sprintf("stage-%d", i)) == 1, "staged identity missing or duplicated")
-	}
-	writeWorkerRequest(t, reader, 22, "session.close", map[string]string{"session_id": testSessionID + "@local"})
-	check(t, readWorkerResponse(t, reader, 22).Error == nil, "close failed")
-}
-
 func TestCompletedWorkerRunIsRetiredAtNextAdmission(t *testing.T) {
-	for _, mode := range []string{"direct", "stage", "seed"} {
+	for _, mode := range []string{"direct", "seed"} {
 		t.Run(mode, func(t *testing.T) {
 			recordPath := filepath.Join(t.TempDir(), "record")
 			t.Setenv("GROK_TEST_RECORD", recordPath)
@@ -863,12 +833,6 @@ func TestCompletedWorkerRunIsRetiredAtNextAdmission(t *testing.T) {
 			p.mu.Unlock()
 			check(t, previous != nil, "completed owner was not retained for synchronous admission")
 			<-previous.Done() // Real Worker publication, no synthetic Run/private SDK fields.
-			if mode == "stage" {
-				writeWorkerRequest(t, reader, 11, "message.deliver", delivery("after-completed-run"))
-				response := readWorkerResponse(t, reader, 11)
-				check(t, response.Error == nil && strings.Contains(string(response.Result), "queued_for_next_turn"), "completed owner prevented stage: %s %s", response.Error, response.Result)
-				check(t, countFrames(records(t, recordPath), "_x.ai/interject") == 0, "idle stage called native interject")
-			}
 			if mode == "seed" {
 				d := delivery("second-seeded")
 				d.RunID = "g/2"

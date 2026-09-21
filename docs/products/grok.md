@@ -8,6 +8,14 @@
 
 ## Current Go integration (2026-09-10)
 
+Mandatory-wake source update (2026-09-21): the active lane retains native
+`x.ai/interject`, whose matching broadcast is emitted by the actor at enqueue
+and is independent of tool progress. A late interjection becomes an automatic
+fallback prompt. An idle lane returns NotRunning before interject submission so
+daemon 0074 seeds a managed Run. Interactive Grok keeps its native interject
+carrier in both states. See
+[the all-product boundary](../designs/mandatory-message-wake-20260921/NATIVE-BOUNDARIES.md).
+
 The rewrite starts at peers eb727701 and retains the native evidence below as historical knowledge. Current implementation and installation are described in [Grok README](../../grok/README.md) and the [implementation contract](../designs/grok-0.5.0/CONTRACT.md), with activation, naming and delivery amendments alongside it. The source boundary below observed native Grok 1.0.34 in the real permanent UMKA installation.
 
 Current behavior supersedes historical wrapper choices below: no generated native IDs or native selector resolver; repeated mixed -g/--group before --; no session lock, reconnect loop, broad server-wildcard permission grant or forced autoMode; native titles including empty names update the same owner connection. Managed launches maintain only the exact `MCPTool(sessionbus__sessionbus)` global permission grant. The private MCP alias shares one Go binary with launcher and lane, and only the generic Sessionbus skill is installed. Ordinary Grok still discovers that global plugin and starts its inert, zero-tool helper because native leader mode rejects per-launch plugin-dir.

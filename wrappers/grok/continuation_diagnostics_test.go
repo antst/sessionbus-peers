@@ -131,17 +131,16 @@ func earlyWorkerDelivery(response workerResponse) error {
 
 func TestContinuationDiagnosticsSurfaceEarlyWorkerDelivery(t *testing.T) {
 	h := newContinuationHarness(t)
-	// The actual Worker has no Run. Its legitimate queued response must diagnose
+	// The actual Worker has no Run. Its NotRunning response must diagnose
 	// a test expecting interject instead of stranding the observer read.
 	writeWorkerRequest(t, h.bus, 2, "turn.status", map[string]string{"session_id": testSessionID + "@local"})
 	writeWorkerRequest(t, h.bus, 3, "message.deliver", delivery("idle"))
 	_, err := h.interjectOrDelivery(t, 3, nil)
-	check(t, err != nil && strings.Contains(err.Error(), "queued_for_next_turn"), "missing actual Worker result: %v", err)
+	check(t, err != nil && strings.Contains(err.Error(), `"code":-32004`), "missing actual Worker result: %v", err)
 	status := readWorkerResponse(t, h.bus, 2)
 	check(t, status.ID == 2 && status.Error != nil, "missing-Run status error lost: %+v", status)
-	var receipt kit.DeliveryReceipt
-	must(t, json.Unmarshal(readWorkerResponse(t, h.bus, 3).Result, &receipt))
-	check(t, receipt.Disposition == "queued_for_next_turn", "diagnostic consumed original receipt")
+	response := readWorkerResponse(t, h.bus, 3)
+	check(t, response.Error != nil && strings.Contains(string(response.Error), `"code":-32004`), "diagnostic consumed original error: %+v", response)
 }
 
 func TestContinuationDiagnosticsSurfaceEarlyDirectDelivery(t *testing.T) {
@@ -152,7 +151,7 @@ func TestContinuationDiagnosticsSurfaceEarlyDirectDelivery(t *testing.T) {
 		returned <- continuationDeliveryResult{r, err}
 	}()
 	_, err := h.interjectOrDelivery(t, 0, returned)
-	check(t, err != nil && strings.Contains(err.Error(), "queued_for_next_turn"), "missing actual direct result: %v", err)
+	check(t, err != nil && strings.Contains(err.Error(), "not_running"), "missing actual direct result: %v", err)
 }
 
 func TestContinuationDiagnosticsObserveNativeFrame(t *testing.T) {

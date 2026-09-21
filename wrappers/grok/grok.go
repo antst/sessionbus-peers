@@ -634,18 +634,8 @@ func (p *Wrapper) Deliver(ctx context.Context, request sessionkit.DeliveryReques
 		return sessionkit.DeliveryReceipt{Disposition: "rejected", Reason: "lane_unavailable"}, nil
 	}
 	if p.run == nil {
-		added := len(message)
-		if len(p.staged) > 0 {
-			added++
-		}
-		if len(p.staged) >= host.MaxQueuedDeliveries || p.stagedBytes+added > host.MaxQueuedBytes {
-			p.mu.Unlock()
-			return sessionkit.DeliveryReceipt{Disposition: "rejected", Reason: "queue_full"}, nil
-		}
-		p.staged = append(p.staged, message)
-		p.stagedBytes += added
 		p.mu.Unlock()
-		return sessionkit.DeliveryReceipt{Disposition: "queued_for_next_turn"}, nil
+		return sessionkit.DeliveryReceipt{}, host.NotRunning()
 	}
 	p.mu.Unlock()
 	return p.deliverActive(ctx, request, message)
