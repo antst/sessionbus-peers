@@ -66,10 +66,3 @@ func (p *Wrapper) nextMessageID() (string, error) {
 	}
 	return randomMessageID()
 }
-
-func (p *Wrapper) stagedMessageID() string {
-	if p.kind == kiloNative {
-		return "msg_00000000000000000000000000"
-	}
-	return "msg_00000000000000000000000000000000"
-}

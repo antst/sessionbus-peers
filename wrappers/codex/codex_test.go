@@ -349,7 +349,7 @@ func TestLaneRunSteerAndTerminal(t *testing.T) {
 	native := <-started
 	injected := make(chan error, 1)
 	go func() {
-		outcome, err := p.inject(context.Background(), "delivery")
+		outcome, err := p.injectExpected(context.Background(), "delivery", native.(*turn))
 		if outcome != host.Injected && err == nil {
 			err = context.Canceled
 		}
@@ -494,7 +494,7 @@ func TestLaneTerminalBeforeSteerResponseRetainsAdmission(t *testing.T) {
 		err     error
 	}, 1)
 	go func() {
-		outcome, err := p.inject(context.Background(), "late")
+		outcome, err := p.injectExpected(context.Background(), "late", native.(*turn))
 		injected <- struct {
 			outcome host.Injection
 			err     error

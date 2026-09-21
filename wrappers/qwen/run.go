@@ -25,7 +25,6 @@ type nativePrompt struct {
 	failure    error
 	stopReason string
 	interrupt  *nativeInterrupt
-	batch      *drainBatch
 }
 type nativeInterrupt struct {
 	done chan struct{}
@@ -68,13 +67,7 @@ func (p *Wrapper) executeRun(ctx context.Context, run *kit.Run, seed kit.RunInpu
 	t := &nativePrompt{run: run, submitted: make(chan struct{})}
 	t.ctx, t.cancel = context.WithCancel(p.ctx)
 	p.active = t
-	snapshot := append([]*queuedMessage(nil), p.staged...)
-	parts := make([]string, 0, len(snapshot)+1)
-	for _, m := range snapshot {
-		parts = append(parts, m.text)
-	}
-	parts = append(parts, text)
-	params := map[string]any{"sessionId": p.id, "prompt": []any{map[string]string{"type": "text", "text": strings.Join(parts, "\n\n")}}}
+	params := map[string]any{"sessionId": p.id, "prompt": []any{map[string]string{"type": "text", "text": text}}}
 	client := p.client
 	p.mu.Unlock()
 	stopCancel := context.AfterFunc(ctx, func() {
@@ -107,20 +100,6 @@ func (p *Wrapper) executeRun(ctx context.Context, run *kit.Run, seed kit.RunInpu
 			if p.closing || p.active != t || t.ctx.Err() != nil {
 				return errors.New("Qwen prompt closed before submission")
 			}
-			// Only this immutable prefix was encoded. New deliveries remain staged.
-			if len(p.staged) < len(snapshot) {
-				return errors.New("Qwen staged prefix changed before submission")
-			}
-			for i, m := range snapshot {
-				if p.staged[i] != m {
-					return errors.New("Qwen staged prefix changed before submission")
-				}
-			}
-			p.staged = p.staged[len(snapshot):]
-			for _, m := range snapshot {
-				p.stagedBytes -= len(m.text)
-				m.submitted = true
-			}
 			t.attempted = true
 			return nil
 		}, func(raw json.RawMessage, nativeErr error) error {
@@ -139,7 +118,6 @@ func (p *Wrapper) executeRun(ctx context.Context, run *kit.Run, seed kit.RunInpu
 					t.stopReason = reply.StopReason
 				}
 			}
-			p.stageUnsentLocked(t.failure)
 			return t.failure
 		})
 	}()
@@ -181,20 +159,12 @@ func (p *Wrapper) executeRun(ctx context.Context, run *kit.Run, seed kit.RunInpu
 			p.lost(nativeErr)
 		}
 	}
-	// The terminal observer seals further admission. Existing writes/interrupts
-	// must settle before the shared run slot can admit another native prompt.
+	// The terminal observer seals further admission. An existing interrupt must
+	// settle before the shared run slot can admit another native prompt.
 	p.mu.Lock()
 	t.terminal = true
-	stageFailure := error(nil)
-	if t.attempted {
-		stageFailure = nativeErr
-	}
-	p.stageUnsentLocked(stageFailure)
-	batch, interrupt := t.batch, t.interrupt
+	interrupt := t.interrupt
 	p.mu.Unlock()
-	if batch != nil {
-		<-batch.done
-	}
 	if interrupt != nil {
 		<-interrupt.done
 		err = errors.Join(err, interrupt.err)

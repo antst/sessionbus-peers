@@ -5,6 +5,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -532,46 +533,13 @@ func (f *workerFixture) wait(t *testing.T, seq int) kit.RunStatus {
 func fixtureDelivery() kit.DeliveryRequest {
 	return kit.DeliveryRequest{MessageID: "delivery", From: kit.DeliverySource{SessionID: "sender@local", Product: "claude", Groups: []string{}}, Body: "marker"}
 }
-func TestLegacyWorkerOpenStageRunAndNext(t *testing.T) {
-	f := newWorkerFixture(t)
-	var receipt kit.DeliveryReceipt
-	f.call(t, "message.deliver", fixtureDelivery(), &receipt)
-	if receipt.Disposition != "queued_for_next_turn" {
-		t.Fatal(receipt)
-	}
-	f.start(t, 1, "explicit")
-	result := f.wait(t, 1)
-	if result.Result == nil || result.Result.Outcome != "completed" || !strings.Contains(result.Result.Result, "marker") {
-		t.Fatalf("result=%+v", result)
-	}
-	f.start(t, 2, "next")
-	next := f.wait(t, 2)
-	if next.Result == nil || next.Result.Result != "answer:next" {
-		t.Fatalf("next=%+v", next)
-	}
-	b, e := f.p.client.call(f.ctx, "GET", "/fixture/state", nil, 200)
-	if e != nil {
-		t.Fatal(e)
-	}
-	var state struct{ Permission any }
-	_ = json.Unmarshal(b, &state)
-	if state.Permission != nil {
-		t.Fatal("default permission overwritten")
-	}
-	if err := f.p.ownsSession(f.ctx, "ses_child"); err != nil {
-		t.Fatal(err)
-	}
-	if err := f.p.ownsSession(f.ctx, "ses_other"); err == nil {
-		t.Fatal("unrelated task accepted")
-	}
-}
-func TestLegacyWorkerActiveSavedInputInterruptAndNext(t *testing.T) {
+func TestLegacyWorkerActiveDeliveryDefersBeforeNativeWrite(t *testing.T) {
 	f := newWorkerFixture(t)
 	f.start(t, 1, "hold")
-	var receipt kit.DeliveryReceipt
-	f.call(t, "message.deliver", fixtureDelivery(), &receipt)
-	if receipt.Disposition != "written" {
-		t.Fatal(receipt)
+	receipt, err := f.p.Deliver(context.Background(), fixtureDelivery(), nil)
+	var notRunning *kit.ProtocolError
+	if !errors.As(err, &notRunning) || notRunning.Code != -32004 || receipt.Disposition != "" {
+		t.Fatalf("delivery = %+v, %v", receipt, err)
 	}
 	f.call(t, "turn.interrupt", map[string]any{"session_id": "ses_native@local"}, nil)
 	result := f.wait(t, 1)

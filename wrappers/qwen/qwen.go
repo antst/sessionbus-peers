@@ -38,8 +38,6 @@ type Wrapper struct {
 	id              string
 	active          *nativePrompt
 	run             *sessionkit.Run
-	staged          []*queuedMessage
-	stagedBytes     int
 	opened, closing bool
 	shutdown        func()
 }

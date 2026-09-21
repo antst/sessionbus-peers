@@ -46,8 +46,6 @@ type Wrapper struct {
 	leader        *nativeProcess
 	watcher       *nativeProcess
 	sessionID     string
-	staged        []string
-	stagedBytes   int
 	run           *sessionkit.Run
 	pendingPrompt *nativePrompt
 	answers       map[string]*strings.Builder
@@ -418,14 +416,7 @@ func (p *Wrapper) executeRun(ctx context.Context, run *sessionkit.Run, seed sess
 		}
 		return sessionkit.TurnResult{Outcome: "interrupted"}, nil
 	}
-	p.mu.Lock()
-	parts := append([]string(nil), p.staged...)
-	p.mu.Unlock()
-	if input != "" {
-		parts = append(parts, input)
-	}
-	// Claimed staged text is never restored after a native submission attempt.
-	turn, err := p.startPrompt(ctx, primary, id, strings.Join(parts, "\n"))
+	turn, err := p.startPrompt(ctx, primary, id, input)
 	var result sessionkit.TurnResult
 	if seed.Delivery != nil {
 		if err == nil {
@@ -502,7 +493,6 @@ func (p *Wrapper) startPrompt(ctx context.Context, primary *acpClient, id, promp
 		t.err = primary.requestSubmitting(ctx, "session/prompt", map[string]any{"sessionId": id, "prompt": []map[string]string{{"type": "text", "text": prompt}}}, &t.result, started, func() error {
 			p.mu.Lock()
 			t.attempted = true
-			p.staged, p.stagedBytes = nil, 0
 			p.mu.Unlock()
 			return nil
 		})
@@ -634,18 +624,8 @@ func (p *Wrapper) Deliver(ctx context.Context, request sessionkit.DeliveryReques
 		return sessionkit.DeliveryReceipt{Disposition: "rejected", Reason: "lane_unavailable"}, nil
 	}
 	if p.run == nil {
-		added := len(message)
-		if len(p.staged) > 0 {
-			added++
-		}
-		if len(p.staged) >= host.MaxQueuedDeliveries || p.stagedBytes+added > host.MaxQueuedBytes {
-			p.mu.Unlock()
-			return sessionkit.DeliveryReceipt{Disposition: "rejected", Reason: "queue_full"}, nil
-		}
-		p.staged = append(p.staged, message)
-		p.stagedBytes += added
 		p.mu.Unlock()
-		return sessionkit.DeliveryReceipt{Disposition: "queued_for_next_turn"}, nil
+		return sessionkit.DeliveryReceipt{}, host.NotRunning()
 	}
 	p.mu.Unlock()
 	return p.deliverActive(ctx, request, message)

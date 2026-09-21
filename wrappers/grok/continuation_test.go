@@ -270,20 +270,25 @@ func TestWaitingInterjectCannotWakeRetiredRun(t *testing.T) {
 	h.p.deliveryGate = make(chan struct{}, 1)
 	gate := h.p.deliveryGate
 	h.p.mu.Unlock()
-	returned := make(chan kit.DeliveryReceipt, 1)
+	type deliveryResult struct {
+		receipt kit.DeliveryReceipt
+		err     error
+	}
+	returned := make(chan deliveryResult, 1)
 	ctx := deliveryGateObservedContext{Context: context.Background(), entered: make(chan struct{}, 1)}
-	go func() { r, _ := h.p.Deliver(ctx, delivery("not-submitted"), nil); returned <- r }()
+	go func() { r, err := h.p.Deliver(ctx, delivery("not-submitted"), nil); returned <- deliveryResult{r, err} }()
 	select {
 	case <-ctx.entered:
-	case receipt := <-returned:
-		t.Fatalf("delivery did not enter the active gate: %+v", receipt)
+	case result := <-returned:
+		t.Fatalf("delivery did not enter the active gate: %+v", result)
 	}
 	h.terminal(t, "p-g/1", "end_turn")
 	replyACP(t, h.primaryWrite, original, map[string]any{"stopReason": "end_turn", "_meta": map[string]string{"promptId": "p-g/1"}})
 	readWorkerReadyID(t, h.bus, "g/1")
 	gate <- struct{}{}
-	receipt := <-returned
-	check(t, receipt.Disposition == "rejected", "retired run was woken: %+v", receipt)
+	result := <-returned
+	var notRunning *kit.ProtocolError
+	check(t, errors.As(result.err, &notRunning) && notRunning.Code == -32004 && result.receipt.Disposition == "", "retired run was woken: %+v", result)
 	barrier := make(chan error, 1)
 	go func() { barrier <- h.p.observer.request(context.Background(), "barrier", nil, nil) }()
 	f := h.readObserver(t)
@@ -351,7 +356,9 @@ func TestObserverWriteGateCannotSubmitAfterNativeTerminal(t *testing.T) {
 	replyACP(t, h.primaryWrite, original, map[string]any{"stopReason": "end_turn", "_meta": map[string]string{"promptId": "p-g/1"}})
 	h.barrier(t)
 	h.p.observer.writeGate <- struct{}{}
-	check(t, (<-returned) != nil, "interject attempted after native terminal")
+	err := <-returned
+	var notRunning *kit.ProtocolError
+	check(t, errors.As(err, &notRunning) && notRunning.Code == -32004, "terminal crossing = %v", err)
 	barrier := make(chan error, 1)
 	go func() { barrier <- h.p.observer.request(context.Background(), "barrier", nil, nil) }()
 	f := h.readObserver(t)

@@ -6,6 +6,15 @@
 > commit recorded by the split archive manifest. Host evidence paths are
 > immutable external artifacts, not repository paths.
 
+> Mandatory-wake source update (2026-09-21): OpenCode 1.18.30
+> `noReply:true` persists a user message but returns without entering `loop()`;
+> it therefore cannot prove active-lane consumption across a terminal race.
+> Every lane delivery now returns NotRunning before the POST and daemon v0.5.7
+> starts or schedules a normal managed Run. The interactive plugin keeps its
+> bounded FIFO, answers active retention immediately, and submits a full native
+> prompt on the next idle witness. See
+> [the all-product boundary](../designs/mandatory-message-wake-20260921/NATIVE-BOUNDARIES.md).
+
 ## Current rewrite scope
 
 The Go launcher/lane worker, native Bun hooks, ordinary activation and installer

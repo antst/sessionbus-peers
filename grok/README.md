@@ -80,9 +80,11 @@ Use the single public `sessionbus__sessionbus` tool with `{action, arguments}`.
 No product-specific lane skill is installed. The skill documents
 spawn/start/run/status/wait/ack/interrupt/close/forget and completion pointers.
 
-Idle `stage` retains only never-submitted messages in a bounded worker-memory
-FIFO for the next explicit run. Idle `run` starts one owned native prompt.
-Active native actor acknowledgment means `injected` admission, not consumption.
+An idle lane delivery returns NotRunning before native submission, so the daemon
+starts one owned prompt. Active native actor acknowledgment means `injected`
+admission, not consumption; it is emitted at interject enqueue and does not wait
+for the current tool batch. A late interjection becomes an automatically started
+fallback prompt.
 If Grok continues a delivery after the original prompt terminal, the same
 shared run remains owned until that native continuation settles. Attempted
 writes are never requeued on cancellation, uncertainty or terminal races.
@@ -92,8 +94,8 @@ contains the result; an `unavailable` record carries a reason and also requires
 acknowledgment after that reason is recorded. Never acknowledge `running`.
 Canceling a wait only cancels that wait. Worker retirement loses retained output.
 
-`persistent` controls owner-exit lifetime, `auto_close_ms` controls post-native-
-terminal retirement, and `idle_message` controls idle wake independently.
+`persistent` controls owner-exit lifetime and `auto_close_ms` controls post-native-
+terminal retirement. Every lane message starts or schedules native work.
 There is no wrapper database, durable output, journal or restart recovery.
 Native session history remains native-owned. The empty temporary naming claim
 contains no session/result metadata and is never reused by another launch.

@@ -8,6 +8,14 @@
 
 ## Current Go candidate, 2026-09-09
 
+Mandatory-wake source update (2026-09-21): an idle lane delivery returns
+NotRunning before native submission so daemon v0.5.7 seeds a managed Run. An
+active lane still uses native `turn/steer` with the exact expected turn ID;
+only the two source-proven `SteerSubmission::NotSubmitted` responses map to
+NotRunning, while every other failure remains uncertain. Interactive idle
+`turn/start` and active `turn/steer` are unchanged. See
+[the all-product boundary](../designs/mandatory-message-wake-20260921/NATIVE-BOUNDARIES.md).
+
 Current installation and policies are described in `codex/README.md` and
 `docs/designs/codex-0.5.0/{LANE-SELECTION,INTERACTIVE-SELECTION}.md`. The older
 facts below retain their original version and topology. In particular, the old

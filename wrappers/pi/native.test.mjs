@@ -3,15 +3,16 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { appendNative, describeNative } from "./native.mjs";
 
-// Exercises the adapter boundary only. The installed Pi probe must bind the
-// native same-stack append and guarded context access separately.
-function fixture({ idle = true, append = true } = {}) {
-  let leaf;
+// Pi d981de1 sets the native active bit synchronously, but persists the custom
+// entry later on message_end. Keep the leaf stale here to pin that distinction.
+function fixture({ idle = true, starts = true } = {}) {
+  let leaf = { type: "message", id: "old-leaf" };
   let sends = 0;
   let valid = true;
+  let active = !idle;
   const read = () => { if (!valid) throw new Error("stale native context"); };
   const ctx = {
-    cwd: "/native/project", isIdle: () => idle,
+    cwd: "/native/project", isIdle: () => { read(); return !active; },
     sessionManager: {
       getSessionId: () => { read(); return "native-session"; },
       getLeafId: () => { read(); return leaf?.id ?? null; },
@@ -20,22 +21,22 @@ function fixture({ idle = true, append = true } = {}) {
   };
   const pi = {
     getSessionName: () => "native title",
-    sendMessage(message, options) {
+    sendMessage(_message, options) {
       sends++;
-      assert.deepEqual(options, { triggerTurn: false });
-      if (append) leaf = { type: "custom_message", id: `entry-${sends}`, parentId: leaf?.id ?? null, ...message };
+      assert.deepEqual(options, { triggerTurn: true });
+      if (starts) active = true;
     },
   };
-  return { pi, ctx, sends: () => sends, invalidate: () => { valid = false; } };
+  return { pi, ctx, sends: () => sends, leaf: () => leaf, settle: () => { active = false; }, invalidate: () => { valid = false; } };
 }
 const delivery = { session_id: "native-session", message_id: "message-1", body: "exact native envelope\n" };
 
-test("native identity and exact leaf acknowledge an append without a turn", () => {
+test("native active transition acknowledges ownership while persisted leaf remains stale", () => {
   const f = fixture();
   assert.deepEqual(describeNative(f.pi, f.ctx), { session_id: "native-session", name: "native title", cwd: "/native/project" });
-  assert.deepEqual(appendNative(f.pi, f.ctx, delivery), { accepted: true, entry_id: "entry-1" });
-  assert.deepEqual(appendNative(f.pi, f.ctx, { ...delivery, message_id: "message-2" }), { accepted: true, entry_id: "entry-2" });
-  assert.equal(f.sends(), 2);
+  assert.deepEqual(appendNative(f.pi, f.ctx, delivery), { accepted: true });
+  assert.deepEqual(f.leaf(), { type: "message", id: "old-leaf" });
+  assert.equal(f.sends(), 1);
 });
 
 test("busy context retains wrapper ownership and makes no native submission", () => {
@@ -44,9 +45,9 @@ test("busy context retains wrapper ownership and makes no native submission", ()
   assert.equal(f.sends(), 0);
 });
 
-test("void API return without a matching native append is not a receipt", () => {
-  const f = fixture({ append: false });
-  assert.throws(() => appendNative(f.pi, f.ctx, delivery), /did not confirm/);
+test("void API return without native ownership is a definite pre-submission failure", () => {
+  const f = fixture({ starts: false });
+  assert.throws(() => appendNative(f.pi, f.ctx, delivery), /did not start/);
   assert.equal(f.sends(), 1);
 });
 
@@ -68,18 +69,5 @@ test("delivery identity and body bounds reject before native submission", () => 
     assert.equal(f.sends(), 0);
   }
   const f = fixture();
-  assert.deepEqual(appendNative(f.pi, f.ctx, { ...delivery, message_id: "opaque message id" }),
-    { accepted: true, entry_id: "entry-1" });
-});
-
-test("a substituted leaf cannot confirm this native call", () => {
-  for (const change of [
-    { type: "message" }, { content: "different" }, { details: { message_id: "other" } },
-    { parentId: "foreign" }, { id: "" },
-  ]) {
-    const f = fixture();
-    const original = f.ctx.sessionManager.getLeafEntry;
-    f.ctx.sessionManager.getLeafEntry = () => ({ ...original(), ...change });
-    assert.throws(() => appendNative(f.pi, f.ctx, delivery), /did not confirm/);
-  }
+  assert.deepEqual(appendNative(f.pi, f.ctx, { ...delivery, message_id: "opaque message id" }), { accepted: true });
 });

@@ -19,6 +19,16 @@
 > MCP configuration. Historical evidence below is
 > retained as evidence of its cited versions, not the current implementation.
 
+> Mandatory-wake update (2026-09-21): the 0.24.1 ACP lane no longer uses its
+> mid-turn drain as a delivery admission path. Native never calls
+> `craft/drainMidTurnQueue` while a tool call is executing, so two
+> active lanes waiting on mutual Sessionbus sends can deadlock before either
+> drain. Lane delivery now returns NotRunning before local or native enqueue;
+> daemon v0.5.7 starts or schedules the original delivery as a managed Run, and
+> the native drain replies empty. The interactive `--input-file` submit carrier
+> is separate and retains its demonstrated idle-wake/active-join behavior. See
+> [the all-product boundary](../designs/mandatory-message-wake-20260921/NATIVE-BOUNDARIES.md).
+
 Flat fact list for Qwen Code as a Sessionbus product. No prose beyond facts.
 
 Provenance and tag legend:
@@ -261,7 +271,7 @@ Provenance and tag legend:
   line; rename variant uses `"text":"/rename <name>"`. (verified: pin;
   source: internal/bridge/qwen.go:282-305; internal/launcher/qwen_peer.go:195-196)
 
-## Delivery — lane, idle vs mid-turn
+## Historical delivery — lane FIFO and mid-turn drain (superseded 2026-09-21)
 
 - Picture: idle delivery enters the shared bounded FIFO (64 deliveries / 1 MiB rendered)
   and is prepended to the next run; the host renderer emits the

@@ -641,11 +641,16 @@ func TestPiHelloAndLaneDeliveryPolicy(t *testing.T) {
 	if err != nil || hello.Product != Product || !hello.SupportsMessageRun {
 		t.Fatalf("hello=%+v err=%v", hello, err)
 	}
+	wrapper.mu.Lock()
+	wrapper.opened = true
+	wrapper.ctx = context.Background()
+	wrapper.mu.Unlock()
 	receipt, err := wrapper.Deliver(context.Background(), sessionkit.DeliveryRequest{
 		MessageID: "message", Body: "body",
 		From: sessionkit.DeliverySource{SessionID: "source@local", Product: "example-peer"},
 	}, nil)
-	if err != nil || receipt.Disposition != "queued_for_next_turn" {
+	var notRunning *sessionkit.ProtocolError
+	if !errors.As(err, &notRunning) || notRunning.Code != -32004 || receipt.Disposition != "" {
 		t.Fatalf("receipt=%+v err=%v", receipt, err)
 	}
 }

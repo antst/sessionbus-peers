@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/antst/sessionbus-peers/wrappers/host"
 	kit "github.com/antst/sessionbus/bus/sdk/go"
 )
 
@@ -194,20 +195,23 @@ func (p *Wrapper) deliverActive(ctx context.Context, r kit.DeliveryRequest, text
 	if p.closing || p.nativeFailure != nil || t == nil || observer == nil || t.retiring {
 		p.mu.Unlock()
 		gate <- struct{}{}
-		return kit.DeliveryReceipt{Disposition: "rejected", Reason: "native_turn_unavailable"}, nil
+		return kit.DeliveryReceipt{}, host.NotRunning()
 	}
 	p.mu.Unlock()
 	// The primary stream is the admission authority. The observer must never
 	// submit an interject into native idle while this prompt is still starting.
 	if err := t.admission(ctx); err != nil {
 		gate <- struct{}{}
-		return kit.DeliveryReceipt{}, err
+		if ctx.Err() != nil {
+			return kit.DeliveryReceipt{}, ctx.Err()
+		}
+		return kit.DeliveryReceipt{}, host.NotRunning()
 	}
 	p.mu.Lock()
 	if p.pendingPrompt != t || p.closing || p.nativeFailure != nil || t.retiring || len(t.segments) == 0 || t.segments[len(t.segments)-1].terminal {
 		p.mu.Unlock()
 		gate <- struct{}{}
-		return kit.DeliveryReceipt{Disposition: "rejected", Reason: "native_turn_unavailable"}, nil
+		return kit.DeliveryReceipt{}, host.NotRunning()
 	}
 	d := &nativeDelivery{id: r.MessageID, text: text, admitted: make(chan struct{}), settled: make(chan struct{})}
 	t.delivery = d
@@ -238,7 +242,7 @@ func (p *Wrapper) deliverActive(ctx context.Context, r kit.DeliveryRequest, text
 				return err
 			}
 			if p.pendingPrompt != t || t.delivery != d || p.closing || p.nativeFailure != nil || t.retiring || len(t.segments) == 0 || t.segments[len(t.segments)-1].terminal {
-				return errors.New("Grok turn ended before interject submission")
+				return host.NotRunning()
 			}
 			d.attempted = true
 			stop()

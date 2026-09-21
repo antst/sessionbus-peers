@@ -14,6 +14,7 @@ import (
 	"sync"
 
 	"github.com/antst/sessionbus-peers/wrappers/claude/interactive"
+	"github.com/antst/sessionbus-peers/wrappers/host"
 	kit "github.com/antst/sessionbus/bus/sdk/go"
 )
 
@@ -305,18 +306,23 @@ func (p *Wrapper) Interrupt(ctx context.Context, _ *kit.Run) error {
 	return err
 }
 func (p *Wrapper) Deliver(ctx context.Context, r kit.DeliveryRequest, _ *kit.Run) (kit.DeliveryReceipt, error) {
-	s, id, err := p.current()
+	_, _, err := p.current()
 	if err != nil {
 		return kit.DeliveryReceipt{Disposition: "rejected", Reason: "native_unavailable"}, nil
 	}
-	body, err := deliveryInput(r)
-	if err != nil {
+	if _, err := deliveryInput(r); err != nil {
 		return kit.DeliveryReceipt{}, err
 	}
-	return s.append(ctx, id, body)
+	if err := ctx.Err(); err != nil {
+		return kit.DeliveryReceipt{}, err
+	}
+	// Claude stream-json has no demonstrated turn-safe handoff for a
+	// shouldQuery:false frame at the terminal boundary. Refuse before writing;
+	// the worker/daemon retains the original delivery and wakes a fresh run.
+	return kit.DeliveryReceipt{}, host.NotRunning()
 }
 
-// Staging, active delivery and waking runs retain the same source envelope.
+// Managed wake runs retain the same source envelope as ordinary delivery.
 func deliveryInput(r kit.DeliveryRequest) (string, error) {
 	body, err := json.Marshal(map[string]any{"from": r.From, "message": r.Body})
 	return string(body), err

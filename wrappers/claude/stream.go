@@ -55,12 +55,6 @@ type runResult struct {
 	value kit.TurnResult
 	err   error
 }
-type admission struct {
-	session, disposition string
-	run                  *nativeRun
-	crossedBoundary      bool
-	done                 chan error
-}
 type stream struct {
 	input      io.WriteCloser
 	output     io.ReadCloser
@@ -69,7 +63,6 @@ type stream struct {
 	inputError error
 	closed     error
 	controls   map[string]chan controlResult
-	admissions map[string]*admission
 	active     *nativeRun
 	done       chan struct{}
 	fatal      func(error)
@@ -85,7 +78,7 @@ func correlationID() (string, error) {
 	return fmt.Sprintf("%x-%x-%x-%x-%x", b[:4], b[4:6], b[6:8], b[8:10], b[10:]), nil
 }
 func newStream(input io.WriteCloser, output io.ReadCloser, fatal func(error)) *stream {
-	s := &stream{input: input, output: output, controls: make(map[string]chan controlResult), admissions: make(map[string]*admission), done: make(chan struct{}), fatal: fatal}
+	s := &stream{input: input, output: output, controls: make(map[string]chan controlResult), done: make(chan struct{}), fatal: fatal}
 	go s.read()
 	return s
 }
@@ -107,10 +100,6 @@ func (s *stream) stop(err error) {
 		c <- controlResult{err: err}
 	}
 	s.controls = make(map[string]chan controlResult)
-	for _, a := range s.admissions {
-		a.done <- err
-	}
-	s.admissions = make(map[string]*admission)
 	if s.active != nil {
 		s.active.result <- runResult{err: err}
 		s.active = nil
@@ -246,9 +235,6 @@ func (s *stream) execute(ctx context.Context, session, input string, admitted fu
 	} else if s.active != nil {
 		err = errors.New("native turn already active")
 	} else {
-		for _, a := range s.admissions {
-			a.crossedBoundary = true
-		}
 		s.active = turn
 	}
 	s.mu.Unlock()
@@ -297,41 +283,6 @@ func (s *stream) execute(ctx context.Context, session, input string, admitted fu
 		return kit.TurnResult{}, ctx.Err()
 	}
 }
-func (s *stream) append(ctx context.Context, session, content string) (kit.DeliveryReceipt, error) {
-	id, err := correlationID()
-	if err != nil {
-		return kit.DeliveryReceipt{}, err
-	}
-	a := &admission{session: session, done: make(chan error, 1)}
-	s.mu.Lock()
-	if s.closed != nil {
-		err = s.closed
-	} else {
-		a.run = s.active
-		a.crossedBoundary = a.run != nil && (!a.run.echoed || a.run.terminal != nil)
-		s.admissions[id] = a
-	}
-	s.mu.Unlock()
-	if err != nil {
-		return kit.DeliveryReceipt{Disposition: "rejected", Reason: "native_unavailable"}, nil
-	}
-	defer func() { s.mu.Lock(); delete(s.admissions, id); s.mu.Unlock() }()
-	attempted, err := s.write(ctx, userFrame(id, session, content, false))
-	if err == nil {
-		select {
-		case err = <-a.done:
-		case <-ctx.Done():
-			err = ctx.Err()
-		}
-	}
-	if err != nil {
-		if attempted {
-			return kit.DeliveryReceipt{}, &kit.ProtocolError{Code: -32603, Data: json.RawMessage(`"uncertain_native_admission"`)}
-		}
-		return kit.DeliveryReceipt{Disposition: "rejected", Reason: "not_submitted"}, nil
-	}
-	return kit.DeliveryReceipt{Disposition: a.disposition}, nil
-}
 func (s *stream) read() {
 	decoder := json.NewDecoder(s.output)
 	for {
@@ -361,24 +312,6 @@ func (s *stream) read() {
 			}
 		case "user":
 			if f.IsReplay {
-				if a := s.admissions[f.UUID]; a != nil && a.session == f.SessionID {
-					delete(s.admissions, f.UUID)
-					// Classify at the correlated native replay, never from later
-					// worker state or a write callback. A crossed run boundary has
-					// no demonstrated scheduling classification.
-					if !a.crossedBoundary && a.run == s.active {
-						if a.run == nil {
-							a.disposition = "queued_for_next_turn"
-						} else if a.run.echoed && a.run.terminal == nil {
-							a.disposition = "injected"
-						}
-					}
-					var err error
-					if a.disposition == "" {
-						err = errors.New("native admission crossed an unclassified run boundary")
-					}
-					a.done <- err
-				}
 				if t := s.active; t != nil && t.uuid == f.UUID && t.session == f.SessionID && !t.echoed {
 					t.echoed = true
 					t.admitted()
@@ -388,9 +321,6 @@ func (s *stream) read() {
 			}
 		case "result":
 			if t := s.active; t != nil && t.session == f.SessionID && containsUUID(f, t.uuid) {
-				for _, a := range s.admissions {
-					a.crossedBoundary = true
-				}
 				t.terminal = &f
 				s.finishLocked()
 			}

@@ -99,6 +99,17 @@ observations; it does not relabel older receipts or extend cleanup credit.
 | Ordinary Claude stays unintegrated; same-build interactive public list and idle delivery still work | 653b41e / ordinary653, integrated653 in claude-go-lane-interactive-20260909/raw | Actual list and exact replies; idle receipt written only; native quit0/reaped and identified PID absence. No quit-hook/EOF causal attribution. |
 
 The [stamped receipt correction](../designs/claude-0.5.0/LANE-DELIVERY-AMENDMENT.md)
+is historical for the earlier append-based lane. The mandatory-wake source
+candidate refuses every lane delivery before any stream write; daemon v0.5.7
+starts or schedules a managed Run instead. Interactive Claude continues to use
+the native messaging socket. Earlier 2.1.260 evidence demonstrated same-turn
+lane append, but it did not establish that the replay acknowledgment is
+independent of a blocked tool batch or safe across the terminal-boundary race;
+the present scheduling fallback preserves liveness without reclassifying that
+historical capability. See
+[the all-product boundary](../designs/mandatory-message-wake-20260921/NATIVE-BOUNDARIES.md).
+
+The earlier amendment
 requires exact message UUID/session replay: `injected` during the same confirmed
 active run, `queued_for_next_turn` for demonstrated idle staging, and uncertainty
 across an unclassified run boundary. These receipts acknowledge admission or

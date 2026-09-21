@@ -590,7 +590,19 @@ func (p *Wrapper) Interrupt(ctx context.Context, run *sessionkit.Run) error {
 }
 
 func (p *Wrapper) Deliver(ctx context.Context, request sessionkit.DeliveryRequest, _ *sessionkit.Run) (sessionkit.DeliveryReceipt, error) {
-	return p.handoff.Deliver(ctx, request, nil)
+	if _, err := host.RenderNativeMessage(request); err != nil {
+		return sessionkit.DeliveryReceipt{}, err
+	}
+	if err := ctx.Err(); err != nil {
+		return sessionkit.DeliveryReceipt{}, err
+	}
+	p.mu.Lock()
+	available := p.opened && !p.closing && p.failure == nil && p.ctx.Err() == nil
+	p.mu.Unlock()
+	if !available {
+		return sessionkit.DeliveryReceipt{Disposition: "rejected", Reason: "lane_unavailable"}, nil
+	}
+	return sessionkit.DeliveryReceipt{}, host.NotRunning()
 }
 
 func (p *Wrapper) Close(ctx context.Context, _ sessionkit.SessionCloseRequest) error {

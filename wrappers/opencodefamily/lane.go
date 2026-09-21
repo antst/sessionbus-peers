@@ -56,8 +56,6 @@ type Wrapper struct {
 	opened, closing    bool
 	run                *kit.Run
 	active             *laneRun
-	staged             []string
-	stagedBytes        int
 	closeOnce          sync.Once
 	closeErr           error
 }
@@ -326,8 +324,6 @@ func (p *Wrapper) Close(ctx context.Context, request kit.SessionCloseRequest) er
 				p.closeErr = errors.Join(p.closeErr, p.childErr)
 			}
 		}
-		p.staged = nil
-		p.stagedBytes = 0
 		p.mu.Unlock()
 	})
 	return p.closeErr

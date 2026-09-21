@@ -78,9 +78,10 @@ of model consumption. There is no replay or restart recovery.
 Public spawn selects product `kilo-peer`. One Worker Caller owns lane capability;
 native child tools must prove the adopted session or native parent ancestry.
 A Run uses the legacy synchronous native message request, reconciles native
-assistant history, and has no wrapper silence deadline. Ordinary deliveries
-received while active or idle remain unsent as `queued_for_next_turn` until the
-next explicit Run. Seed input is handled by that Run. Interactive and lane
+assistant history, and has no wrapper silence deadline. Every lane delivery is
+refused before native submission; the daemon starts or schedules an automatic
+managed Run carrying the original message. `queued_for_next_turn` is bounded
+daemon scheduling, not native admission. Interactive and lane
 permission behavior differs: unattended lane questions/permissions are rejected
 under the selected lane contract. Omitted or `default` permission mode inherits
 native policy. Explicit `permission_mode=bypassPermissions` supplies the native
@@ -109,7 +110,7 @@ actions, so bursts can reject further work. The resident bridge has eight
 connections and finite frame/write/work bounds. Native SDK response parsing and
 native histories remain native-owned allocations. Common source is staged into
 each self-contained product package; the only JS dependency is the immutable
-Sessionbus kit at exact registry version `0.5.5`, with no plugin SDK, Effect or Solid package added.
+Sessionbus kit at exact registry version `0.5.7`, with no plugin SDK, Effect or Solid package added.
 
 Local package installation (`--plugin-dir` or a validated `file:` package directory)
 registers the bundled generic Sessionbus skill through native `skills.paths`.

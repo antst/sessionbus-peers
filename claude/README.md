@@ -147,29 +147,28 @@ Forced failure still aborts. Resume passes that exact ID as `resume_session_id` 
 No lane-specific public launcher is installed.
 
 Open waits for native initialize, the initial root ID/title report and the
-required Sessionbus tool. Open itself starts no work. With the default
-`idle_message:"stage"`, an idle message does not start work. A matching
-native replay during the same confirmed active run returns `injected`; idle
-native staging returns `queued_for_next_turn` for a later explicit run. Neither
-receipt promises model consumption. An unclassified run boundary leaves
-admission uncertain; write completion alone earns no receipt. Explicit runs
-return the native terminal result and reason. With explicit `idle_message:"run"`,
-a message received while idle uses the same native query path and one shared
-run. Exact native replay returns `injected`; its terminal is separately readable
-through the shared worker's cursor. No Claude scheduler or output cache is added.
+required Sessionbus tool. Open itself starts no work. The lane has no
+source-proven atomic active append boundary, so every delivery is refused before
+the native stream write. The daemon starts an idle message as a managed run or
+retains an active-turn delivery in bounded memory for the automatic next run.
+`queued_for_next_turn` is that scheduling promise, not native admission,
+durability, or model consumption. Explicit and message-seeded runs return the
+native terminal result and reason through the shared cursor. No Claude scheduler
+or output cache is added.
 
-Public `running:true` is not a promise of immediate native input consumption.
-Tool-boundary injection has been verified; a turn without a tool boundary may
-finish before replay. Use the returned receipt to distinguish active injection,
-next-turn staging and uncertainty, rather than inferring admission from presence.
+Native 2.1.260 installed evidence did demonstrate same-turn lane append. It did
+not establish that the replay acknowledgment can arrive independently of a
+blocked tool batch or that the append is consumed across the terminal-boundary
+race. The current next-run scheduling is a deliberate liveness fallback, not a
+claim that same-turn delivery was never observed.
 
 Spawn/resume policies are independent. `persistent:false` (fresh default) retires
 the lane when its authenticated owner leaves; `true` survives owner exit.
 `auto_close_ms` defaults to 60000 after a native completed, failed or interrupted
 terminal; zero disables automatic close. An unavailable record without a native
 terminal does not start a new grace.
-New work cancels the old deadline; collection and staged messages do not extend
-it. Resume preserves persistence and omitted idle-message policy, but omitted
+New work cancels the old deadline; collection does not extend it. Resume
+preserves persistence, but omitted
 `auto_close_ms` resets to 60000. Pass zero again to keep automatic close disabled.
 Persistence may be promoted, not silently demoted.
 
@@ -177,9 +176,8 @@ Parent-owned lanes notify their owner by default unless `notify:false` is set.
 Persistent lanes need an explicit `notify_target` (or a retained target on resume
 or promotion). The completion message contains a lane/run pointer and state,
 never the answer. It is an ordinary peer message under the lane's identity and
-follows the recipient's normal admission policy: active admission, idle staging
-under `stage`, or idle wake under `run`; interactive wake follows the native
-carrier. Delivery does not prove collection. Read with `status`/`wait`, then
+starts or schedules native work under mandatory wake; interactive wake follows
+the native carrier. Delivery does not prove collection. Read with `status`/`wait`, then
 explicitly `ack` after using a `done` result or recording/reporting an
 `unavailable` reason. Both terminal states advance the cursor only on ack.
 Reads do not consume; acknowledgment is oldest-first.

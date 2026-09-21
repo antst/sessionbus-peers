@@ -37,6 +37,8 @@ run/start/status/wait/ack/interrupt/close/forget to
 own a lane through its full lifecycle. Arguments must have the exact public
 shape for the selected action. A successful send confirms only the recipient's
 published delivery disposition; queued_for_next_turn is not model consumption.
+A lane queued_for_next_turn receipt means the daemon retained the definitely
+unsubmitted message in bounded memory and scheduled its next managed run.
 A completion pointer is an ordinary peer message, not the lane result. Tracing
 defaults off; events copies message and settled-delivery metadata, content also
 includes message bodies, and neither mode includes history or lane lifecycle.
@@ -147,7 +149,6 @@ function argumentSchema() {
   }
   for (const field of ["persistent", "notify", "forget"]) properties[field] = { type: "boolean" };
   for (const field of ["auto_close_ms", "timeout_ms"]) properties[field] = { type: "integer" };
-  properties.idle_message = { type: "string", enum: ["stage", "run"] };
   properties.trace = { type: "string", enum: ["off", "events", "content"] };
   properties.mode = { type: "string", enum: ["off", "events", "content"] };
   const open = {};
@@ -331,6 +332,31 @@ export function createOMPExtension({ launch, connect = connectBridge, createToke
     return { owner_token: state.ownerToken, session_id: state.sessionID, name, cwd };
   }
 
+  function resetBoundarySnapshot(ctx) {
+    const entries = ctx.sessionManager.getEntries();
+    if (!Array.isArray(entries)) throw new Error("OMP native session entries are unavailable");
+    let count = 0;
+    let lastID = "";
+    for (const entry of entries) {
+      if (entry?.type !== "reset_boundary") continue;
+      count += 1;
+      lastID = boundedText(entry.id, 4096, "native reset boundary id");
+    }
+    return { count, lastID };
+  }
+
+  function rejectNewResetBoundary(state, ctx) {
+    const current = resetBoundarySnapshot(ctx);
+    if (state.batches.size === 0) {
+      state.resetBoundary = current;
+      return;
+    }
+    if (current.count === state.resetBoundary.count && current.lastID === state.resetBoundary.lastID) return;
+    const error = new Error("OMP native context reset while a Sessionbus delivery was pending");
+    failState(state, error);
+    throw error;
+  }
+
   function nativeState(params, keys) {
     exactKeys(params, keys, "native request parameters");
     const token = ownerToken(params.owner_token);
@@ -340,6 +366,7 @@ export function createOMPExtension({ launch, connect = connectBridge, createToke
       throw new BridgeCallError("stale_owner", "OMP native request does not own a current factory");
     }
     describeState(state);
+    rejectNewResetBoundary(state, state.ctx);
     return state;
   }
 
@@ -358,16 +385,20 @@ export function createOMPExtension({ launch, connect = connectBridge, createToke
         }
         const id = messageID(params.message_id);
         const body = boundedText(params.body, maxTextBytes, "staged delivery body", { empty: true });
-        if (state.queued.some((entry) => entry.messageID === id) || state.active?.messageIDs.includes(id)) {
+        if (state.queued.some((entry) => entry.messageID === id) ||
+            [...state.batches.values()].some((batch) => batch.messageIDs.includes(id))) {
           throw new BridgeCallError("duplicate_message", "OMP staged delivery identity is already owned");
         }
         const entry = { messageID: id, body };
         const bytes = deliveryEntryBytes(entry);
-        if (state.queued.length >= limit.queuedDeliveries || !reserve(bytes)) {
+        const retainedDeliveries = state.queued.length +
+          [...state.batches.values()].reduce((count, batch) => count + batch.entries.length, 0);
+        if (retainedDeliveries >= limit.queuedDeliveries || !reserve(bytes)) {
           return { owner_token: state.ownerToken, session_id: state.sessionID, message_id: id, queued: false, reason: "queue_full" };
         }
         state.queued.push(entry);
         state.deliveryBytes += bytes;
+        scheduleDeliveryTurn(state.factory, state);
         return { owner_token: state.ownerToken, session_id: state.sessionID, message_id: id, queued: true };
       }
       case "native.shutdown": {
@@ -490,10 +521,12 @@ export function createOMPExtension({ launch, connect = connectBridge, createToke
   function discardDeliveries(state) {
     let bytes = 0;
     for (const entry of state.queued) bytes += deliveryEntryBytes(entry);
-    if (state.active) for (const entry of state.active.entries) bytes += deliveryEntryBytes(entry);
-    if (state.active) bytes += state.active.contentBytes;
+    for (const batch of state.batches.values()) {
+      for (const entry of batch.entries) bytes += deliveryEntryBytes(entry);
+      bytes += batch.contentBytes;
+    }
     state.queued = [];
-    state.active = undefined;
+    state.batches.clear();
     if (bytes > 0) {
       state.deliveryBytes -= bytes;
       release(bytes);
@@ -521,8 +554,10 @@ export function createOMPExtension({ launch, connect = connectBridge, createToke
     if (!reserve(bindingBytes)) throw new Error("OMP native factory retained-payload capacity is exhausted");
     const state = {
       factory, pi, ctx, scope, mode, ownerToken: token, sessionID, controller: new AbortController(),
-      described: false, admitted: false, ending: false, ended: false, failure: undefined, queued: [], active: undefined,
+      described: false, admitted: false, ending: false, ended: false, failure: undefined,
+      queued: [], batches: new Map(),
       deliveryBytes: 0, bindingBytes, reportSequence: 0, runSequence: 0, batchSequence: 0,
+      resetBoundary: resetBoundarySnapshot(ctx),
     };
     bindings.set(token, state);
     return state;
@@ -594,6 +629,7 @@ export function createOMPExtension({ launch, connect = connectBridge, createToke
     }
     state.ctx = ctx;
     describeState(state);
+    rejectNewResetBoundary(state, ctx);
     return state;
   }
 
@@ -636,7 +672,6 @@ export function createOMPExtension({ launch, connect = connectBridge, createToke
   }
 
   function claimDelivery(factory, state) {
-    if (state.active) throw new Error("OMP prior delivery batch has not reached native context");
     if (state.queued.length === 0) return undefined;
     const entries = [];
     let contentBytes = 0;
@@ -660,45 +695,73 @@ export function createOMPExtension({ launch, connect = connectBridge, createToke
       batchToken: ownerToken(`${state.ownerToken}-batch-${state.batchSequence}`),
       phase: 0,
     };
-    state.active = batch;
+    state.batches.set(batch.batchToken, batch);
     scheduleDelivery(factory, state, batch, "claimed");
     batch.phase = 1;
     return customDeliveryMessage(state, batch);
   }
 
+  function scheduleDeliveryTurn(factory, state) {
+    while (state.queued.length > 0) {
+      try {
+        const message = claimDelivery(factory, state);
+        state.pi.sendMessage(message, { deliverAs: "steer", triggerTurn: true });
+      } catch (error) {
+        failState(state, error);
+        throw error;
+      }
+    }
+  }
+
   function observeMessage(factory, ctx, message, phase) {
     const state = localState(factory, ctx);
-    if (!state.active) return;
-    if (!matchingDelivery(message, state, state.active)) {
-      if (referencesDeliveryBatch(message, state, state.active)) {
+    const matches = [...state.batches.values()].filter((batch) => matchingDelivery(message, state, batch));
+    if (matches.length === 0) {
+      if ([...state.batches.values()].some((batch) => referencesDeliveryBatch(message, state, batch))) {
         throw new Error("OMP native changed Sessionbus delivery identity");
       }
       return;
     }
+    if (matches.length !== 1) throw new Error("OMP native delivery matched multiple claimed batches");
+    const batch = matches[0];
     const expected = phase === "message_start" ? 1 : 2;
-    if (state.active.phase !== expected) throw new Error("OMP native delivery message event is out of order");
-    scheduleDelivery(factory, state, state.active, phase);
-    state.active.phase = expected + 1;
+    if (batch.phase !== expected) throw new Error("OMP native delivery message event is out of order");
+    scheduleDelivery(factory, state, batch, phase);
+    batch.phase = expected + 1;
   }
 
   function observeContext(factory, ctx, messages) {
     const state = localState(factory, ctx);
-    if (!state.active) return;
-    const matches = Array.isArray(messages) ? messages.filter((message) => matchingDelivery(message, state, state.active)) : [];
-    if (matches.length !== 1 || state.active.phase !== 3) {
-      throw new Error("OMP native context did not preserve the claimed Sessionbus delivery");
+    const list = Array.isArray(messages) ? messages : [];
+    const completed = [];
+    for (const batch of state.batches.values()) {
+      const matches = list.filter((message) => matchingDelivery(message, state, batch));
+      const referenced = list.some((message) => referencesDeliveryBatch(message, state, batch));
+      if (batch.phase < 3) {
+        // A different active or preparing native turn may emit context while
+        // this independently submitted batch has not emitted its own message
+        // events. Ignore only context that does not reference this batch.
+        if (matches.length === 0 && !referenced) continue;
+        throw new Error("OMP native context observed a claimed Sessionbus delivery before its message events");
+      }
+      if (matches.length !== 1 || batch.phase !== 3) {
+        throw new Error("OMP native context did not preserve the claimed Sessionbus delivery");
+      }
+      scheduleDelivery(factory, state, batch, "context");
+      batch.phase = 4;
+      completed.push(batch);
     }
-    const batch = state.active;
-    scheduleDelivery(factory, state, batch, "context");
-    batch.phase = 4;
-    for (const entry of batch.entries) {
-      const bytes = deliveryEntryBytes(entry);
-      state.deliveryBytes -= bytes;
-      release(bytes);
+    for (const batch of completed) {
+      for (const entry of batch.entries) {
+        const bytes = deliveryEntryBytes(entry);
+        state.deliveryBytes -= bytes;
+        release(bytes);
+      }
+      state.deliveryBytes -= batch.contentBytes;
+      release(batch.contentBytes);
+      state.batches.delete(batch.batchToken);
     }
-    state.deliveryBytes -= batch.contentBytes;
-    release(batch.contentBytes);
-    state.active = undefined;
+    scheduleDeliveryTurn(factory, state);
   }
 
   async function endFactory(factory, ctx) {
@@ -805,8 +868,7 @@ export function createOMPExtension({ launch, connect = connectBridge, createToke
         const state = localState(factory, ctx);
         const prompt = boundedText(event.prompt, maxTextBytes, "native preflight prompt", { empty: true });
         if (state.scope === "primary" && launch.topology === "lane") schedulePreflight(factory, state, prompt);
-        const message = claimDelivery(factory, state);
-        return message ? { message } : undefined;
+        return undefined;
       } catch (error) {
         failState(factory.current, error);
         return undefined;

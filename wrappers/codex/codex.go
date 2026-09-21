@@ -378,35 +378,42 @@ func (p *Wrapper) Deliver(ctx context.Context, request sessionkit.DeliveryReques
 		return sessionkit.DeliveryReceipt{Disposition: "rejected", Reason: "not_submitted"}, nil
 	}
 	p.mu.Lock()
-	active, epoch, id := p.active, p.boundary, p.id
+	active := p.active
+	expectedTurnID := ""
+	if active != nil && active.started {
+		expectedTurnID = active.id
+	}
 	p.mu.Unlock()
-	if active != nil {
-		disposition, err := p.inject(ctx, body)
-		if err != nil {
-			return sessionkit.DeliveryReceipt{}, uncertainAdmission(err)
-		}
-		if disposition != host.Injected {
-			return sessionkit.DeliveryReceipt{}, uncertainAdmission(errors.New("native turn changed before steer submission"))
-		}
-		return sessionkit.DeliveryReceipt{Disposition: "injected"}, nil
+	if expectedTurnID == "" {
+		return sessionkit.DeliveryReceipt{}, host.NotRunning()
 	}
-	if id == "" {
-		return sessionkit.DeliveryReceipt{Disposition: "rejected", Reason: "native_unavailable"}, nil
-	}
-	// Fix classification on the native reader, before subsequent events. The
-	// empty native reply does not identify its active/idle internal branch.
-	err = p.app.callObserved(ctx, "thread/inject_items", map[string]any{"threadId": id, "items": []any{map[string]any{"type": "message", "role": "user", "content": []any{map[string]string{"type": "input_text", "text": body}}}}}, &struct{}{}, func(json.RawMessage) error {
-		p.mu.Lock()
-		defer p.mu.Unlock()
-		if p.id != id || p.boundary != epoch || p.active != nil {
-			return errors.New("native run boundary crossed staged submission")
-		}
-		return nil
-	})
+	outcome, err := p.injectExpected(ctx, body, active)
 	if err != nil {
+		if codexSteerDefinitelyNotSubmitted(err, expectedTurnID) {
+			return sessionkit.DeliveryReceipt{}, host.NotRunning()
+		}
 		return sessionkit.DeliveryReceipt{}, uncertainAdmission(err)
 	}
-	return sessionkit.DeliveryReceipt{Disposition: "queued_for_next_turn"}, nil
+	if outcome != host.Injected {
+		return sessionkit.DeliveryReceipt{}, host.NotRunning()
+	}
+	return sessionkit.DeliveryReceipt{Disposition: "injected"}, nil
+}
+
+// codexSteerDefinitelyNotSubmitted recognizes only the two stable 0.153.4
+// turn/steer errors produced from SteerSubmission::NotSubmitted when the
+// locally observed turn has already ended or changed. Other native, transport,
+// policy, cancellation, and schema failures remain uncertain after the RPC.
+func codexSteerDefinitelyNotSubmitted(err error, expectedTurnID string) bool {
+	var protocolError *sessionkit.ProtocolError
+	if !errors.As(err, &protocolError) || protocolError.Code != -32600 {
+		return false
+	}
+	if protocolError.Message == "no active turn to steer" {
+		return true
+	}
+	prefix := fmt.Sprintf("expected active turn id `%s` but found `", expectedTurnID)
+	return strings.HasPrefix(protocolError.Message, prefix) && strings.HasSuffix(protocolError.Message, "`")
 }
 
 func (p *Wrapper) start(ctx context.Context, prompt string) (host.Turn, error) {
@@ -462,10 +469,10 @@ func (p *Wrapper) start(ctx context.Context, prompt string) (host.Turn, error) {
 	}
 }
 
-func (p *Wrapper) inject(ctx context.Context, prompt string) (host.Injection, error) {
+func (p *Wrapper) injectExpected(ctx context.Context, prompt string, expected *turn) (host.Injection, error) {
 	p.mu.Lock()
 	t := p.active
-	if t == nil || !t.started {
+	if t == nil || t != expected || !t.started {
 		p.mu.Unlock()
 		return host.NotInjected, nil
 	}

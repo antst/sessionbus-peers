@@ -1,4 +1,4 @@
-github.com/antst/sessionbus/bus/sdk/go v0.5.5
+github.com/antst/sessionbus/bus/sdk/go v0.5.7
 ===================================================
 
 MIT License

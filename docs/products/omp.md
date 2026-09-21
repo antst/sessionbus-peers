@@ -6,6 +6,41 @@
 > commit recorded by the split archive manifest. Host evidence paths are
 > immutable external artifacts, not repository paths.
 
+## Mandatory-wake source boundary (2026-09-21)
+
+OMP 18.1.17 is bound to upstream
+`3b3a6dc9bbd85102ce19d0b1c11bf6870915f6ec`. Interactive `native.stage`
+accepts a bounded delivery into the product owner queue and returns
+`queued_for_next_turn`; the caller must not resend that accepted message. The
+owner schedules it with
+`sendMessage(...,{deliverAs:"steer",triggerTurn:true})`, and correlates the
+claimed custom message, `message_start`, `message_end`, and context events.
+Image normalization happens before native scheduling, so the immediate product-owner
+acceptance receipt and later native identity proof remain distinct. The later
+events are collection evidence, not a second sender receipt. After normalization,
+a streaming native session puts the exact custom message in the agent's steer
+queue and schedules its idle drain; an idle session calls
+`promptAgentInitiatedMessage`. This one carrier therefore admits active input
+without waiting for the current tool call and starts idle work without a
+wrapper-side idle/active race. Native usage denial, abort or disposal during an
+idle prompt can still decline dispatch behind the API's void return, and an
+explicit native interrupt can discard an agent-core custom steer. The wrapper
+does not claim model success from its queued receipt or replay either class: an
+unconfirmed batch keeps its bounded reservation until a native reset or owner
+lifecycle retires it, and the process cap rejects further input rather than
+silently freeing an unknown batch. A durable
+`reset_boundary` created after the wrapper claims a batch retires the owner
+instead of leaving retained capacity wedged, and the wrapper never replays a
+possibly submitted batch. Context emitted by the original running turn, or repeated by the prior
+batch, is ignored while the newly scheduled batch has not reached its own
+message events. Any early reference to that claimed batch remains an ordering
+failure; after `message_end`, its context must contain exactly one matching
+message. Further bounded batches are submitted independently and correlated
+by their unique batch tokens. The lane has no
+independent active append, so every inbound delivery returns NotRunning before
+native submission and daemon v0.5.7 starts or schedules the managed run. See
+[the all-product boundary](../designs/mandatory-message-wake-20260921/NATIVE-BOUNDARIES.md).
+
 ## OMP 18.1.17 tool approval source audit (2026-09-19)
 
 The following facts come from native commit

@@ -82,10 +82,11 @@ request, not permission to poll, reconnect or replay.
 
 Completion messages contain a lane/run pointer and terminal state, not the
 answer. They arrive as ordinary peer messages under the lane's actual identity,
-using the recipient's normal admission policy. An active lane admits the message
-normally; an idle `stage` lane stages it for a later explicit run, while an idle
-`run` lane can wake. An interactive recipient follows its native carrier's wake
-behavior. A pointer delivery receipt is not proof of collection.
+using the recipient's normal admission policy. Every lane message starts or
+schedules native work. If it cannot enter the current native turn before any
+submission, the daemon retains it in bounded memory for the next managed run.
+An interactive recipient follows its native carrier's wake behavior. A pointer
+delivery receipt is not proof of collection.
 Use `status` or `wait` on its reference and handle `done`, `unavailable` or
 `running` as above. Keep the actual message source separate from untrusted text. A missing pointer
 or failed notification does not mean that work failed or its output was read.
@@ -114,29 +115,26 @@ Tracing is a live parent control for a direct child. Pass optional
 `trace:"off"|"events"|"content"` to fresh or resumed `spawn`, or use
 `{"action":"trace","arguments":{"session_id":"CHILD_SESSION_ID","mode":"events"}}`
 to change it later. It defaults to `off` and is independent of lane persistence,
-notification, idle and retirement policies. `events` copies Sessionbus message
+notification and retirement policies. `events` copies Sessionbus message
 and settled-delivery metadata; `content` also includes message bodies. Each copy
 is a daemon-generated JSON trace envelope delivered as an ordinary message under
-the parent's admission policy, so it can stage or wake the parent.
+the parent's mandatory wake policy, so it starts or schedules native work.
 The setting applies only to later traffic, is not persisted, and supplies no
 history, replay, Run events, lane lifecycle events or native model content.
 
 ## Choose independent lane policies
 
-Fresh lanes default to `persistent:false`, `auto_close_ms:60000` and
-`idle_message:"stage"`. Persistence controls owner-exit cleanup only. Automatic
-close starts after a native completed, failed or interrupted terminal, not at Open;
-set `auto_close_ms:0` to disable it. An unavailable record without a native
-terminal does not start a new grace.
-New work cancels the previous deadline; collection and staged messages do not
-extend it. `idle_message:"run"` explicitly permits an idle message to start a
-model turn; staging keeps messages for a later explicit run. None of these
-choices implies either of the others.
+Fresh lanes default to `persistent:false` and `auto_close_ms:60000`.
+Persistence controls owner-exit cleanup only. Automatic close starts after a
+native completed, failed or interrupted terminal, not at Open; set
+`auto_close_ms:0` to disable it. An unavailable record without a native terminal
+does not start a new grace. New work cancels the previous deadline; collection
+does not extend it. Every inbound lane message starts or schedules native work;
+there is no passive idle policy.
 
 Parent-owned lanes send completion pointers to their authenticated owner by
 default; `notify:false` disables that. Persistent lanes have no implicit target:
-use `notify_target` to request a destination. On resume, persistence and an
-omitted idle policy are preserved, but omitted `auto_close_ms` resets to 60000.
+use `notify_target` to request a destination. On resume, persistence is preserved, but omitted `auto_close_ms` resets to 60000.
 Pass zero again to keep automatic close disabled. Persistence can be promoted,
 not demoted. Persistent notification settings are retained when omitted;
 parent-owned resume binds the new owner. Inspect returned effective settings.
@@ -203,20 +201,14 @@ a demonstrated resume source. Use the returned session ID for subsequent work.
 
 No native session lookup, title matcher or alternate transport is needed.
 
-A publicly running Claude lane does not guarantee immediate native input
-consumption. Delivery at a native tool boundary is verified; injection into a
-turn with no tool boundary is not guaranteed. That turn may finish before the
-message is replayed. Follow `injected`, `queued_for_next_turn`, or the reported
-uncertainty rather than assuming same-turn consumption from `running:true`.
-
-A lane owns one native session. Matching native replay during the same
-confirmed active run returns `injected`; idle staging returns
-`queued_for_next_turn`. Neither receipt promises model consumption. An
-unclassified run boundary remains uncertain. Under the default stage policy an idle message does not start a
-model turn; run explicitly to use staged context. With explicit idle run policy,
-the same native query path creates one run and matched native replay admits the
-message; collect its separate terminal through the returned completion pointer
-or the oldest unacknowledged record. Native default permissions may refuse tools that need approval.
+A Claude lane owns one native session. Its headless carrier has no source-proven
+atomic active append boundary, so lane delivery is deferred before any native
+write. The daemon starts an idle message immediately or retains it in bounded
+memory for the next managed run when a turn is active. A
+`queued_for_next_turn` receipt is that scheduling promise; it is not native
+admission, durability, or model consumption. Collect the separate terminal
+through the completion pointer or oldest unacknowledged record. Native default
+permissions may refuse tools that need approval.
 Only an explicit caller request may select a permission mode or native
 `arguments` allow rule; do not add a broad grant after a refusal. Legacy lane
 guidance outside this plugin is not runtime authority.

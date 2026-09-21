@@ -86,13 +86,15 @@ Open confirms native identity, title and required tool readiness without a model
 prompt. Resume uses native saved history; close and forget do not delete it.
 
 Active sends require a matching native steer acknowledgment for `injected`.
-Idle `stage` sends require native history insertion for `queued_for_next_turn`.
-A crossed run boundary can make admission uncertain; the adapter does not replay
-it. With explicit `idle_message:"run"`, an idle delivery starts one shared run.
-Receipts describe admission, not model consumption. Results are read without
-consuming and acknowledged separately. Persistence, automatic close and idle
-message policy are independent; see the installed generic skill for their exact
-fields and collection rules.
+If the native turn ended before that steer, its source-proven NotSubmitted
+response causes the daemon to retain the original message and start the next
+managed run. Idle messages start a managed run directly. A
+`queued_for_next_turn` receipt is bounded daemon scheduling, not native
+admission, durability, or model consumption. Other crossed-boundary or native
+errors remain uncertain and are never replayed. Results are read without
+consuming and acknowledged separately. Persistence and automatic close are
+independent; see the installed generic skill for their exact fields and
+collection rules.
 
 Omitted or `default` `permission_mode` inherits Codex policy. Other native
 approval-policy strings pass through without changing the inherited sandbox.
