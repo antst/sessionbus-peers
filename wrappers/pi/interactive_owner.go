@@ -62,6 +62,10 @@ type interactiveDrainRequest struct {
 	Witness   string `json:"witness"`
 }
 
+type interactiveBeforeTreeRequest struct {
+	SessionID string `json:"session_id"`
+}
+
 type interactiveDescribeResult struct {
 	SessionID string `json:"session_id"`
 	Name      string `json:"name"`
@@ -117,6 +121,7 @@ type interactiveOwner struct {
 	lastEndReason               string
 	queue                       []interactiveQueuedDelivery
 	queueBytes                  int
+	treeBusy                    bool
 	err                         error
 	readySignal                 chan struct{}
 	readyOnce                   sync.Once
@@ -194,7 +199,7 @@ func (o *interactiveOwner) Close() error {
 	o.public = nil
 	o.conn, o.connecting = nil, nil
 	o.sessionID, o.name, o.cwd = "", "", ""
-	o.queue, o.queueBytes = nil, 0
+	o.queue, o.queueBytes, o.treeBusy = nil, 0, false
 	o.mu.Unlock()
 	o.cancel()
 	if public != nil {
@@ -220,6 +225,8 @@ func (o *interactiveOwner) handleBridge(ctx context.Context, method string, raw 
 		result, err = o.sessionEnd(ctx, raw)
 	case "owner.drain":
 		result, err = o.drain(ctx, raw)
+	case "owner.before_tree":
+		result, err = o.beforeTree(ctx, raw)
 	case "tool.call":
 		result, err = o.toolCall(ctx, raw)
 	default:
@@ -233,6 +240,29 @@ func (o *interactiveOwner) handleBridge(ctx context.Context, method string, raw 
 		return nil, err
 	}
 	return body, nil
+}
+
+func (o *interactiveOwner) beforeTree(ctx context.Context, raw json.RawMessage) (any, error) {
+	var request interactiveBeforeTreeRequest
+	if err := decodeInteractiveParams(raw, &request); err != nil || !validEntryID(request.SessionID) {
+		return nil, o.protocolFailure("invalid Pi owner.before_tree", err)
+	}
+	if err := o.acquire(ctx); err != nil {
+		return nil, err
+	}
+	defer o.release()
+	o.mu.Lock()
+	if o.ending || o.sessionID != request.SessionID || o.public == nil {
+		o.mu.Unlock()
+		return nil, o.protocolFailure("Pi owner.before_tree does not own the current session", nil)
+	}
+	o.treeBusy = true
+	pending := len(o.queue) != 0
+	o.mu.Unlock()
+	return struct {
+		SessionID string `json:"session_id"`
+		Pending   bool   `json:"pending"`
+	}{request.SessionID, pending}, nil
 }
 
 func (o *interactiveOwner) ready(ctx context.Context, raw json.RawMessage) (any, error) {
@@ -292,7 +322,7 @@ func (o *interactiveOwner) sessionEnd(ctx context.Context, raw json.RawMessage) 
 	o.connecting = nil
 	o.sessionID, o.name, o.cwd = "", "", ""
 	o.lastEndReason = request.Reason
-	o.queue, o.queueBytes = nil, 0
+	o.queue, o.queueBytes, o.treeBusy = nil, 0, false
 	o.mu.Unlock()
 	public.cancel()
 	if conn != nil {
@@ -341,13 +371,18 @@ func (o *interactiveOwner) toolCall(ctx context.Context, raw json.RawMessage) (a
 func (o *interactiveOwner) drain(ctx context.Context, raw json.RawMessage) (any, error) {
 	var request interactiveDrainRequest
 	if err := decodeInteractiveParams(raw, &request); err != nil || !validEntryID(request.SessionID) ||
-		(request.Witness != "agent_settled" && request.Witness != "before_agent_start") {
+		!slices.Contains([]string{"agent_settled", "before_agent_start", "session_before_tree_cancelled", "session_compact", "session_compact_failed", "session_tree"}, request.Witness) {
 		return nil, o.protocolFailure("invalid Pi owner.drain", err)
 	}
 	if err := o.acquire(ctx); err != nil {
 		return nil, err
 	}
 	defer o.release()
+	if request.Witness == "session_before_tree_cancelled" || request.Witness == "session_tree" {
+		o.mu.Lock()
+		o.treeBusy = false
+		o.mu.Unlock()
+	}
 	drained := 0
 	for {
 		o.mu.Lock()
@@ -361,11 +396,14 @@ func (o *interactiveOwner) drain(ctx context.Context, raw json.RawMessage) (any,
 		}
 		delivery := o.queue[0]
 		o.mu.Unlock()
-		accepted, err := o.appendNative(ctx, request.SessionID, delivery.messageID, delivery.body)
+		accepted, reason, err := o.appendNative(ctx, request.SessionID, delivery.messageID, delivery.body)
 		if err != nil {
 			return nil, o.protocolFailure("Pi queued delivery failed", err)
 		}
 		if !accepted {
+			if reason != "busy" && reason != "branch_summary_busy" {
+				return nil, o.protocolFailure("Pi queued delivery rejection is invalid", nil)
+			}
 			break
 		}
 		o.mu.Lock()
@@ -696,19 +734,36 @@ func (o *interactiveOwner) deliver(ctx context.Context, generation uint64, reque
 	}
 	sessionID := o.sessionID
 	queued := len(o.queue) != 0
+	treeBusy := o.treeBusy
 	o.mu.Unlock()
+	if treeBusy && queued {
+		return kit.DeliveryReceipt{Disposition: "rejected", Reason: "native_branch_summary_busy"}, nil
+	}
 	if queued {
 		if err = o.queueDelivery(ctx, generation, sessionID, request.MessageID, body); err != nil {
 			return kit.DeliveryReceipt{}, err
 		}
 		return kit.DeliveryReceipt{Disposition: "queued_for_next_turn"}, nil
 	}
-	accepted, err := o.appendNative(ctx, sessionID, request.MessageID, body)
+	accepted, reason, err := o.appendNative(ctx, sessionID, request.MessageID, body)
 	if err != nil {
 		return kit.DeliveryReceipt{}, err
 	}
 	if accepted {
+		if treeBusy {
+			o.mu.Lock()
+			if o.sessionID == sessionID {
+				o.treeBusy = false
+			}
+			o.mu.Unlock()
+		}
 		return kit.DeliveryReceipt{Disposition: "written"}, nil
+	}
+	if reason == "branch_summary_busy" {
+		return kit.DeliveryReceipt{Disposition: "rejected", Reason: "native_branch_summary_busy"}, nil
+	}
+	if reason != "busy" {
+		return kit.DeliveryReceipt{}, errors.New("Pi native append rejection is invalid")
 	}
 	if err = o.queueDelivery(ctx, generation, sessionID, request.MessageID, body); err != nil {
 		return kit.DeliveryReceipt{}, err
@@ -734,34 +789,34 @@ func (o *interactiveOwner) queueDelivery(ctx context.Context, generation uint64,
 	return nil
 }
 
-func (o *interactiveOwner) appendNative(ctx context.Context, sessionID, messageID, body string) (bool, error) {
+func (o *interactiveOwner) appendNative(ctx context.Context, sessionID, messageID, body string) (bool, string, error) {
 	if !validEntryID(sessionID) {
-		return false, errors.New("invalid Pi native append")
+		return false, "", errors.New("invalid Pi native append")
 	}
 	if err := validateInteractiveAppend(messageID, body); err != nil {
-		return false, err
+		return false, "", err
 	}
 	bridge := o.currentBridge()
 	if bridge == nil {
-		return false, errors.New("Pi bridge is unavailable")
+		return false, "", errors.New("Pi bridge is unavailable")
 	}
 	var result interactiveAppendResult
 	if err := bridge.Call(ctx, "native.append", interactiveAppendRequest{sessionID, messageID, body}, &result); err != nil {
-		return false, err
+		return false, "", err
 	}
 	if result.SessionID != sessionID || result.MessageID != messageID {
-		return false, errors.New("Pi native append response changed identity")
+		return false, "", errors.New("Pi native append response changed identity")
 	}
 	if result.Accepted {
-		if !validEntryID(result.EntryID) || result.Reason != "" {
-			return false, errors.New("Pi native append acknowledgement is invalid")
+		if result.EntryID != "" || result.Reason != "" {
+			return false, "", errors.New("Pi native append acknowledgement is invalid")
 		}
-		return true, nil
+		return true, "", nil
 	}
-	if result.Reason != "busy" || result.EntryID != "" {
-		return false, errors.New("Pi native append rejection is invalid")
+	if (result.Reason != "busy" && result.Reason != "branch_summary_busy") || result.EntryID != "" {
+		return false, "", errors.New("Pi native append rejection is invalid")
 	}
-	return false, nil
+	return false, result.Reason, nil
 }
 
 func (o *interactiveOwner) callPublic(ctx context.Context, sessionID string, public *interactivePublicLifetime, method string, params any) (json.RawMessage, error) {

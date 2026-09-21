@@ -8,7 +8,7 @@ import {
   BridgeProtocolError,
   connectBridge,
 } from "../pifamily/extension/bridge.mjs";
-import { appendNative, describeNative } from "./native.mjs";
+import { appendNative, customMessageType, describeNative } from "./native.mjs";
 
 export const launchEnvironmentName = "SESSIONBUS_PI_LAUNCH";
 export const toolName = "sessionbus";
@@ -20,7 +20,10 @@ const actions = Object.freeze([
   "interrupt", "close", "forget", "ack",
 ]);
 const topologyMode = Object.freeze({ lane: "rpc", interactive: "tui" });
-const drainWitnesses = Object.freeze(["before_agent_start", "agent_settled"]);
+const drainWitnesses = Object.freeze([
+  "before_agent_start", "agent_settled", "session_before_tree_cancelled",
+  "session_compact", "session_compact_failed", "session_tree",
+]);
 const sessionEndReasons = Object.freeze(["quit", "reload", "new", "resume", "fork"]);
 
 const toolDescription = `Call Sessionbus using this exact Pi session identity.
@@ -30,6 +33,8 @@ run/start/status/wait/ack/interrupt/close/forget to
 own a lane through its full lifecycle. Arguments must have the exact public
 shape for the selected action. A successful send confirms only the recipient's
 published delivery disposition; queued_for_next_turn is not model consumption.
+A lane queued_for_next_turn receipt means the daemon retained the definitely
+unsubmitted message in bounded memory and scheduled its next managed run.
 A completion pointer is an ordinary peer message, not the lane result. Tracing
 defaults off; events copies message and settled-delivery metadata, content also
 includes message bodies, and neither mode includes history or lane lifecycle.
@@ -145,7 +150,6 @@ function argumentSchema() {
   }
   for (const field of ["persistent", "notify", "forget"]) properties[field] = { type: "boolean" };
   for (const field of ["auto_close_ms", "timeout_ms"]) properties[field] = { type: "integer" };
-  properties.idle_message = { type: "string", enum: ["stage", "run"] };
   properties.trace = { type: "string", enum: ["off", "events", "content"] };
   properties.mode = { type: "string", enum: ["off", "events", "content"] };
   const open = {};
@@ -223,6 +227,13 @@ export function createPiExtension({
           throw new BridgeCallError("stale_session", "Pi native session identity does not match");
         }
         throwIfAborted(signal);
+        if (record.branchSummaryBusy) {
+          if (record.ctx.isIdle()) record.branchSummaryBusy = false;
+          else return {
+            session_id: record.session_id, message_id: params.message_id,
+            accepted: false, reason: "branch_summary_busy",
+          };
+        }
         const result = append(record.pi, record.ctx, params);
         throwIfAborted(signal);
         if (result.accepted === false) {
@@ -230,10 +241,10 @@ export function createPiExtension({
           if (result.reason !== "busy") throw new Error("Pi native append rejection is invalid");
           return { session_id: record.session_id, message_id: params.message_id, accepted: false, reason: "busy" };
         }
-        exactKeys(result, ["accepted", "entry_id"], "native.append result");
+        exactKeys(result, ["accepted"], "native.append result");
         if (result.accepted !== true) throw new Error("Pi native append result is invalid");
-        boundedString(result.entry_id, 256, "native entry identity");
-        return { session_id: record.session_id, message_id: params.message_id, accepted: true, entry_id: result.entry_id };
+        record.admittedMessages.set(params.message_id, { body: params.body, started: false });
+        return { session_id: record.session_id, message_id: params.message_id, accepted: true };
       }
       default:
         throw new BridgeCallError("method_not_found", "Pi bridge method is unavailable");
@@ -282,7 +293,11 @@ export function createPiExtension({
     requireMode(ctx);
     if (current) throw new Error("Pi native session started before its predecessor ended");
     const info = describe(pi, ctx);
-    current = { pi, ctx, session_id: nativeID(info.session_id), controller: new AbortController() };
+    current = {
+      pi, ctx, session_id: nativeID(info.session_id),
+      controller: new AbortController(), branchSummaryBusy: false,
+      admittedMessages: new Map(),
+    };
     settling = false;
     const result = await hostCall(ctx, "owner.ready", {
       topology: launch.topology,
@@ -313,6 +328,17 @@ export function createPiExtension({
     if (result.session_id !== record.session_id || !Number.isSafeInteger(result.drained) || result.drained < 0 || result.drained > 256) {
       throw new Error("Pi owner.drain response is invalid");
     }
+  }
+
+  function scheduleDrain(owner, ctx, witness) {
+    setImmediate(() => {
+      // Pi creates a fresh ExtensionContext object for every event. Bind this
+      // deferred witness to the owner record/generation instead of object
+      // identity so a same-session event drains, while an old generation can
+      // never act on its successor.
+      if (current !== owner || current.session_id !== owner.session_id) return;
+      void drain(ctx, witness).catch((error) => stop(ctx, error));
+    });
   }
 
   async function laneWitness(ctx, method, params) {
@@ -389,6 +415,7 @@ export function createPiExtension({
     });
 
     pi.on("before_agent_start", (_event, ctx) => {
+      if (current) current.branchSummaryBusy = false;
       if (launch.topology === "interactive") {
         return drain(ctx, "before_agent_start").catch((error) => stop(ctx, error));
       }
@@ -403,14 +430,85 @@ export function createPiExtension({
       return laneWitness(ctx, "run.start", { settling }).catch((error) => stop(ctx, error));
     });
 
+    for (const type of ["message_start", "message_end"]) {
+      pi.on(type, (event, ctx) => {
+        const record = current;
+        if (!record) return;
+        const message = event.message;
+        if (message?.role !== "custom" || message.customType !== customMessageType) return;
+        const messageID = message.details?.message_id;
+        const admitted = record.admittedMessages.get(messageID);
+        if (!admitted || message.content !== admitted.body) {
+          stop(ctx, new Error("Pi native message event did not match its admitted delivery"));
+          return;
+        }
+        if (type === "message_start") {
+          if (admitted.started) stop(ctx, new Error("Pi repeated an admitted message start"));
+          else admitted.started = true;
+          return;
+        }
+        if (!admitted.started) {
+          stop(ctx, new Error("Pi ended an admitted message before its start"));
+          return;
+        }
+        record.admittedMessages.delete(messageID);
+      });
+    }
+
     pi.on("agent_settled", (_event, ctx) => {
       // This prefix runs in the first CLI extension before any await or global
       // settled handler. Pi has already cleared its active flag.
       settling = true;
+      if (current) current.branchSummaryBusy = false;
       if (launch.topology === "interactive") {
         return drain(ctx, "agent_settled").catch((error) => stop(ctx, error));
       }
       return laneWitness(ctx, "run.settling", {}).catch((error) => stop(ctx, error));
+    });
+
+    pi.on("session_before_tree", async (_event, ctx) => {
+      if (launch.topology !== "interactive") return;
+      const { record } = live(ctx);
+      record.branchSummaryBusy = true;
+      try {
+        const result = await hostCall(ctx, "owner.before_tree", { session_id: record.session_id });
+        exactKeys(result, ["session_id", "pending"], "owner.before_tree response");
+        if (result.session_id !== record.session_id || typeof result.pending !== "boolean") {
+          throw new Error("Pi owner.before_tree response is invalid");
+        }
+        if (!result.pending && record.admittedMessages.size === 0) return;
+        record.branchSummaryBusy = false;
+        if (ctx.hasUI) ctx.ui.notify("Sessionbus delivery is pending; branch navigation was canceled while it drains.", "warning");
+        // Returning cancel prevents the native branch summary from starting. Pi
+        // exposes idle after this handler returns, so drain on the next task.
+        scheduleDrain(record, ctx, "session_before_tree_cancelled");
+        return { cancel: true };
+      } catch (error) {
+        record.branchSummaryBusy = false;
+        stop(ctx, error);
+        return { cancel: true };
+      }
+    });
+
+    pi.on("session_tree", (_event, ctx) => {
+      if (launch.topology !== "interactive") return;
+      // Pi clears its branch-summary busy state after this event returns.
+      const { record } = live(ctx);
+      record.branchSummaryBusy = false;
+      scheduleDrain(record, ctx, "session_tree");
+    });
+
+    pi.on("session_compact", (_event, ctx) => {
+      if (launch.topology !== "interactive") return;
+      // Successful manual compaction exposes idle only after this event.
+      const { record } = live(ctx);
+      scheduleDrain(record, ctx, "session_compact");
+    });
+
+    pi.on("session_compact_failed", (_event, ctx) => {
+      if (launch.topology !== "interactive") return;
+      // Pi clears manual-compaction state before publishing this event.
+      return drain(ctx, "session_compact_failed").catch((error) => stop(ctx, error));
     });
 
     pi.on("session_shutdown", async (event, ctx) => {
@@ -428,6 +526,8 @@ export function createPiExtension({
       } catch (error) {
         stop(ctx, error);
       } finally {
+        record.branchSummaryBusy = false;
+        record.admittedMessages.clear();
         if (!record.controller.signal.aborted) {
           record.controller.abort(new BridgeClosedError("Pi native session ended"));
         }

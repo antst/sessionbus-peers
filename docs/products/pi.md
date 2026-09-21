@@ -11,6 +11,23 @@ Current integration: see [Pi/OMP design](../designs/pi-omp-0.5.0/DESIGN.md) and
 The facts and `UNVERIFIED` questions below describe the older source snapshot;
 they are preserved as historical inputs, not the current release checklist.
 
+## Mandatory-wake source boundary (2026-09-21)
+
+Pi 0.85.1 is bound to upstream `d981de1229ef899957bbe968bc8dcda02a21f477`.
+For interactive delivery, an idle `sendMessage(...,{triggerTurn:true})` owns the
+message when the synchronous `ctx.isIdle()` transition becomes false; matching
+custom `message_start` and `message_end` events confirm its identity later.
+Busy delivery enters a bounded wrapper queue and returns
+`queued_for_next_turn` immediately, then source-backed lifecycle events drain
+it without blocking the sender. Manual compaction publishes success or failure
+witnesses. Branch navigation is canceled when accepted Sessionbus work exists;
+new work is rejected while an unobservable branch summary is genuinely busy,
+and a later native idle check clears stale busy state after failure or cancel.
+The lane has no independent active append, so every inbound delivery returns
+NotRunning before native submission and daemon 0074 starts or schedules the
+managed run. See
+[the all-product boundary](../designs/mandatory-message-wake-20260921/NATIVE-BOUNDARIES.md).
+
 - Pi was pinned and exercised as version `0.84.4`; its RPC child runs on Node. [Pi 0.84.4; source: `ff81565:internal/products/pifamily/quirks.go:12-20`, `ff81565:internal/products/pifamily/quirks.go:63-70`]
 - Pi's managed process spelling uses separate argv values: `pi --extension <managed-plugin> --mode rpc ...`. [Pi 0.84.4; source: `ff81565:internal/products/pifamily/quirks.go:34-40`, `ff81565:internal/products/pifamily/quirks.go:63-69`, `ff81565:internal/products/pifamily/quirks.go:102-115`]
 - Fresh identity is supplied as `--session-id <id>` and fresh title as `--name <title>`; exact resume is `--session <resume-id>`. [Pi 0.84.4; source: `ff81565:internal/products/pifamily/quirks.go:63-69`, `ff81565:internal/products/pifamily/lane.go:119-133`]

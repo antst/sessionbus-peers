@@ -22,18 +22,26 @@ function deferred() {
   return { promise, resolve, reject };
 }
 
+function immediate() {
+  return new Promise((resolve) => setImmediate(resolve));
+}
+
 function nativeFixture(id = "native-1", mode = "rpc") {
   const handlers = new Map();
   let name = "Pi title";
   let leaf;
+  let pending;
   let idle = true;
   let aborted = 0;
   let shutdown = 0;
+  const notices = [];
   const shutdownSignal = deferred();
-  const ctx = {
+  const createContext = () => ({
     mode,
     cwd: "/project",
     isIdle: () => idle,
+    hasUI: true,
+    ui: { notify: (message, type) => notices.push({ message, type }) },
     abort: () => { aborted++; },
     shutdown: () => { shutdown++; shutdownSignal.resolve(); },
     sessionManager: {
@@ -41,7 +49,8 @@ function nativeFixture(id = "native-1", mode = "rpc") {
       getLeafId: () => leaf?.id ?? null,
       getLeafEntry: () => leaf,
     },
-  };
+  });
+  const ctx = createContext();
   const pi = {
     tool: undefined,
     registerTool(value) { this.tool = value; },
@@ -52,9 +61,17 @@ function nativeFixture(id = "native-1", mode = "rpc") {
     },
     getSessionName: () => name,
     sendMessage(message, options) {
-      assert.deepEqual(options, { triggerTurn: false });
-      leaf = { id: `entry-${id}-${leaf ? 2 : 1}`, parentId: leaf?.id ?? null, type: "custom_message", ...message };
+      assert.deepEqual(options, { triggerTurn: true });
+      pending = { role: "custom", ...message };
+      idle = false;
     },
+  };
+  const emit = async (type, event = { type }) => {
+    // Pi's real runner creates a distinct ExtensionContext for every event.
+    const eventContext = createContext();
+    let result;
+    for (const handler of handlers.get(type) ?? []) result = await handler(event, eventContext);
+    return result;
   };
   return {
     pi,
@@ -62,15 +79,22 @@ function nativeFixture(id = "native-1", mode = "rpc") {
     setID(value) { id = value; },
     setName(value) { name = value; },
     setIdle(value) { idle = value; },
+    pending: () => pending,
+    async completeMessage() {
+      assert.ok(pending);
+      const message = pending;
+      await emit("message_start", { type: "message_start", message });
+      await emit("message_end", { type: "message_end", message });
+      leaf = { id: `entry-${id}-${leaf ? 2 : 1}`, parentId: leaf?.id ?? null, type: "custom_message", ...message };
+      pending = undefined;
+      idle = true;
+    },
     leaf: () => leaf,
     aborted: () => aborted,
     shutdown: () => shutdown,
+    notices: () => notices,
     waitShutdown: () => shutdownSignal.promise,
-    async emit(type, event = { type }) {
-      let result;
-      for (const handler of handlers.get(type) ?? []) result = await handler(event, ctx);
-      return result;
-    },
+    emit,
   };
 }
 
@@ -109,6 +133,8 @@ function fakeConnection({ topology, queue = [] } = {}) {
           }
           return { session_id: params.session_id, drained };
         }
+    case "owner.before_tree":
+      return { session_id: params.session_id, pending: queue.length !== 0 };
         default:
           throw new Error(`unexpected host method ${method}`);
       }
@@ -227,10 +253,15 @@ test("interactive drains before a prompt and after a settled turn through nested
 
   await native.emit("before_agent_start", { type: "before_agent_start", prompt: "native prompt" });
   assert.equal(queue.length, 0);
+  assert.equal(native.pending().details.message_id, "before");
+  assert.equal(native.leaf(), undefined);
+  await native.completeMessage();
   assert.equal(native.leaf().details.message_id, "before");
   queue.push({ session_id: "interactive-1", message_id: "settled", body: "after turn" });
   await native.emit("agent_settled");
   assert.equal(queue.length, 0);
+  assert.equal(native.pending().details.message_id, "settled");
+  await native.completeMessage();
   assert.equal(native.leaf().details.message_id, "settled");
   assert.deepEqual(owner.calls, [
     { method: "owner.drain", params: { session_id: "interactive-1", witness: "before_agent_start" } },
@@ -249,6 +280,68 @@ test("interactive drains before a prompt and after a settled turn through nested
   assert.equal(owner.closes(), 1);
 });
 
+test("interactive wakes after manual compaction and brackets unobservable branch summaries", async () => {
+  const native = nativeFixture("interactive-compact", "tui");
+  const queue = [];
+  const owner = fakeConnection({ topology: "interactive", queue });
+  createPiExtension({ launch: launch("interactive"), connect: owner.connect })(native.pi);
+  await native.emit("session_start", { type: "session_start", reason: "startup" });
+  owner.calls.length = 0;
+
+  queue.push({ session_id: "interactive-compact", message_id: "compact-ok", body: "after compact" });
+  await native.emit("session_compact", { type: "session_compact" });
+  await immediate();
+  assert.equal(queue.length, 0);
+  assert.equal(native.pending().details.message_id, "compact-ok");
+  assert.deepEqual(await native.emit("session_before_tree", { type: "session_before_tree" }), { cancel: true });
+  await immediate();
+  await native.completeMessage();
+
+  queue.push({ session_id: "interactive-compact", message_id: "compact-failed", body: "after failure" });
+  await native.emit("session_compact_failed", { type: "session_compact_failed", reason: "manual", aborted: true });
+  assert.equal(queue.length, 0);
+  assert.equal(native.pending().details.message_id, "compact-failed");
+  await native.completeMessage();
+
+  queue.push({ session_id: "interactive-compact", message_id: "tree-cancel", body: "drain first" });
+  native.setIdle(false);
+  assert.deepEqual(await native.emit("session_before_tree", { type: "session_before_tree" }), { cancel: true });
+  native.setIdle(true);
+  await immediate();
+  assert.equal(queue.length, 0);
+  assert.equal(native.pending().details.message_id, "tree-cancel");
+  assert.equal(native.notices().length, 2);
+  await native.completeMessage();
+
+  native.setIdle(false);
+  assert.equal(await native.emit("session_before_tree", { type: "session_before_tree" }), undefined);
+  assert.deepEqual(await owner.native("native.append", {
+    session_id: "interactive-compact", message_id: "during-tree", body: "must reject",
+  }), {
+    session_id: "interactive-compact", message_id: "during-tree",
+    accepted: false, reason: "branch_summary_busy",
+  });
+
+  queue.push({ session_id: "interactive-compact", message_id: "tree-ok", body: "after tree" });
+  await native.emit("session_tree", { type: "session_tree" });
+  native.setIdle(true);
+  await immediate();
+  assert.equal(queue.length, 0);
+  assert.equal(native.pending().details.message_id, "tree-ok");
+  await native.completeMessage();
+
+  assert.deepEqual(owner.calls.map(({ method, params }) => [method, params.witness]), [
+    ["owner.drain", "session_compact"],
+    ["owner.before_tree", undefined],
+    ["owner.drain", "session_before_tree_cancelled"],
+    ["owner.drain", "session_compact_failed"],
+    ["owner.before_tree", undefined],
+    ["owner.drain", "session_before_tree_cancelled"],
+    ["owner.before_tree", undefined],
+    ["owner.drain", "session_tree"],
+  ]);
+});
+
 test("reload reuses one bridge and replaces the stale native context", async () => {
   const first = nativeFixture("old");
   const second = nativeFixture("new");
@@ -264,6 +357,34 @@ test("reload reuses one bridge and replaces the stale native context", async () 
   });
   await assert.rejects(owner.native("native.describe", { session_id: "old" }), /does not match/);
   assert.equal(owner.closes(), 0);
+});
+
+test("deferred drain accepts fresh event contexts and rejects a replaced generation", async () => {
+  const first = nativeFixture("old", "tui");
+  const second = nativeFixture("new", "tui");
+  const queue = [{ session_id: "old", message_id: "old-delivery", body: "old body" }];
+  const owner = fakeConnection({ topology: "interactive", queue });
+  const extension = createPiExtension({ launch: launch("interactive"), connect: owner.connect });
+  extension(first.pi);
+  await first.emit("session_start", { type: "session_start", reason: "startup" });
+  owner.calls.length = 0;
+
+  // This event uses a fresh context just like the real runner. Replace the
+  // owner record before its setImmediate callback runs.
+  await first.emit("session_compact", { type: "session_compact" });
+  await first.emit("session_shutdown", { type: "session_shutdown", reason: "reload" });
+  extension(second.pi);
+  await second.emit("session_start", { type: "session_start", reason: "reload" });
+  await immediate();
+  assert.equal(queue.length, 1);
+  assert.equal(owner.calls.some(({ method }) => method === "owner.drain"), false);
+
+  // The successor's own fresh event context still drains normally.
+  queue[0] = { session_id: "new", message_id: "new-delivery", body: "new body" };
+  await second.emit("session_compact", { type: "session_compact" });
+  await immediate();
+  assert.equal(queue.length, 0);
+  assert.equal(second.pending().details.message_id, "new-delivery");
 });
 
 test("mode mismatch and bridge failure fail closed", async () => {
@@ -337,6 +458,8 @@ test("actual Unix bridge supports handshake, nested drain, tool call, and joined
   await hostReady.promise;
   await native.emit("before_agent_start", { type: "before_agent_start", prompt: "wire prompt" });
   assert.equal(queue.length, 0);
+  assert.equal(native.pending().details.message_id, "wire-message");
+  await native.completeMessage();
   assert.equal(native.leaf().details.message_id, "wire-message");
   assert.deepEqual(await native.pi.tool.execute("wire-call", { action: "list", arguments: {} }, undefined, undefined, native.ctx), {
     content: [{ type: "text", text: '{"peers":[]}' }],

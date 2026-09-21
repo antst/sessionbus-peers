@@ -19,9 +19,11 @@ export function describeNative(pi, ctx) {
   return { session_id, name, cwd: ctx.cwd };
 }
 
-// Pi d981de1's idle branch appends synchronously, despite the void extension
-// API. The native leaf is the acknowledgement; extension message handlers do
-// not receive this path. Never await between the idle check and leaf proof.
+// Pi d981de1 sets _isAgentRunActive synchronously at the start of
+// _runAgentPrompt. Reading ctx.isIdle() before and after sendMessage therefore
+// distinguishes a definite pre-submission refusal from native ownership. The
+// custom message is persisted later, after its asynchronous message_end event;
+// an old session leaf is not an admission signal.
 export function appendNative(pi, ctx, delivery) {
   if (!delivery || delivery.session_id !== nativeIdentity(ctx)) {
     throw new Error("Pi delivery belongs to a different native session");
@@ -32,19 +34,14 @@ export function appendNative(pi, ctx, delivery) {
     throw new Error("invalid Pi native delivery");
   }
   if (!ctx.isIdle()) return { accepted: false, reason: "busy" };
-  const parent = ctx.sessionManager.getLeafId();
   pi.sendMessage({
     customType: customMessageType,
     content: delivery.body,
     display: true,
     details: { message_id: delivery.message_id },
-  }, { triggerTurn: false });
-  const leaf = ctx.sessionManager.getLeafEntry();
-  if (nativeIdentity(ctx) !== delivery.session_id || !leaf || leaf.type !== "custom_message" ||
-      leaf.customType !== customMessageType || leaf.details?.message_id !== delivery.message_id ||
-      leaf.content !== delivery.body || leaf.parentId !== parent || typeof leaf.id !== "string" ||
-      !leaf.id.length || leaf.id === parent) {
-    throw new Error("Pi did not confirm the native message append");
+  }, { triggerTurn: true });
+  if (ctx.isIdle()) {
+    throw new Error("Pi did not start the native message turn");
   }
-  return { accepted: true, entry_id: leaf.id };
+  return { accepted: true };
 }

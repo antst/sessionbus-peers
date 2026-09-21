@@ -29,6 +29,7 @@ type interactiveNativeFixture struct {
 	name    string
 	cwd     string
 	replies []bool
+	reasons []string
 	appends []interactiveAppendRequest
 }
 
@@ -89,9 +90,13 @@ func (f *interactiveNativeFixture) handle(_ context.Context, method string, raw 
 			accepted, f.replies = f.replies[0], f.replies[1:]
 		}
 		if accepted {
-			result = interactiveAppendResult{SessionID: f.id, MessageID: request.MessageID, Accepted: true, EntryID: "native-entry"}
+			result = interactiveAppendResult{SessionID: f.id, MessageID: request.MessageID, Accepted: true}
 		} else {
-			result = interactiveAppendResult{SessionID: f.id, MessageID: request.MessageID, Reason: "busy"}
+			reason := "busy"
+			if len(f.reasons) > 0 {
+				reason, f.reasons = f.reasons[0], f.reasons[1:]
+			}
+			result = interactiveAppendResult{SessionID: f.id, MessageID: request.MessageID, Reason: reason}
 		}
 	default:
 		return nil, pifamily.NewBridgeCallError("method_not_found", "unexpected native method")
@@ -835,6 +840,103 @@ func TestInteractiveOwnerPreservesFIFOAcrossBusyAndIdleDeliveries(t *testing.T) 
 	want, err := host.RenderNativeMessage(kit.DeliveryRequest{MessageID: "delivery-idle", From: delivery.From, Body: "idle body"})
 	if err != nil || appends[3].Body != want {
 		t.Fatalf("rendered append = %q, want %q, err=%v", appends[3].Body, want, err)
+	}
+}
+
+func TestInteractiveOwnerRejectsUnobservableBranchSummaryBeforeRetention(t *testing.T) {
+	listener := interactiveBusListener(t)
+	nativeState := &interactiveNativeFixture{replies: []bool{false, true}, reasons: []string{"branch_summary_busy"}}
+	owner, native := interactiveOwnerPair(t, listener.Addr().String(), t.TempDir(), "", []string{"team"}, nativeState)
+	nativeState.set("native-one", "native title", "/work")
+	_, bus, scanner := interactiveReady(t, native, listener, interactiveReadyRequest{interactiveTopology, owner.directory, "native-one", "native title"})
+	var before struct {
+		SessionID string `json:"session_id"`
+		Pending   bool   `json:"pending"`
+	}
+	if err := native.Call(context.Background(), "owner.before_tree", interactiveBeforeTreeRequest{"native-one"}, &before); err != nil || before.Pending {
+		t.Fatalf("before tree = %+v, %v", before, err)
+	}
+
+	delivery := kit.DeliveryRequest{MessageID: "branch-busy", From: kit.DeliverySource{SessionID: "sender", Product: "fixture", Groups: []string{}}, Body: "do not retain"}
+	body, err := protocol.RequestBytes(1, "message.deliver", delivery)
+	if err != nil {
+		t.Fatal(err)
+	}
+	interactiveWrite(t, bus, body)
+	frame := interactiveFrame(t, scanner)
+	var receipt kit.DeliveryReceipt
+	if frame.Request || protocol.UnmarshalResult("message.deliver", frame.Result, &receipt) != nil ||
+		receipt.Disposition != "rejected" || receipt.Reason != "native_branch_summary_busy" {
+		t.Fatalf("branch receipt = %+v frame=%+v", receipt, frame)
+	}
+	owner.mu.Lock()
+	queued := len(owner.queue)
+	owner.mu.Unlock()
+	if queued != 0 {
+		t.Fatalf("branch delivery retained %d entries", queued)
+	}
+
+	delivery.MessageID, delivery.Body = "after-branch", "wake now"
+	body, _ = protocol.RequestBytes(2, "message.deliver", delivery)
+	interactiveWrite(t, bus, body)
+	frame = interactiveFrame(t, scanner)
+	if frame.Request || protocol.UnmarshalResult("message.deliver", frame.Result, &receipt) != nil || receipt.Disposition != "written" {
+		t.Fatalf("recovered receipt = %+v frame=%+v", receipt, frame)
+	}
+}
+
+func TestInteractiveOwnerCancelsTreeBeforeRetainedWorkAndGatesFastPath(t *testing.T) {
+	listener := interactiveBusListener(t)
+	nativeState := &interactiveNativeFixture{replies: []bool{false, true, true}}
+	owner, native := interactiveOwnerPair(t, listener.Addr().String(), t.TempDir(), "", []string{"team"}, nativeState)
+	nativeState.set("native-one", "native title", "/work")
+	_, bus, scanner := interactiveReady(t, native, listener, interactiveReadyRequest{interactiveTopology, owner.directory, "native-one", "native title"})
+
+	send := func(id int, messageID string) kit.DeliveryReceipt {
+		t.Helper()
+		delivery := kit.DeliveryRequest{MessageID: messageID, From: kit.DeliverySource{SessionID: "sender", Product: "fixture", Groups: []string{}}, Body: messageID}
+		body, err := protocol.RequestBytes(int64(id), "message.deliver", delivery)
+		if err != nil {
+			t.Fatal(err)
+		}
+		interactiveWrite(t, bus, body)
+		frame := interactiveFrame(t, scanner)
+		var receipt kit.DeliveryReceipt
+		if frame.Request || protocol.UnmarshalResult("message.deliver", frame.Result, &receipt) != nil {
+			t.Fatalf("delivery frame = %+v", frame)
+		}
+		return receipt
+	}
+
+	if receipt := send(1, "retained-before-tree"); receipt.Disposition != "queued_for_next_turn" {
+		t.Fatalf("retained receipt = %+v", receipt)
+	}
+	var before struct {
+		SessionID string `json:"session_id"`
+		Pending   bool   `json:"pending"`
+	}
+	if err := native.Call(context.Background(), "owner.before_tree", interactiveBeforeTreeRequest{"native-one"}, &before); err != nil || !before.Pending {
+		t.Fatalf("before tree = %+v, %v", before, err)
+	}
+	if receipt := send(2, "during-cancel-boundary"); receipt.Disposition != "rejected" || receipt.Reason != "native_branch_summary_busy" {
+		t.Fatalf("tree-busy receipt = %+v", receipt)
+	}
+	var drained struct {
+		SessionID string `json:"session_id"`
+		Drained   int    `json:"drained"`
+	}
+	if err := native.Call(context.Background(), "owner.drain", interactiveDrainRequest{"native-one", "session_before_tree_cancelled"}, &drained); err != nil || drained.Drained != 1 {
+		t.Fatalf("cancel drain = %+v, %v", drained, err)
+	}
+	if receipt := send(3, "after-cancel-drain"); receipt.Disposition != "written" {
+		t.Fatalf("recovered receipt = %+v", receipt)
+	}
+	nativeState.mu.Lock()
+	appends := append([]interactiveAppendRequest(nil), nativeState.appends...)
+	nativeState.mu.Unlock()
+	if len(appends) != 3 || appends[0].MessageID != "retained-before-tree" ||
+		appends[1].MessageID != "retained-before-tree" || appends[2].MessageID != "after-cancel-drain" {
+		t.Fatalf("native appends = %+v", appends)
 	}
 }
 

@@ -112,7 +112,7 @@ func TestPiOwnedInterruptJoinsAbortAndNativeTerminal(t *testing.T) {
 }
 
 func TestPiSDKInterruptCancelsHeldNativeAdmission(t *testing.T) {
-	t.Run("staged execute", func(t *testing.T) {
+	t.Run("execute", func(t *testing.T) {
 		testPiSDKInterruptCancelsHeldNativeAdmission(t, false, false)
 	})
 	t.Run("delivery seed", func(t *testing.T) {
@@ -165,15 +165,6 @@ func testPiSDKInterruptCancelsHeldNativeAdmission(t *testing.T, deliverySeed, ho
 	worker := sessionkit.NewWorker(callbacks)
 	wrapper.SetCaller(worker.Caller())
 	wrapper.SetShutdown(worker.Shutdown)
-	if !deliverySeed {
-		receipt, err := wrapper.Deliver(context.Background(), sessionkit.DeliveryRequest{
-			MessageID: "staged-before-interrupt", Body: "queued exactly once",
-			From: sessionkit.DeliverySource{SessionID: "sender@local", Product: "fixture"},
-		}, nil)
-		if err != nil || receipt.Disposition != "queued_for_next_turn" {
-			t.Fatalf("staged receipt = %+v, %v", receipt, err)
-		}
-	}
 	served := make(chan error, 1)
 	go func() { served <- worker.Serve(context.Background()) }()
 	connection, err := listener.Accept()
