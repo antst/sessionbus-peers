@@ -15,6 +15,7 @@ func TestBootstrapReleaseSelection(t *testing.T) {
 		for _, tc := range []struct{ name, version, mirror, base, status string }{
 			{"default", "", "", "https://github.com/antst/sessionbus-peers/releases/download/v0.5.0", "200"},
 			{"latest", "latest", "", "https://github.com/antst/sessionbus-peers/releases/download/v0.5.0", "200"},
+			{"new latest release", "", "", "https://github.com/antst/sessionbus-peers/releases/download/v12.34.56", "newrelease"},
 			{"default prerelease", "", "", "https://github.com/antst/sessionbus-peers/releases/download/development", "none"},
 			{"latest prerelease", "latest", "", "https://github.com/antst/sessionbus-peers/releases/download/development", "none"},
 			{"release page unavailable", "", "", "https://github.com/antst/sessionbus-peers/releases/download/v0.5.0", "page504"},
@@ -46,6 +47,7 @@ for arg do
   done
   case "$INSTALL_TEST_HTTP_STATUS" in
    200|page504) printf '302 https://github.com/antst/sessionbus-peers/releases/tag/v0.5.0';;
+   newrelease) printf '302 https://github.com/antst/sessionbus-peers/releases/tag/v12.34.56';;
    none) printf '302 https://github.com/antst/sessionbus-peers/releases';;
    foreign) printf '302 https://example.com/releases/tag/v0.5.0';;
    prerelease) printf '302 https://github.com/antst/sessionbus-peers/releases/tag/v0.5.1-rc.1';;
