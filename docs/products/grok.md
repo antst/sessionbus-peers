@@ -29,6 +29,24 @@ product-created continuation remains in the original shared Run until its
 matched native completion, with bounded aggregate output. No wrapper database,
 result journal or restart recovery exists.
 
+Native Grok derives the queue notification's `runningText` display from the
+single submitted text block with Rust `str::trim`; it does not echo the raw
+wire text byte-for-byte at the edges. The wrapper therefore correlates that
+display with Go `strings.TrimSpace` while preserving the original submitted
+payload. Session identity, prompt kind, replay exclusion, prompt ID, terminal
+identity and all internal whitespace remain exact. The same rule applies when
+a stranded interjection becomes a continuation prompt.
+
+The installed `GWK921A` setup input was 91 bytes with one trailing newline;
+its first managed run returned unavailable with `Grok terminal lacks matching
+native admission` before any inbound send. That packet does not contain the raw
+native stream, so it establishes the wrapper failure and exact input rather
+than the missing frame itself. The public 1.0.32/1.0.35 source bracket and a
+faithful ACP regression establish the trimmed-display mismatch and correction.
+Evidence: `/home/antst/sessionbus-evidence/grok-message-wake-installed-dev1-20260921/cells-gwk921a/grok-lane-idle-gwk921a`,
+`SHA256SUMS` SHA-256
+`29a47dfad2a2cb9ff8044378e0530f9fec1734539d478d59d9b0542a18f142d0`.
+
 Installed evidence scope and remaining limits are mapped in [acceptance](../designs/grok-0.5.0/ACCEPTANCE.md). The retained earlier isolated-home/daemon experiments are historical evidence, not the current installation or acceptance recipe. Current changes do not require repeating already sealed native discoveries.
 
 ## Current managed grant source boundary (2026-09-19)

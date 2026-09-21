@@ -872,7 +872,7 @@ func (p *Wrapper) receiveQueue(frame acpFrame) {
 	if t == nil || !t.attempted || q.SessionID != t.sessionID {
 		return
 	}
-	if t.nativeID == "" && q.Text == t.promptText {
+	if t.nativeID == "" && nativeRunningTextMatches(t.promptText, q.Text) {
 		t.nativeID = q.PromptID
 		t.segments = append(t.segments, &nativeSegment{id: q.PromptID})
 		close(t.admitted)
@@ -880,7 +880,7 @@ func (p *Wrapper) receiveQueue(frame acpFrame) {
 		return
 	}
 	d := t.delivery
-	if d != nil && d.attempted && d.acked && !d.classified && q.Text == d.text && !t.hasSegment(q.PromptID) {
+	if d != nil && d.attempted && d.acked && !d.classified && nativeRunningTextMatches(d.text, q.Text) && !t.hasSegment(q.PromptID) {
 		if len(t.segments) >= maxACPPending {
 			t.failure = errors.New("Grok continuation capacity exceeded")
 			overflow = t.failure
@@ -893,6 +893,14 @@ func (p *Wrapper) receiveQueue(frame acpFrame) {
 	}
 
 }
+
+// Grok projects the one submitted text block into queue runningText by applying
+// Rust str::trim. Keep the wire payload untouched and match that exact display
+// projection; internal whitespace and every other admission key remain strict.
+func nativeRunningTextMatches(submitted, running string) bool {
+	return running == strings.TrimSpace(submitted)
+}
+
 func (t *nativePrompt) admission(ctx context.Context) error {
 	t.owner.mu.Lock()
 	observer := t.owner.primary
