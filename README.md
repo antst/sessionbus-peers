@@ -113,7 +113,7 @@ without starting its native product:
 
 ```text
 claude-peer --version
-claude-peer v0.5.2 (<revision>)
+claude-peer v0.5.3 (<revision>)
 ```
 
 `--version` works for all eight commands. The native short version flag is
