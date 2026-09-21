@@ -103,105 +103,6 @@ func TestKiloExplicitLaneBypassUsesNativeSessionPolicy(t *testing.T) {
 	}
 }
 
-func TestKiloActiveStageDoesNotWriteUntilNextOwnedRun(t *testing.T) {
-	f := newKiloWorkerFixture(t)
-	f.start(t, 1, "hold")
-	if _, err := f.p.client.call(f.ctx, "GET", "/fixture/started", nil, 200); err != nil {
-		t.Fatal(err)
-	}
-	var receipt kit.DeliveryReceipt
-	f.call(t, "message.deliver", fixtureDelivery(), &receipt)
-	if receipt.Disposition != "queued_for_next_turn" {
-		t.Fatal(receipt)
-	}
-	raw, err := f.p.client.call(f.ctx, "GET", "/fixture/state", nil, 200)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var state struct {
-		Messages []withParts
-		Aborts   int
-	}
-	if json.Unmarshal(raw, &state) != nil || len(state.Messages) != 1 || strings.Contains(string(raw), "marker") {
-		t.Fatalf("active stage changed native input: %s", raw)
-	}
-	f.call(t, "turn.interrupt", map[string]any{"session_id": "ses_native@local"}, nil)
-	result := f.wait(t, 1)
-	if result.Result == nil || result.Result.Outcome != "interrupted" {
-		t.Fatalf("interrupt=%+v", result)
-	}
-	f.start(t, 2, "healthy")
-	next := f.wait(t, 2)
-	if next.Result == nil || next.Result.Outcome != "completed" || strings.Count(next.Result.Result, "marker") != 1 || !strings.Contains(next.Result.Result, "healthy") {
-		t.Fatalf("next Run lost/duplicated staged input: %+v", next)
-	}
-	f.start(t, 3, "last")
-	if next := f.wait(t, 3); next.Result == nil || next.Result.Result != "answer:last" {
-		t.Fatalf("stage replayed: %+v", next)
-	}
-	raw, err = f.p.client.call(f.ctx, "GET", "/fixture/state", nil, 200)
-	if err != nil || json.Unmarshal(raw, &state) != nil || state.Aborts != 1 {
-		t.Fatalf("abort ownership=%s/%v", raw, err)
-	}
-	closeKiloFixture(t, f)
-}
-
-func TestKiloIdleStageSeedWrittenAndRepeatedCollection(t *testing.T) {
-	f := newKiloWorkerFixture(t)
-	d := fixtureDelivery()
-	d.Body = "idle-staged"
-	var receipt kit.DeliveryReceipt
-	f.call(t, "message.deliver", d, &receipt)
-	if receipt.Disposition != "queued_for_next_turn" {
-		t.Fatal(receipt)
-	}
-	d.Body, d.MessageID, d.RunID = "seeded", "seed", "g/1"
-	f.call(t, "message.deliver", d, &receipt)
-	if receipt.Disposition != "written" {
-		t.Fatal(receipt)
-	}
-	r := f.wait(t, 1)
-	if r.Result == nil || r.Result.Outcome != "completed" || strings.Count(r.Result.Result, "idle-staged") != 1 || strings.Count(r.Result.Result, "seeded") != 1 {
-		t.Fatalf("seed=%+v", r)
-	}
-	var status kit.RunStatus
-	f.call(t, "turn.status", kit.ReadRequest{SessionID: "ses_native@local", RunID: "g/1"}, &status)
-	if status.Result == nil || status.Result.Result != r.Result.Result {
-		t.Fatal("collection consumed output")
-	}
-	f.call(t, "turn.ack", kit.RunRef{SessionID: "ses_native@local", RunID: "g/1"}, nil)
-	f.start(t, 2, "next")
-	if r := f.wait(t, 2); r.Result == nil || r.Result.Result != "answer:next" {
-		t.Fatalf("seed replayed=%+v", r)
-	}
-	closeKiloFixture(t, f)
-}
-
-func TestKiloRejectedMessageIDPreservesStageBeforeSubmission(t *testing.T) {
-	f := newKiloWorkerFixture(t)
-	var receipt kit.DeliveryReceipt
-	f.call(t, "message.deliver", fixtureDelivery(), &receipt)
-	if receipt.Disposition != "queued_for_next_turn" {
-		t.Fatal(receipt)
-	}
-	f.p.messageIDs = messageIDs{now: func() int64 { return 99 }, lastTime: 100, lastPrefix: 100*4096 + 1, counter: 1, initialized: true}
-	f.start(t, 1, "rejected")
-	if r := f.wait(t, 1); r.Result != nil {
-		t.Fatalf("clock rollback reached native: %+v", r)
-	}
-	raw, err := f.p.client.call(f.ctx, "GET", "/fixture/state", nil, 200)
-	var state struct{ Messages []withParts }
-	if err != nil || json.Unmarshal(raw, &state) != nil || len(state.Messages) != 0 {
-		t.Fatalf("preflight submitted: %s/%v", raw, err)
-	}
-	f.p.messageIDs.now = func() int64 { return 101 }
-	f.start(t, 2, "accepted")
-	if r := f.wait(t, 2); r.Result == nil || strings.Count(r.Result.Result, "marker") != 1 {
-		t.Fatalf("stage lost: %+v", r)
-	}
-	closeKiloFixture(t, f)
-}
-
 func TestKiloNativeUnknownAndInterruptedIntermediateTerminals(t *testing.T) {
 	for _, tc := range []struct{ input, outcome, reason string }{
 		{"hold-terminal-unknown", "completed", "unknown"},
@@ -362,31 +263,6 @@ func TestKiloUnexpectedEventLossRetiresAndJoinsNativeRun(t *testing.T) {
 	}
 }
 
-func TestKiloStageEncodedBoundAndOversizedRunPreserveAcceptedPrefix(t *testing.T) {
-	f := newKiloWorkerFixture(t)
-	d := fixtureDelivery()
-	d.Body = strings.Repeat("<", 100000)
-	var receipt kit.DeliveryReceipt
-	f.call(t, "message.deliver", d, &receipt)
-	if receipt.Disposition != "queued_for_next_turn" {
-		t.Fatal(receipt)
-	}
-	d.MessageID = "second"
-	f.call(t, "message.deliver", d, &receipt)
-	if receipt.Disposition != "rejected" {
-		t.Fatalf("irreversibly oversized stage accepted: %+v", receipt)
-	}
-	f.start(t, 1, strings.Repeat("<", 100000))
-	if r := f.wait(t, 1); r.Result != nil {
-		t.Fatalf("oversized combined request submitted: %+v", r)
-	}
-	f.start(t, 2, "x")
-	if r := f.wait(t, 2); r.Result == nil || r.Result.Outcome != "completed" || strings.Count(r.Result.Result, d.Body) != 1 {
-		t.Fatal("accepted prefix lost or replayed")
-	}
-	closeKiloFixture(t, f)
-}
-
 func TestKiloResumeAndRequestedForgetRemainNativeOperations(t *testing.T) {
 	for _, forget := range []bool{false, true} {
 		t.Run(map[bool]string{false: "preserve history", true: "forget while live"}[forget], func(t *testing.T) {
@@ -418,4 +294,34 @@ func TestKiloResumeAndRequestedForgetRemainNativeOperations(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestKiloLaneDeliveryDefersBeforeNativeSubmission(t *testing.T) {
+	f := newKiloWorkerFixture(t)
+	f.start(t, 1, "hold")
+	if _, err := f.p.client.call(f.ctx, "GET", "/fixture/started", nil, 200); err != nil {
+		t.Fatal(err)
+	}
+	receipt, err := f.p.Deliver(context.Background(), fixtureDelivery(), nil)
+	var protocolError *kit.ProtocolError
+	if !errors.As(err, &protocolError) || protocolError.Code != -32004 || receipt.Disposition != "" {
+		t.Fatalf("delivery = %+v, %v", receipt, err)
+	}
+	raw, err := f.p.client.call(f.ctx, "GET", "/fixture/state", nil, 200)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var state struct{ Messages []withParts }
+	if json.Unmarshal(raw, &state) != nil || len(state.Messages) != 1 || strings.Contains(string(raw), "marker") {
+		t.Fatalf("deferred delivery changed native input: %s", raw)
+	}
+	f.call(t, "turn.interrupt", map[string]any{"session_id": "ses_native@local"}, nil)
+	if result := f.wait(t, 1); result.Result == nil || result.Result.Outcome != "interrupted" {
+		t.Fatalf("interrupt = %+v", result)
+	}
+	f.start(t, 2, "healthy")
+	if result := f.wait(t, 2); result.Result == nil || result.Result.Result != "answer:healthy" {
+		t.Fatalf("deferred input leaked into later run: %+v", result)
+	}
+	closeKiloFixture(t, f)
 }

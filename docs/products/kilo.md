@@ -6,6 +6,14 @@
 > commit recorded by the split archive manifest. Host evidence paths are
 > immutable external artifacts, not repository paths.
 
+> Mandatory-wake source update (2026-09-21): no source-proven Kilo active
+> append exists, so every lane delivery returns NotRunning before native
+> submission and daemon 0074 starts or schedules a normal managed Run. The
+> interactive plugin keeps its bounded FIFO, answers active retention
+> immediately, and submits through the native TUI prompt controller at the next
+> idle witness. See
+> [the all-product boundary](../designs/mandatory-message-wake-20260921/NATIVE-BOUNDARIES.md).
+
 ## Current source candidate
 
 The current source candidate targets native 7.6.2 and uses the shared Go/native

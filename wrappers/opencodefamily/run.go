@@ -325,7 +325,7 @@ func (p *Wrapper) Interrupt(ctx context.Context, run *kit.Run) error {
 		return ctx.Err()
 	}
 }
-func (p *Wrapper) Deliver(ctx context.Context, request kit.DeliveryRequest, run *kit.Run) (kit.DeliveryReceipt, error) {
+func (p *Wrapper) Deliver(ctx context.Context, request kit.DeliveryRequest, _ *kit.Run) (kit.DeliveryReceipt, error) {
 	text, err := host.RenderNativeMessage(request)
 	if err != nil {
 		return kit.DeliveryReceipt{}, err
@@ -333,107 +333,13 @@ func (p *Wrapper) Deliver(ctx context.Context, request kit.DeliveryRequest, run 
 	if len(text) > maxNativeRequest {
 		return kit.DeliveryReceipt{Disposition: "rejected", Reason: "message_too_large"}, nil
 	}
-	if run != nil {
-		select {
-		case <-run.AdmittedDone():
-		case <-run.Done():
-		case <-ctx.Done():
-			return kit.DeliveryReceipt{}, ctx.Err()
-		}
-	}
-	p.mu.Lock()
-	if !p.opened || p.closing || p.ctx.Err() != nil {
-		p.mu.Unlock()
-		return kit.DeliveryReceipt{}, p.kind.err("lane unavailable")
-	}
 	if ctx.Err() != nil {
-		p.mu.Unlock()
 		return kit.DeliveryReceipt{}, ctx.Err()
 	}
-	t := p.active
-	if p.kind == kiloNative || t == nil || t.run != run || !t.accepting {
-		if len(p.staged) >= 256 || p.stagedBytes+len(text) > maxNativeRequest {
-			p.mu.Unlock()
-			return kit.DeliveryReceipt{Disposition: "rejected", Reason: "stage_full"}, nil
-		}
-		// A queued prefix must leave room for at least one minimal explicit
-		// input. Account for JSON escaping, separators and configured fields.
-		// This placeholder has the exact product message-ID size; it is never
-		// submitted as native identity.
-		prospective := append(append([]string{}, p.staged...), text, "x")
-		if _, err := encodeNativeFor(p.kind, p.promptBody(p.stagedMessageID(), strings.Join(prospective, "\n"), false)); err != nil {
-			p.mu.Unlock()
-			return kit.DeliveryReceipt{Disposition: "rejected", Reason: "stage_full"}, nil
-		}
-		p.staged = append(p.staged, text)
-		p.stagedBytes += len(text)
-		p.mu.Unlock()
-		return kit.DeliveryReceipt{Disposition: "queued_for_next_turn"}, nil
-	}
-	if t.count >= 256 {
-		p.mu.Unlock()
-		return kit.DeliveryReceipt{Disposition: "rejected", Reason: "run_input_limit"}, nil
-	}
-	id, err := p.nextMessageID()
-	if err != nil {
-		p.mu.Unlock()
-		return kit.DeliveryReceipt{}, err
-	}
-	b, err := encodeNativeFor(p.kind, p.promptBody(id, text, true))
-	if err != nil {
-		p.mu.Unlock()
-		return kit.DeliveryReceipt{Disposition: "rejected", Reason: "message_too_large"}, nil
-	}
-	life, cancel := context.WithCancel(p.ctx)
-	stop := context.AfterFunc(ctx, cancel)
-	r, err := p.client.prepare(life, "POST", sessionPath(p.id)+"/message", b)
-	if err != nil {
-		p.mu.Unlock()
-		stop()
-		cancel()
-		return kit.DeliveryReceipt{}, err
-	}
-	t.deliveries.Add(1)
-	op, err := p.client.begin(r, 200)
-	if err != nil {
-		t.deliveries.Done()
-		p.mu.Unlock()
-		stop()
-		cancel()
-		return kit.DeliveryReceipt{Disposition: "rejected", Reason: "native_capacity"}, nil
-	}
-	t.count++
-	p.mu.Unlock()
-	defer t.deliveries.Done()
-	defer stop()
-	defer cancel()
-	raw, err := op.wait()
-	if err != nil {
-		p.fail(err)
-		return kit.DeliveryReceipt{}, err
-	}
-	m, err := decodeParts(raw, p.id)
-	if err == nil && (m.Info.Role != "user" || m.Info.ID != id) {
-		err = errors.New("native delivery returned different user")
-	}
-	var saved strings.Builder
-	if err == nil {
-		for _, part := range m.Parts {
-			var v struct{ Type, Text string }
-			_ = json.Unmarshal(part, &v)
-			if v.Type == "text" {
-				saved.WriteString(v.Text)
-			}
-		}
-		if saved.String() != text {
-			err = errors.New("native saved delivery content differs")
-		}
-	}
-	if err != nil {
-		p.fail(err)
-		return kit.DeliveryReceipt{}, err
-	}
-	return kit.DeliveryReceipt{Disposition: "written"}, nil
+	// OpenCode's noReply route persists history without entering the native
+	// loop, and Kilo has no active append route. Refuse before either native
+	// write; the daemon retains the original delivery and wakes a fresh run.
+	return kit.DeliveryReceipt{}, host.NotRunning()
 }
 func (p *Wrapper) observe(raw []byte) error {
 	var e struct {
