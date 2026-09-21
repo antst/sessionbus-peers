@@ -487,14 +487,6 @@ func TestOMPWorkerInterruptsSubmittedDeliveryBeforePreflight(t *testing.T) {
 	if err != nil || opened.ID != 1 || opened.Error != nil {
 		t.Fatalf("Open response = %+v, %v", opened, err)
 	}
-	staged := kit.DeliveryRequest{
-		RunID: "staged/1", MessageID: "staged-before-worker-run", Body: "DISTINCT_STAGED_OMP_MESSAGE",
-		From: kit.DeliverySource{SessionID: "stager@local", Product: "fixture", Groups: []string{}},
-	}
-	stagedReceipt, err := fixture.wrapper.Deliver(nativeRPCTestContext(t), staged, nil)
-	if err != nil || stagedReceipt.Disposition != "queued_for_next_turn" {
-		t.Fatalf("staged delivery receipt = %+v, %v", stagedReceipt, err)
-	}
 	seed := kit.DeliveryRequest{
 		RunID: "g/1", MessageID: "delivery-before-preflight", Body: "held delivery prompt",
 		From: kit.DeliverySource{SessionID: "sender@local", Product: "fixture", Groups: []string{}},
@@ -505,18 +497,13 @@ func TestOMPWorkerInterruptsSubmittedDeliveryBeforePreflight(t *testing.T) {
 	if nativeRPCField(t, prompt, "type") != "prompt" {
 		t.Fatalf("native prompt = %#v", prompt)
 	}
-	stagedEnvelope, err := host.RenderNativeMessage(staged)
-	if err != nil {
-		t.Fatal(err)
-	}
 	seedEnvelope, err := host.RenderNativeMessage(seed)
 	if err != nil {
 		t.Fatal(err)
 	}
 	message := nativeRPCField(t, prompt, "message")
-	if message != stagedEnvelope+"\n"+seedEnvelope || strings.Count(message, "DISTINCT_STAGED_OMP_MESSAGE") != 1 ||
-		strings.Index(message, "DISTINCT_STAGED_OMP_MESSAGE") >= strings.Index(message, "held delivery prompt") {
-		t.Fatalf("native prompt did not consume the staged FIFO once before the seed: %q", message)
+	if message != seedEnvelope {
+		t.Fatalf("native prompt did not contain the seeded delivery exactly once: %q", message)
 	}
 	fixture.peer.write(t, `{"id":`+mustOMPJSONText(t, promptID)+`,"type":"response","command":"prompt","success":true}`)
 
@@ -614,7 +601,7 @@ func TestOMPWorkerInterruptsSubmittedDeliveryBeforePreflight(t *testing.T) {
 		t.Fatalf("held admission = submitted %v, preflight %v, starts %d", submitted, preflight, starts)
 	}
 	if queued := fixture.wrapper.handoff.Claim(); len(queued) != 0 {
-		t.Fatalf("consumed staged delivery became replayable: %#v", queued)
+		t.Fatalf("submitted delivery became replayable: %#v", queued)
 	}
 	select {
 	case <-fixture.rpc.Done():

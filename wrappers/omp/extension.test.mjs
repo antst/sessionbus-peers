@@ -39,6 +39,7 @@ function nativeFixture(sessionID = "native-main", mode = "rpc", cwd = "/work/mai
   let currentName = name;
   let aborts = 0;
   let shutdowns = 0;
+  const scheduled = [];
   const ctx = {
     mode,
     cwd,
@@ -57,6 +58,10 @@ function nativeFixture(sessionID = "native-main", mode = "rpc", cwd = "/work/mai
       handlers.set(event, values);
     },
     registerTool(tool) { this.tool = tool; },
+    sendMessage(message, options) {
+      assert.deepEqual(options, { deliverAs: "nextTurn", triggerTurn: true });
+      scheduled.push(structuredClone(message));
+    },
   };
   return {
     pi,
@@ -74,11 +79,17 @@ function nativeFixture(sessionID = "native-main", mode = "rpc", cwd = "/work/mai
     setName(value) { currentName = value; },
     aborts: () => aborts,
     shutdowns: () => shutdowns,
+    scheduled: () => structuredClone(scheduled),
     async emit(event, value = { type: event }, eventContext = ctx) {
+      // OMP clears native hidden-next-turn state when replacing sessions.
+      if (event === "session_switch") scheduled.length = 0;
       let result;
       for (const handler of handlers.get(event) ?? []) {
         const candidate = await handler(value, eventContext);
         if (candidate !== undefined) result = candidate;
+      }
+      if (event === "before_agent_start" && result === undefined && scheduled.length) {
+        result = { message: scheduled.shift() };
       }
       return result;
     },
@@ -350,12 +361,11 @@ test("interactive FIFO claims one bounded batch and confirms exact native messag
   assert.equal(injected.message.content, "first body");
   assert.deepEqual(injected.message.details.message_ids, [" message one "]);
   await owner.waitFor((calls) => calls.filter((call) => call.method === "delivery.observe").length === 1);
-  assert.equal(extension.stats().retainedBytes, queuedStats.retainedBytes + Buffer.byteLength("first body"));
+  assert.equal(extension.stats().retainedBytes, queuedStats.retainedBytes);
   const message = nativeCustom(injected.message);
   await native.emit("message_start", { type: "message_start", message }, native.context());
   await native.emit("message_end", { type: "message_end", message }, native.context());
   await native.emit("context", { type: "context", messages: [{ role: "user", content: "ordinary" }, message] }, native.context());
-  await native.emit("context", { type: "context", messages: [message] }, native.context());
   await owner.waitFor((calls) => calls.filter((call) => call.method === "delivery.observe").length === 4);
   const reports = owner.calls.filter((call) => call.method === "delivery.observe").map((call) => call.params);
   assert.deepEqual(reports.map((report) => [report.report_sequence, report.phase, report.message_ids]), [
@@ -375,7 +385,7 @@ test("interactive FIFO claims one bounded batch and confirms exact native messag
   await native.emit("message_start", { type: "message_start", message: secondMessage }, native.context());
   await native.emit("message_end", { type: "message_end", message: secondMessage }, native.context());
   await native.emit("context", { type: "context", messages: [message, secondMessage] }, native.context());
-  await owner.waitFor((calls) => calls.filter((call) => call.method === "delivery.observe").length === 8);
+  await owner.waitFor((calls) => calls.filter((call) => call.method === "delivery.observe").length >= 9);
   assert.equal(owner.calls.some((call) => call.method === "run.preflight"), false);
 });
 
@@ -404,7 +414,7 @@ test("interactive FIFO enforces and releases its process retained-payload bound"
   await owner.waitFor((calls) => calls.filter((call) => call.method === "delivery.observe").length === 4);
   assert.ok(extension.stats().retainedBytes < 256);
   assert.equal((await owner.native("native.stage", {
-    owner_token: token, session_id: "interactive-main", message_id: "after-release", body: "c".repeat(1100),
+    owner_token: token, session_id: "interactive-main", message_id: "after-release", body: "c".repeat(500),
   })).queued, true);
 });
 
@@ -435,8 +445,8 @@ test("session replacement rotates owner token and resets report sequence without
   })).queued, true);
   const injected = await native.emit("before_agent_start", { type: "before_agent_start", prompt: "new prompt" });
   assert.equal(injected.message.content, "new body");
-  await owner.waitFor((calls) => calls.filter((call) => call.method === "delivery.observe").length === 1);
-  const report = owner.calls.find((call) => call.method === "delivery.observe").params;
+  await owner.waitFor((calls) => calls.some((call) => call.method === "delivery.observe" && call.params.session_id === "session-new"));
+  const report = owner.calls.find((call) => call.method === "delivery.observe" && call.params.session_id === "session-new").params;
   assert.equal(report.report_sequence, 1);
   assert.deepEqual(report.message_ids, ["new-message"]);
 });

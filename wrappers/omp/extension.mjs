@@ -37,6 +37,8 @@ run/start/status/wait/ack/interrupt/close/forget to
 own a lane through its full lifecycle. Arguments must have the exact public
 shape for the selected action. A successful send confirms only the recipient's
 published delivery disposition; queued_for_next_turn is not model consumption.
+A lane queued_for_next_turn receipt means the daemon retained the definitely
+unsubmitted message in bounded memory and scheduled its next managed run.
 A completion pointer is an ordinary peer message, not the lane result. Tracing
 defaults off; events copies message and settled-delivery metadata, content also
 includes message bodies, and neither mode includes history or lane lifecycle.
@@ -147,7 +149,6 @@ function argumentSchema() {
   }
   for (const field of ["persistent", "notify", "forget"]) properties[field] = { type: "boolean" };
   for (const field of ["auto_close_ms", "timeout_ms"]) properties[field] = { type: "integer" };
-  properties.idle_message = { type: "string", enum: ["stage", "run"] };
   properties.trace = { type: "string", enum: ["off", "events", "content"] };
   properties.mode = { type: "string", enum: ["off", "events", "content"] };
   const open = {};
@@ -363,11 +364,13 @@ export function createOMPExtension({ launch, connect = connectBridge, createToke
         }
         const entry = { messageID: id, body };
         const bytes = deliveryEntryBytes(entry);
-        if (state.queued.length >= limit.queuedDeliveries || !reserve(bytes)) {
+        const retainedDeliveries = state.queued.length + (state.active?.entries.length ?? 0);
+        if (retainedDeliveries >= limit.queuedDeliveries || !reserve(bytes)) {
           return { owner_token: state.ownerToken, session_id: state.sessionID, message_id: id, queued: false, reason: "queue_full" };
         }
         state.queued.push(entry);
         state.deliveryBytes += bytes;
+        scheduleDeliveryTurn(state.factory, state);
         return { owner_token: state.ownerToken, session_id: state.sessionID, message_id: id, queued: true };
       }
       case "native.shutdown": {
@@ -666,6 +669,12 @@ export function createOMPExtension({ launch, connect = connectBridge, createToke
     return customDeliveryMessage(state, batch);
   }
 
+  function scheduleDeliveryTurn(factory, state) {
+    if (state.active || state.queued.length === 0) return;
+    const message = claimDelivery(factory, state);
+    state.pi.sendMessage(message, { deliverAs: "nextTurn", triggerTurn: true });
+  }
+
   function observeMessage(factory, ctx, message, phase) {
     const state = localState(factory, ctx);
     if (!state.active) return;
@@ -699,6 +708,7 @@ export function createOMPExtension({ launch, connect = connectBridge, createToke
     state.deliveryBytes -= batch.contentBytes;
     release(batch.contentBytes);
     state.active = undefined;
+    scheduleDeliveryTurn(factory, state);
   }
 
   async function endFactory(factory, ctx) {
@@ -805,7 +815,7 @@ export function createOMPExtension({ launch, connect = connectBridge, createToke
         const state = localState(factory, ctx);
         const prompt = boundedText(event.prompt, maxTextBytes, "native preflight prompt", { empty: true });
         if (state.scope === "primary" && launch.topology === "lane") schedulePreflight(factory, state, prompt);
-        const message = claimDelivery(factory, state);
+        const message = state.active ? undefined : claimDelivery(factory, state);
         return message ? { message } : undefined;
       } catch (error) {
         failState(factory.current, error);
