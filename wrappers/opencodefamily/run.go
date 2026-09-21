@@ -14,16 +14,14 @@ import (
 )
 
 type laneRun struct {
-	run        *kit.Run
-	initial    string
-	original   *httpOperation
-	started    chan struct{}
-	startOnce  sync.Once
-	userSeen   bool
-	accepting  bool
-	deliveries sync.WaitGroup
-	count      int
-	interrupt  *nativeInterrupt
+	run       *kit.Run
+	initial   string
+	original  *httpOperation
+	started   chan struct{}
+	startOnce sync.Once
+	userSeen  bool
+	count     int
+	interrupt *nativeInterrupt
 }
 type nativeInterrupt struct {
 	done chan struct{}
@@ -31,11 +29,8 @@ type nativeInterrupt struct {
 	ack  bool
 }
 
-func (p *Wrapper) promptBody(id, text string, noReply bool) map[string]any {
+func (p *Wrapper) promptBody(id, text string) map[string]any {
 	b := map[string]any{"messageID": id, "parts": []map[string]string{{"type": "text", "text": text}}}
-	if noReply {
-		b["noReply"] = true
-	}
 	if p.model != nil {
 		b["model"] = map[string]string{"providerID": p.model.ProviderID, "modelID": p.model.ID}
 	}
@@ -79,8 +74,7 @@ func (p *Wrapper) executeRun(ctx context.Context, run *kit.Run, input kit.RunInp
 		p.mu.Unlock()
 		return kit.TurnResult{}, p.kind.err("lane unavailable or busy")
 	}
-	combined := append(append([]string{}, p.staged...), text)
-	b, err := encodeNativeFor(p.kind, p.promptBody(id, strings.Join(combined, "\n"), false))
+	b, err := encodeNativeFor(p.kind, p.promptBody(id, text))
 	if err != nil {
 		p.mu.Unlock()
 		return kit.TurnResult{}, err
@@ -90,7 +84,7 @@ func (p *Wrapper) executeRun(ctx context.Context, run *kit.Run, input kit.RunInp
 		p.mu.Unlock()
 		return kit.TurnResult{}, errors.Join(err, ctx.Err())
 	}
-	t := &laneRun{run: run, initial: id, started: make(chan struct{}), accepting: true, count: 1}
+	t := &laneRun{run: run, initial: id, started: make(chan struct{}), count: 1}
 	p.run, p.active = run, t
 	op, err := p.client.begin(request, 200)
 	if err != nil {
@@ -99,8 +93,6 @@ func (p *Wrapper) executeRun(ctx context.Context, run *kit.Run, input kit.RunInp
 		return kit.TurnResult{}, err
 	}
 	t.original = op
-	p.staged = nil
-	p.stagedBytes = 0
 	p.mu.Unlock()
 	// SDK admission is ordering of our owned operation, not native consumption.
 	run.Admitted()
@@ -142,10 +134,8 @@ func (p *Wrapper) executeRun(ctx context.Context, run *kit.Run, input kit.RunInp
 	}
 	raw, err := op.wait()
 	p.mu.Lock()
-	t.accepting = false
 	interrupt := t.interrupt
 	p.mu.Unlock()
-	t.deliveries.Wait()
 	if interrupt != nil {
 		<-interrupt.done
 		if interrupt.err != nil {

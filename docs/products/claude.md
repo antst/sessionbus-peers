@@ -100,9 +100,13 @@ observations; it does not relabel older receipts or extend cleanup credit.
 
 The [stamped receipt correction](../designs/claude-0.5.0/LANE-DELIVERY-AMENDMENT.md)
 is historical for the earlier append-based lane. The mandatory-wake source
-candidate refuses every lane delivery before any stream write; daemon 0074
+candidate refuses every lane delivery before any stream write; daemon v0.5.7
 starts or schedules a managed Run instead. Interactive Claude continues to use
-the native messaging socket. See
+the native messaging socket. Earlier 2.1.260 evidence demonstrated same-turn
+lane append, but it did not establish that the replay acknowledgment is
+independent of a blocked tool batch or safe across the terminal-boundary race;
+the present scheduling fallback preserves liveness without reclassifying that
+historical capability. See
 [the all-product boundary](../designs/mandatory-message-wake-20260921/NATIVE-BOUNDARIES.md).
 
 The earlier amendment

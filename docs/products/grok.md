@@ -12,7 +12,7 @@ Mandatory-wake source update (2026-09-21): the active lane retains native
 `x.ai/interject`, whose matching broadcast is emitted by the actor at enqueue
 and is independent of tool progress. A late interjection becomes an automatic
 fallback prompt. An idle lane returns NotRunning before interject submission so
-daemon 0074 seeds a managed Run. Interactive Grok keeps its native interject
+daemon v0.5.7 seeds a managed Run. Interactive Grok keeps its native interject
 carrier in both states. See
 [the all-product boundary](../designs/mandatory-message-wake-20260921/NATIVE-BOUNDARIES.md).
 
@@ -20,7 +20,14 @@ The rewrite starts at peers eb727701 and retains the native evidence below as hi
 
 Current behavior supersedes historical wrapper choices below: no generated native IDs or native selector resolver; repeated mixed -g/--group before --; no session lock, reconnect loop, broad server-wildcard permission grant or forced autoMode; native titles including empty names update the same owner connection. Managed launches maintain only the exact `MCPTool(sessionbus__sessionbus)` global permission grant. The private MCP alias shares one Go binary with launcher and lane, and only the generic Sessionbus skill is installed. Ordinary Grok still discovers that global plugin and starts its inert, zero-tool helper because native leader mode rejects per-launch plugin-dir.
 
-The shared Worker owns message-seeded runs and nonconsuming result cursors with explicit ack. Persistence means owner-exit lifetime, not durable storage. Grok stage keeps only never-submitted messages in bounded worker memory. Attempted deliveries never replay; actor admission stays injected across a native terminal. A product-created continuation remains in the original shared Run until its matched native completion, with bounded aggregate output. No wrapper database, result journal or restart recovery exists.
+The shared Worker owns message-seeded runs and nonconsuming result cursors with
+explicit ack. Persistence means owner-exit lifetime, not durable storage. Idle
+messages start managed runs. Definite pre-submission active/terminal races use
+the daemon's bounded automatic next-run scheduling; attempted deliveries never
+replay. Actor admission stays injected across a native terminal. A
+product-created continuation remains in the original shared Run until its
+matched native completion, with bounded aggregate output. No wrapper database,
+result journal or restart recovery exists.
 
 Installed evidence scope and remaining limits are mapped in [acceptance](../designs/grok-0.5.0/ACCEPTANCE.md). The retained earlier isolated-home/daemon experiments are historical evidence, not the current installation or acceptance recipe. Current changes do not require repeating already sealed native discoveries.
 

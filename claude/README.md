@@ -156,6 +156,12 @@ durability, or model consumption. Explicit and message-seeded runs return the
 native terminal result and reason through the shared cursor. No Claude scheduler
 or output cache is added.
 
+Native 2.1.260 installed evidence did demonstrate same-turn lane append. It did
+not establish that the replay acknowledgment can arrive independently of a
+blocked tool batch or that the append is consumed across the terminal-boundary
+race. The current next-run scheduling is a deliberate liveness fallback, not a
+claim that same-turn delivery was never observed.
+
 Spawn/resume policies are independent. `persistent:false` (fresh default) retires
 the lane when its authenticated owner leaves; `true` survives owner exit.
 `auto_close_ms` defaults to 60000 after a native completed, failed or interrupted

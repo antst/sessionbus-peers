@@ -26,8 +26,9 @@ bus-authenticated sender information. Native naming/resume remains native;
 there is no bus rename or history-search action.
 
 Deliveries distinguish local `written`, native `injected` admission, and
-`queued_for_next_turn` staging. None proves model consumption. Preserve errors
-and uncertain admission; never replay an uncertain send automatically.
+`queued_for_next_turn` bounded scheduling. None proves model consumption.
+Preserve errors and uncertain admission; never replay an uncertain send
+automatically.
 
 Interactive presence reconnects automatically after a daemon outage while the
 native session remains alive. Calls made during the outage fail; interrupted

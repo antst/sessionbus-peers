@@ -108,8 +108,6 @@ func (p *Wrapper) closeKilo(ctx context.Context, request kit.SessionCloseRequest
 		}
 		p.mu.Lock()
 		p.closeErr = errors.Join(p.closeErr, p.stopErr, p.childErr, context.Cause(ctx))
-		p.staged = nil
-		p.stagedBytes = 0
 		p.mu.Unlock()
 	})
 	return p.closeErr

@@ -24,7 +24,7 @@ witnesses. Branch navigation is canceled when accepted Sessionbus work exists;
 new work is rejected while an unobservable branch summary is genuinely busy,
 and a later native idle check clears stale busy state after failure or cancel.
 The lane has no independent active append, so every inbound delivery returns
-NotRunning before native submission and daemon 0074 starts or schedules the
+NotRunning before native submission and daemon v0.5.7 starts or schedules the
 managed run. See
 [the all-product boundary](../designs/mandatory-message-wake-20260921/NATIVE-BOUNDARIES.md).
 

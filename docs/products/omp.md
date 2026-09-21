@@ -17,14 +17,18 @@ Image normalization happens before native scheduling, so the immediate queued
 receipt and later native identity proof remain distinct. Native
 `#queueHiddenNextTurnMessage` immediately enters `#schedulePostPromptTask`,
 then `#promptQueuedHiddenNextTurnMessages` and `#promptWithMessage` call
-`promptAgentWithIdleRetry`. Only `AgentBusyError` takes its `waitForIdle` path:
-it awaits the current run and retries, so an active turn longer than 30 seconds
-does not by itself time out the delivery. The deadline limits repeated or
-competing busy responses. A non-busy failure restores the native pending
-messages and is reported by the native scheduler; it is not a model-success
-claim. Further correlated batches chain automatically. The lane has no
+`promptAgentWithIdleRetry`. Only its native busy error class takes the
+`waitForIdle` path: it awaits the current run and retries, so an active turn
+longer than 30 seconds does not by itself time out the delivery. The deadline
+limits repeated or competing busy responses. A non-busy failure restores the
+native pending messages and is reported by the native scheduler; it is not a
+model-success claim. Context emitted by the original running turn, or repeated by the prior
+batch, is ignored while the newly scheduled batch has not reached its own
+message events. Any early reference to that claimed batch remains an ordering
+failure; after `message_end`, its context must contain exactly one matching
+message. Further correlated batches chain automatically. The lane has no
 independent active append, so every inbound delivery returns NotRunning before
-native submission and daemon 0074 starts or schedules the managed run. See
+native submission and daemon v0.5.7 starts or schedules the managed run. See
 [the all-product boundary](../designs/mandatory-message-wake-20260921/NATIVE-BOUNDARIES.md).
 
 ## OMP 18.1.17 tool approval source audit (2026-09-19)

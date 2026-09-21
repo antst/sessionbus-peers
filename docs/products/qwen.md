@@ -20,11 +20,11 @@
 > retained as evidence of its cited versions, not the current implementation.
 
 > Mandatory-wake update (2026-09-21): the 0.24.1 ACP lane no longer uses its
-> mid-turn drain as a delivery admission path. Native calls
-> `craft/drainMidTurnQueue` only after the current tool batch completes, so two
+> mid-turn drain as a delivery admission path. Native never calls
+> `craft/drainMidTurnQueue` while a tool call is executing, so two
 > active lanes waiting on mutual Sessionbus sends can deadlock before either
 > drain. Lane delivery now returns NotRunning before local or native enqueue;
-> daemon 0074 starts or schedules the original delivery as a managed Run, and
+> daemon v0.5.7 starts or schedules the original delivery as a managed Run, and
 > the native drain replies empty. The interactive `--input-file` submit carrier
 > is separate and retains its demonstrated idle-wake/active-join behavior. See
 > [the all-product boundary](../designs/mandatory-message-wake-20260921/NATIVE-BOUNDARIES.md).

@@ -9,7 +9,7 @@
 > Mandatory-wake source update (2026-09-21): OpenCode 1.18.30
 > `noReply:true` persists a user message but returns without entering `loop()`;
 > it therefore cannot prove active-lane consumption across a terminal race.
-> Every lane delivery now returns NotRunning before the POST and daemon 0074
+> Every lane delivery now returns NotRunning before the POST and daemon v0.5.7
 > starts or schedules a normal managed Run. The interactive plugin keeps its
 > bounded FIFO, answers active retention immediately, and submits a full native
 > prompt on the next idle witness. See

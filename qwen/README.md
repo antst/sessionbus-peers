@@ -66,7 +66,7 @@ delivery in bounded memory for the automatic next run. A seeded run reports
 `written` only after the full native prompt request write.
 `queued_for_next_turn` is daemon scheduling, not native admission, durability,
 or consumption. The native `craft/drainMidTurnQueue` response stays empty:
-Qwen invokes that drain only after the current tool batch completes, so it
+Qwen never invokes that drain while a tool call is executing, so it
 cannot acknowledge mutually blocked Sessionbus sends safely.
 
 Close and automatic close retire the lane and leave native Qwen history in

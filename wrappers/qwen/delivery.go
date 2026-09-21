@@ -17,8 +17,8 @@ func (p *Wrapper) Deliver(ctx context.Context, request kit.DeliveryRequest, _ *k
 	if err = ctx.Err(); err != nil {
 		return kit.DeliveryReceipt{}, err
 	}
-	// Qwen only drains craft/drainMidTurnQueue after an entire tool batch has
-	// completed. Waiting here for that drain can deadlock two active lanes when
+	// Qwen never drains craft/drainMidTurnQueue while a tool call is executing.
+	// Waiting here for that drain can deadlock two active lanes when
 	// each model is blocked in a Sessionbus send to the other. Nothing has been
 	// submitted to native at this point, so let the daemon retain the original
 	// delivery and seed it as the next managed Run.

@@ -8,7 +8,7 @@
 
 > Mandatory-wake source update (2026-09-21): no source-proven Kilo active
 > append exists, so every lane delivery returns NotRunning before native
-> submission and daemon 0074 starts or schedules a normal managed Run. The
+> submission and daemon v0.5.7 starts or schedules a normal managed Run. The
 > interactive plugin keeps its bounded FIFO, answers active retention
 > immediately, and submits through the native TUI prompt controller at the next
 > idle witness. See
