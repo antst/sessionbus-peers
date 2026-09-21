@@ -51,6 +51,10 @@ func TestAdvertisedArgumentsMatchPublicActionFieldUnion(t *testing.T) {
 			expected[key] = value
 		}
 	}
+	// The daemon still accepts idle_message as a one-release legacy alias, but
+	// clients no longer advertise the passive policy. Every value is normalized
+	// to mandatory wake.
+	delete(expected, "idle_message")
 	advertised := argumentSchema()
 	properties := advertised["properties"].(map[string]any)
 	if advertised["additionalProperties"] != false || len(properties) != len(expected) {
@@ -64,6 +68,9 @@ func TestAdvertisedArgumentsMatchPublicActionFieldUnion(t *testing.T) {
 	}
 	if _, ok := properties["summary"]; ok {
 		t.Fatal("summary must not be advertised")
+	}
+	if _, ok := properties["idle_message"]; ok {
+		t.Fatal("legacy idle_message must not be advertised")
 	}
 	open := properties["open"].(map[string]any)
 	openProperties := open["properties"].(map[string]any)

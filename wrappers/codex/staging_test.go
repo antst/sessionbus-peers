@@ -3,64 +3,88 @@ package codex
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 
 	kit "github.com/antst/sessionbus/bus/sdk/go"
 )
 
-func TestNativeStageRequiresAckAndPreservesRunBoundary(t *testing.T) {
-	for _, mode := range []string{"idle", "start", "start-terminal", "after-ack"} {
-		t.Run(mode, func(t *testing.T) {
+func TestIdleDeliveryDefersBeforeNativeSubmission(t *testing.T) {
+	p, _ := testLane(t)
+	receipt, err := p.Deliver(context.Background(), kit.DeliveryRequest{
+		MessageID: "m",
+		Body:      "must wake in a managed run",
+		From:      kit.DeliverySource{SessionID: "sender@local", Product: "codex-peer", Groups: []string{"g"}},
+	}, nil)
+	var protocolError *kit.ProtocolError
+	if !errors.As(err, &protocolError) || protocolError.Code != -32004 || receipt.Disposition != "" {
+		t.Fatalf("delivery = %+v, %v", receipt, err)
+	}
+}
+
+func TestActiveDeliveryUsesNativeSteerAdmission(t *testing.T) {
+	p, server := testLane(t)
+	p.active = &turn{owner: p, id: "turn-1", started: true}
+	done := make(chan struct {
+		receipt kit.DeliveryReceipt
+		err     error
+	}, 1)
+	go func() {
+		receipt, err := p.Deliver(context.Background(), deliveryRequest(), nil)
+		done <- struct {
+			receipt kit.DeliveryReceipt
+			err     error
+		}{receipt, err}
+	}()
+	request := readAppRequest(t, server)
+	if request.Method != "turn/steer" || !strings.Contains(string(request.Params), `"expectedTurnId":"turn-1"`) {
+		t.Fatalf("request = %+v", request)
+	}
+	writeApp(t, server, map[string]any{"id": request.ID, "result": map[string]string{"turnId": "turn-1"}})
+	result := <-done
+	if result.err != nil || result.receipt.Disposition != "injected" {
+		t.Fatalf("delivery = %+v, %v", result.receipt, result.err)
+	}
+}
+
+func TestActiveDeliveryMapsOnlyProvenUnsubmittedSteerErrors(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		message  string
+		wantCode int
+		wantData string
+	}{
+		{name: "ended", message: "no active turn to steer", wantCode: -32004},
+		{name: "changed", message: "expected active turn id `turn-1` but found `turn-2`", wantCode: -32004},
+		{name: "policy remains uncertain", message: "cannot steer a review turn", wantCode: -32603, wantData: `"uncertain_native_admission"`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
 			p, server := testLane(t)
-			type result struct {
-				receipt kit.DeliveryReceipt
-				err     error
-			}
-			done := make(chan result, 1)
-			request := kit.DeliveryRequest{MessageID: "m", Body: "staged marker", From: kit.DeliverySource{SessionID: "sender@local", Product: "codex-peer", Groups: []string{"g"}}}
-			go func() { r, e := p.Deliver(context.Background(), request, nil); done <- result{r, e} }()
-			call := readAppRequest(t, server)
-			if call.Method != "thread/inject_items" {
-				t.Fatal(call)
-			}
-			var body struct {
-				ThreadID string
-				Items    []struct {
-					Type, Role string
-					Content    []struct{ Type, Text string }
+			p.active = &turn{owner: p, id: "turn-1", started: true}
+			done := make(chan error, 1)
+			go func() {
+				receipt, err := p.Deliver(context.Background(), deliveryRequest(), nil)
+				if receipt.Disposition != "" {
+					err = errors.Join(err, errors.New("unexpected receipt "+receipt.Disposition))
 				}
-			}
-			if json.Unmarshal(call.Params, &body) != nil || body.ThreadID != "thread-1" || len(body.Items) != 1 || body.Items[0].Role != "user" || body.Items[0].Type != "message" || len(body.Items[0].Content) != 1 || body.Items[0].Content[0].Type != "input_text" {
-				t.Fatalf("items=%s", call.Params)
-			}
-			select {
-			case r := <-done:
-				t.Fatalf("write fabricated receipt: %+v", r)
-			default:
-			}
-			if mode == "start" || mode == "start-terminal" {
-				writeRaw(t, server, `{"method":"turn/started","params":{"threadId":"thread-1","turn":{"id":"external","status":"inProgress"}}}`)
-				if mode == "start-terminal" {
-					writeRaw(t, server, `{"method":"turn/completed","params":{"threadId":"thread-1","turn":{"id":"external","status":"completed"}}}`)
-				}
-			}
-			writeApp(t, server, map[string]any{"id": call.ID, "result": map[string]any{}})
-			if mode == "after-ack" {
-				writeRaw(t, server, `{"method":"turn/started","params":{"threadId":"thread-1","turn":{"id":"later","status":"inProgress"}}}`)
-			}
-			got := <-done
-			if mode == "idle" || mode == "after-ack" {
-				if got.err != nil || got.receipt.Disposition != "queued_for_next_turn" {
-					t.Fatalf("%+v", got)
-				}
-			} else {
-				var e *kit.ProtocolError
-				if !errors.As(got.err, &e) || e.Code != -32603 || string(e.Data) != `"uncertain_native_admission"` || got.receipt.Disposition != "" {
-					t.Fatalf("%+v", got)
-				}
+				done <- err
+			}()
+			request := readAppRequest(t, server)
+			writeApp(t, server, map[string]any{"id": request.ID, "error": map[string]any{"code": -32600, "message": test.message}})
+			err := <-done
+			var protocolError *kit.ProtocolError
+			if !errors.As(err, &protocolError) || protocolError.Code != test.wantCode || string(protocolError.Data) != test.wantData {
+				t.Fatalf("error = %#v, %v", protocolError, err)
 			}
 		})
+	}
+}
+
+func deliveryRequest() kit.DeliveryRequest {
+	return kit.DeliveryRequest{
+		MessageID: "m",
+		Body:      "must wake in a managed run",
+		From:      kit.DeliverySource{SessionID: "sender@local", Product: "codex-peer", Groups: []string{"g"}},
 	}
 }
