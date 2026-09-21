@@ -353,6 +353,9 @@ test("interactive FIFO claims one bounded batch and confirms exact native messag
   assert.deepEqual(await owner.native("native.stage", {
     owner_token: token, session_id: "interactive-main", message_id: "message-three", body: "third body",
   }), { owner_token: token, session_id: "interactive-main", message_id: "message-three", queued: false, reason: "queue_full" });
+  // The first batch is claimed and scheduled immediately, while the original
+  // turn can still emit context that does not contain it.
+  await native.emit("context", { type: "context", messages: [{ role: "user", content: "original turn" }] }, native.context());
 
   const queuedStats = extension.stats();
 
@@ -378,6 +381,9 @@ test("interactive FIFO claims one bounded batch and confirms exact native messag
   assert.equal((await owner.native("native.stage", {
     owner_token: token, session_id: "interactive-main", message_id: "message-three", body: "third body",
   })).queued, true);
+  // Finishing batch one automatically claims and schedules batch two. A
+  // repeated context snapshot for batch one must not fail that pre-start batch.
+  await native.emit("context", { type: "context", messages: [message] }, native.context());
   const second = await native.emit("before_agent_start", { type: "before_agent_start", prompt: "next natural prompt" }, native.context());
   assert.equal(second.message.content, "second body");
   assert.deepEqual(second.message.details.message_ids, ["message-two"]);

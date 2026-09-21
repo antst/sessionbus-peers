@@ -693,7 +693,17 @@ export function createOMPExtension({ launch, connect = connectBridge, createToke
   function observeContext(factory, ctx, messages) {
     const state = localState(factory, ctx);
     if (!state.active) return;
-    const matches = Array.isArray(messages) ? messages.filter((message) => matchingDelivery(message, state, state.active)) : [];
+    const list = Array.isArray(messages) ? messages : [];
+    const matches = list.filter((message) => matchingDelivery(message, state, state.active));
+    if (state.active.phase < 3) {
+      // Scheduling claims a batch before its native turn begins. Context can
+      // still be emitted for the turn that was already running, or repeated
+      // after the prior batch scheduled this one. Ignore only context that
+      // does not mention the claimed batch; its first appearance must still
+      // follow the exact message_start/message_end chronology.
+      if (matches.length === 0 && !list.some((message) => referencesDeliveryBatch(message, state, state.active))) return;
+      throw new Error("OMP native context observed a claimed Sessionbus delivery before its message events");
+    }
     if (matches.length !== 1 || state.active.phase !== 3) {
       throw new Error("OMP native context did not preserve the claimed Sessionbus delivery");
     }
