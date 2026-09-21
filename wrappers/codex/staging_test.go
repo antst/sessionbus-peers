@@ -4,9 +4,12 @@ package codex
 import (
 	"context"
 	"errors"
+	"net"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/antst/sessionbus-peers/wrappers/host"
 	kit "github.com/antst/sessionbus/bus/sdk/go"
 )
 
@@ -45,6 +48,25 @@ func TestActiveDeliveryUsesNativeSteerAdmission(t *testing.T) {
 	result := <-done
 	if result.err != nil || result.receipt.Disposition != "injected" {
 		t.Fatalf("delivery = %+v, %v", result.receipt, result.err)
+	}
+}
+
+func TestActiveDeliveryFinalBoundaryRefusesReplacementTurn(t *testing.T) {
+	p, server := testLane(t)
+	expected := &turn{owner: p, id: "turn-1", started: true}
+	p.active = &turn{owner: p, id: "turn-2", started: true}
+	outcome, err := p.injectExpected(context.Background(), "must stay on turn one", expected)
+	if err != nil || outcome != host.NotInjected {
+		t.Fatalf("injection = %v, %v", outcome, err)
+	}
+	if err = server.SetReadDeadline(time.Now().Add(25 * time.Millisecond)); err != nil {
+		t.Fatal(err)
+	}
+	var one [1]byte
+	if _, err = server.Read(one[:]); err == nil {
+		t.Fatal("replacement turn received a native steer request")
+	} else if timeout, ok := err.(net.Error); !ok || !timeout.Timeout() {
+		t.Fatalf("native read = %v", err)
 	}
 }
 

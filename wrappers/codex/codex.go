@@ -387,7 +387,7 @@ func (p *Wrapper) Deliver(ctx context.Context, request sessionkit.DeliveryReques
 	if expectedTurnID == "" {
 		return sessionkit.DeliveryReceipt{}, host.NotRunning()
 	}
-	outcome, err := p.inject(ctx, body)
+	outcome, err := p.injectExpected(ctx, body, active)
 	if err != nil {
 		if codexSteerDefinitelyNotSubmitted(err, expectedTurnID) {
 			return sessionkit.DeliveryReceipt{}, host.NotRunning()
@@ -469,10 +469,10 @@ func (p *Wrapper) start(ctx context.Context, prompt string) (host.Turn, error) {
 	}
 }
 
-func (p *Wrapper) inject(ctx context.Context, prompt string) (host.Injection, error) {
+func (p *Wrapper) injectExpected(ctx context.Context, prompt string, expected *turn) (host.Injection, error) {
 	p.mu.Lock()
 	t := p.active
-	if t == nil || !t.started {
+	if t == nil || t != expected || !t.started {
 		p.mu.Unlock()
 		return host.NotInjected, nil
 	}
