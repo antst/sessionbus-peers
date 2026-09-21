@@ -12,11 +12,15 @@ asset="$role-peer-$platform-$arch.tar.gz"
 if [ -n "${SESSIONBUS_DOWNLOAD_ROOT:-}" ]; then
  base=$SESSIONBUS_DOWNLOAD_ROOT
 elif [ "$version" = latest ]; then
- release=$(curl -ILsS --retry 2 --connect-timeout 10 --max-time 30 -o /dev/null -w '%{http_code} %{url_effective}' https://github.com/antst/sessionbus-peers/releases/latest)
+ # Resolve the redirect without fetching the release page, which may fail
+ # independently of downloads. Pin both downloads to the same stable tag.
+ release=$(curl -IsS --retry 2 --connect-timeout 10 --max-time 30 -o /dev/null -w '%{http_code} %{redirect_url}' https://github.com/antst/sessionbus-peers/releases/latest)
  case "$release" in
-  '200 https://github.com/antst/sessionbus-peers/releases/tag/'*)
-   base=https://github.com/antst/sessionbus-peers/releases/latest/download;;
-  '200 https://github.com/antst/sessionbus-peers/releases')
+  30[12378]' https://github.com/antst/sessionbus-peers/releases/tag/'*)
+   tag=${release#*https://github.com/antst/sessionbus-peers/releases/tag/}
+   awk -v tag="$tag" 'BEGIN { exit(tag !~ /^v[0-9]+[.][0-9]+[.][0-9]+$/) }' || { echo "Invalid stable peer release redirect ($release)" >&2; exit 1; }
+   base=https://github.com/antst/sessionbus-peers/releases/download/$tag;;
+  30[12378]' https://github.com/antst/sessionbus-peers/releases')
    echo 'No stable peer release yet; installing the published development build.' >&2
    base=https://github.com/antst/sessionbus-peers/releases/download/development;;
   *) echo "Cannot determine latest peer release ($release)" >&2; exit 1;;
