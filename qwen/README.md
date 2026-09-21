@@ -60,18 +60,19 @@ and cancel operations settle. Closing or losing the worker invalidates its
 unacknowledged results. See the [generic skill](skills/sessionbus/SKILL.md) for
 the action examples, completion pointers and independent lifetime policies.
 
-Idle stage retains only never-submitted messages in a bounded memory FIFO;
-queued_for_next_turn is not native admission. A seeded wake returns written
-after the full native prompt request write. Active delivery waits for native
-craft/drainMidTurnQueue and writes at most ten messages per response. Written
-does not mean injected or consumed. Native late recovery owns handed-off
-messages; the wrapper never replays them. An unsent message remains staged if
-the current run ends without a native pull.
+Every lane delivery returns NotRunning before local or native enqueue. The
+daemon starts an idle delivery as a managed run or retains an active-turn
+delivery in bounded memory for the automatic next run. A seeded run reports
+`written` only after the full native prompt request write.
+`queued_for_next_turn` is daemon scheduling, not native admission, durability,
+or consumption. The native `craft/drainMidTurnQueue` response stays empty:
+Qwen invokes that drain only after the current tool batch completes, so it
+cannot acknowledge mutually blocked Sessionbus sends safely.
 
 Close and automatic close retire the lane and leave native Qwen history in
 place. Forget removes the daemon's resume recipe, not native history. There is
 no wrapper database, result journal or restart recovery. The shared result
-cursor and staging are bounded worker memory.
+cursor and daemon scheduling queue are bounded memory.
 
 ## Interactive launches and ordinary Qwen
 
@@ -169,7 +170,7 @@ enforced switch ban or a race-free withdrawal mechanism. ACP lanes each own a
 dedicated session and are unaffected. No native patch is a prerequisite.
 
 The lane runtime was exercised on unmodified Qwen 0.23.0: new/resume startup,
-native ToolSearch plus public list, staged delivery, seeded wake, active pull,
+native ToolSearch plus public list, historical staged delivery, seeded wake, active pull,
 interrupt, repeated collection/acknowledgment and healthy following runs.
 Receipt limits and later process-absence evidence are retained separately;
 these observations are not an interactive or all-policy acceptance claim.

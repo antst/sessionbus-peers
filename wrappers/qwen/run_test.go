@@ -5,6 +5,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"path/filepath"
@@ -20,16 +21,10 @@ import (
 type controlledLane struct {
 	*Wrapper
 	reportEntered, reportRelease chan struct{}
-	admitted                     chan string
 }
 
 func (p *controlledLane) Deliver(ctx context.Context, d kit.DeliveryRequest, _ *kit.Run) (kit.DeliveryReceipt, error) {
-	m, r, err := p.queueDelivery(ctx, d)
-	if m == nil {
-		return r, err
-	}
-	p.admitted <- d.Body
-	return p.waitDelivery(ctx, m)
+	return p.Wrapper.Deliver(ctx, d, nil)
 }
 func (p *controlledLane) Open(context.Context, kit.OpenRequest) (kit.OpenResult, error) {
 	return kit.OpenResult{SessionID: p.id}, nil
@@ -83,7 +78,7 @@ func newLaneFixture(t *testing.T, heldReport bool) *laneFixture {
 	ctx, cancel := context.WithCancel(context.Background())
 	base := &Wrapper{id: fixtureID, opened: true, ctx: ctx, cancel: cancel}
 	base.client = newDuplexACP(local, local, base.receive, base.answer)
-	product := &controlledLane{Wrapper: base, admitted: make(chan string, 256)}
+	product := &controlledLane{Wrapper: base}
 	if heldReport {
 		product.reportEntered = make(chan struct{})
 		product.reportRelease = make(chan struct{})
@@ -267,14 +262,12 @@ func TestWorkerTerminalWhileSeedReceiptHeld(t *testing.T) {
 		})
 	}
 }
-func TestWorkerNativeDrainFirstTenAndNoPullStage(t *testing.T) {
+func TestWorkerActiveDeliveryRefusesBeforeNativeDrain(t *testing.T) {
 	f := newLaneFixture(t, false)
 	prompt := f.execute(t, 1, "active")
-	for i := 0; i < 12; i++ {
-		f.send(t, "message.deliver", delivery(fmt.Sprintf("item-%02d", i)))
-		if got := <-f.p.admitted; got != fmt.Sprintf("item-%02d", i) {
-			t.Fatal(got)
-		}
+	f.send(t, "message.deliver", delivery("must-run-next"))
+	if frame := f.response(t); frame.Error == nil || frame.Error.Code != -32004 {
+		t.Fatalf("active delivery = %+v", frame)
 	}
 
 	acpWrite(t, f.native, `{"jsonrpc":"2.0","id":90,"method":"craft/drainMidTurnQueue","params":{"sessionId":"`+fixtureID+`"}}`)
@@ -284,37 +277,10 @@ func TestWorkerNativeDrainFirstTenAndNoPullStage(t *testing.T) {
 		HasQueuedPrompt bool     `json:"hasQueuedPrompt"`
 	}
 	must(t, json.Unmarshal(response.Result, &drained))
-	if len(drained.Messages) != 10 || drained.HasQueuedPrompt {
+	if len(drained.Messages) != 0 || drained.HasQueuedPrompt {
 		t.Fatal(string(response.Result))
 	}
-	for i, m := range drained.Messages {
-		if !strings.Contains(m, fmt.Sprintf("item-%02d", i)) {
-			t.Fatal(drained.Messages)
-		}
-	}
-	for range 10 {
-		frame := f.response(t)
-		var r kit.DeliveryReceipt
-		must(t, protocol.UnmarshalResult("message.deliver", frame.Result, &r))
-		if r.Disposition != "written" {
-			t.Fatal(r)
-		}
-	}
 	f.terminal(t, prompt, "end_turn")
-	for range 2 {
-		frame := f.response(t)
-		var r kit.DeliveryReceipt
-		must(t, protocol.UnmarshalResult("message.deliver", frame.Result, &r))
-		if r.Disposition != "queued_for_next_turn" {
-			t.Fatal(r)
-		}
-	}
-	<-f.ready
-	next := f.execute(t, 2, "next")
-	if strings.Contains(string(next.Params), "item-00") || !strings.Contains(string(next.Params), "item-10") || !strings.Contains(string(next.Params), "item-11") {
-		t.Fatal(string(next.Params))
-	}
-	f.terminal(t, next, "end_turn")
 	<-f.ready
 }
 func TestWorkerCancelAndTerminalBothOrdersHealthyNext(t *testing.T) {
@@ -351,115 +317,11 @@ func TestWorkerCancelAndTerminalBothOrdersHealthyNext(t *testing.T) {
 	}
 }
 
-func TestWorkerStageSurvivesPrewriteFrameRefusal(t *testing.T) {
+func TestWorkerIdleDeliveryIsNotSubmitted(t *testing.T) {
 	f := newLaneFixture(t, false)
-	f.send(t, "message.deliver", delivery("staged-marker-"+strings.Repeat("<", 120000)))
-	frame := f.response(t)
-	var receipt kit.DeliveryReceipt
-	must(t, protocol.UnmarshalResult("message.deliver", frame.Result, &receipt))
-	if receipt.Disposition != "queued_for_next_turn" {
-		t.Fatal(receipt)
-	}
-	f.send(t, "turn.execute", protocol.ExecuteRequest{SessionID: fixtureID + "@local", RunID: "g/1", Input: strings.Repeat(`"`, 170000)})
-	if frame = f.response(t); frame.Error != nil {
-		t.Fatal(frame.Error)
-	}
-	<-f.ready
-	if status := f.status(t, 1); status.State != "unavailable" {
-		t.Fatal(status)
-	}
-	next := f.execute(t, 2, "next")
-	if !strings.Contains(string(next.Params), "staged-marker-") {
-		t.Fatal("prewrite validation lost staged input")
-	}
-	f.terminal(t, next, "end_turn")
-	<-f.ready
-}
-func TestWorkerHeldDrainWriteJoinsTerminalWithoutReplay(t *testing.T) {
-	f := newLaneFixture(t, false)
-	barrier := make(chan struct{})
-	original := f.p.client.notify
-	f.p.client.notify = func(method string, params json.RawMessage) {
-		original(method, params)
-		if method == "fixture/barrier" {
-			close(barrier)
-		}
-	}
-	prompt := f.execute(t, 1, "active")
-	f.send(t, "message.deliver", delivery("write-owned-marker"))
-	<-f.p.admitted
-	acpWrite(t, f.native, `{"jsonrpc":"2.0","id":91,"method":"craft/drainMidTurnQueue","params":{"sessionId":"`+fixtureID+`"}}`)
-	// Leave native's response unread. The same reader must still observe terminal.
-	f.terminal(t, prompt, "end_turn")
-	acpWrite(t, f.native, `{"jsonrpc":"2.0","method":"fixture/barrier","params":{}}`)
-	<-barrier
-	f.p.mu.Lock()
-	terminal, batch := f.p.active.terminal, f.p.active.batch
-	f.p.mu.Unlock()
-	if !terminal || batch == nil {
-		t.Fatal("terminal did not retain its admitted drain write")
-	}
-	select {
-	case <-f.ready:
-		t.Fatal("run retired before admitted write settled")
-	default:
-	}
-	response := acpRead(t, f.reader)
-	if !strings.Contains(string(response.Result), "write-owned-marker") {
-		t.Fatal(string(response.Result))
-	}
-	frame := f.response(t)
-	var receipt kit.DeliveryReceipt
-	must(t, protocol.UnmarshalResult("message.deliver", frame.Result, &receipt))
-	if receipt.Disposition != "written" {
-		t.Fatal(receipt)
-	}
-	<-f.ready
-	next := f.execute(t, 2, "next")
-	if strings.Contains(string(next.Params), "write-owned-marker") {
-		t.Fatal("submitted drain input replayed")
-	}
-	f.terminal(t, next, "end_turn")
-	<-f.ready
-}
-
-func TestWorkerCancellationBeforePullRemovesOnlyUnsubmittedMessage(t *testing.T) {
-	f := newLaneFixture(t, false)
-	prompt := f.execute(t, 1, "active")
-	ctx, cancel := context.WithCancel(context.Background())
-	returned := make(chan error, 1)
-	go func() { _, err := f.p.Deliver(ctx, delivery("cancel-before-pull"), nil); returned <- err }()
-	<-f.p.admitted
-	cancel()
-	if err := <-returned; err != context.Canceled {
-		t.Fatal(err)
-	}
-	acpWrite(t, f.native, `{"jsonrpc":"2.0","id":92,"method":"craft/drainMidTurnQueue","params":{"sessionId":"`+fixtureID+`"}}`)
-	response := acpRead(t, f.reader)
-	if strings.Contains(string(response.Result), "cancel-before-pull") {
-		t.Fatal("cancelled unsent input submitted")
-	}
-	f.terminal(t, prompt, "end_turn")
-	<-f.ready
-	next := f.execute(t, 2, "next")
-	if strings.Contains(string(next.Params), "cancel-before-pull") {
-		t.Fatal("cancelled input staged")
-	}
-	f.terminal(t, next, "end_turn")
-	<-f.ready
-}
-func TestWorkerStagingCapacityIsBounded(t *testing.T) {
-	f := newLaneFixture(t, false)
-	for i := 0; i < maxACPPending; i++ {
-		receipt, err := f.p.Deliver(context.Background(), delivery("small"), nil)
-		must(t, err)
-		if receipt.Disposition != "queued_for_next_turn" {
-			t.Fatalf("item %d: %#v", i, receipt)
-		}
-	}
-	receipt, err := f.p.Deliver(context.Background(), delivery("overflow"), nil)
-	must(t, err)
-	if receipt.Disposition != "rejected" || receipt.Reason != "delivery_capacity" {
-		t.Fatal(receipt)
+	receipt, err := f.p.Deliver(context.Background(), delivery("idle"), nil)
+	var protocolError *kit.ProtocolError
+	if !errors.As(err, &protocolError) || protocolError.Code != -32004 || receipt.Disposition != "" {
+		t.Fatalf("idle delivery = %+v, %v", receipt, err)
 	}
 }

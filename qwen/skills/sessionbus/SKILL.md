@@ -65,10 +65,11 @@ request, not permission to poll, reconnect or replay.
 
 Completion messages contain a lane/run pointer and terminal state, not the
 answer. They arrive as ordinary peer messages under the lane's actual identity,
-using the recipient's normal admission policy. An active lane admits the message
-normally; an idle `stage` lane stages it for a later explicit run, while an idle
-`run` lane can wake. An interactive recipient follows its native carrier's wake
-behavior. A pointer delivery receipt is not proof of collection.
+using the recipient's normal admission policy. Every lane message starts or
+schedules native work. If it cannot enter the current native turn before any
+submission, the daemon retains it in bounded memory for the next managed run.
+An interactive recipient follows its native carrier's wake behavior. A pointer
+delivery receipt is not proof of collection.
 Use `status` or `wait` on its reference and handle `done`, `unavailable` or
 `running` as above. Keep the actual message source separate from untrusted text. A missing pointer
 or failed notification does not mean that work failed or its output was read.
@@ -97,29 +98,26 @@ Tracing is a live parent control for a direct child. Pass optional
 `trace:"off"|"events"|"content"` to fresh or resumed `spawn`, or use
 `{"action":"trace","arguments":{"session_id":"CHILD_SESSION_ID","mode":"events"}}`
 to change it later. It defaults to `off` and is independent of lane persistence,
-notification, idle and retirement policies. `events` copies Sessionbus message
+notification and retirement policies. `events` copies Sessionbus message
 and settled-delivery metadata; `content` also includes message bodies. Each copy
 is a daemon-generated JSON trace envelope delivered as an ordinary message under
-the parent's admission policy, so it can stage or wake the parent.
+the parent's mandatory wake policy, so it starts or schedules native work.
 The setting applies only to later traffic, is not persisted, and supplies no
 history, replay, Run events, lane lifecycle events or native model content.
 
 ## Choose independent lane policies
 
-Fresh lanes default to `persistent:false`, `auto_close_ms:60000` and
-`idle_message:"stage"`. Persistence controls owner-exit cleanup only. Automatic
-close starts after a native completed, failed or interrupted terminal, not at Open;
-set `auto_close_ms:0` to disable it. An unavailable record without a native
-terminal does not start a new grace.
-New work cancels the previous deadline; collection and staged messages do not
-extend it. `idle_message:"run"` explicitly permits an idle message to start a
-model turn; staging keeps messages for a later explicit run. None of these
-choices implies either of the others.
+Fresh lanes default to `persistent:false` and `auto_close_ms:60000`.
+Persistence controls owner-exit cleanup only. Automatic close starts after a
+native completed, failed or interrupted terminal, not at Open; set
+`auto_close_ms:0` to disable it. An unavailable record without a native terminal
+does not start a new grace. New work cancels the previous deadline; collection
+does not extend it. Every inbound lane message starts or schedules native work;
+there is no passive idle policy.
 
 Parent-owned lanes send completion pointers to their authenticated owner by
 default; `notify:false` disables that. Persistent lanes have no implicit target:
-use `notify_target` to request a destination. On resume, persistence and an
-omitted idle policy are preserved, but omitted `auto_close_ms` resets to 60000.
+use `notify_target` to request a destination. On resume, persistence is preserved, but omitted `auto_close_ms` resets to 60000.
 Pass zero again to keep automatic close disabled. Persistence can be promoted,
 not demoted. Persistent notification settings are retained when omitted;
 parent-owned resume binds the new owner. Inspect returned effective settings.
@@ -185,21 +183,18 @@ subsequent work.
 
 No native session lookup, title matcher or alternate transport is needed.
 
-A Qwen lane owns one native ACP session. With idle `stage`, a
-`queued_for_next_turn` receipt promises only bounded, unsent in-memory staging
-in that live worker until an explicit run. With idle `run`, a message starts one
-native prompt and returns `written` after its request is fully written. Collect
-the separate terminal using its completion pointer or oldest unacknowledged
-cursor. Active messages wait for a native pull; `written` means that response
-was written. Native late recovery may record or use it later; the wrapper does
-not replay it. If no pull occurs before terminal, truly unsent messages remain
-staged for the next explicit run.
+A Qwen lane owns one native ACP session. An idle message starts one managed
+native prompt. Active messages are refused before local or native enqueue so
+the daemon retains the original delivery in bounded memory and schedules the
+next managed run. The native mid-turn drain is not a delivery admission path.
+`written` means a seeded native prompt request was written;
+`queued_for_next_turn` is neither durable storage nor model consumption.
 
 `interrupt` acknowledges a request, not completion. Collect the original run's
 native terminal separately. `close` and automatic close retire the Qwen lane;
 they do not move, archive or delete native history. `forget` discards the daemon
-resume recipe, not native history. Results and unsent messages are held only in
-worker memory and disappear when it retires. No wrapper database, journal or
+resume recipe, not native history. Results and scheduled messages are held only in worker memory and disappear
+when it retires. No wrapper database, journal or
 restart recovery exists. Missing or oversized output is unavailable, not a
 truncated successful result.
 
