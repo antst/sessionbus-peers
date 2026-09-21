@@ -451,6 +451,34 @@ test("interactive scheduling failure retires the owner and releases the claimed 
   assert.deepEqual(extension.stats(), { bindings: 0, reports: 0, retainedBytes: 0 });
 });
 
+test("interactive batch reservation failure retires without later native submission", async () => {
+  const owner = new FakeOwner();
+  const native = nativeFixture("interactive-main", "tui");
+  const extension = createOMPExtension({
+    launch: launch("interactive"), connect: owner.connect, createToken: deterministicTokens(),
+    // The entry fits after owner.ready settles, but the duplicate retained
+    // batch content cannot fit. This forces claimDelivery's second reserve.
+    limits: { retainedBytes: 512 },
+  });
+  await start(extension, native, owner);
+  const token = owner.calls[0].params.owner_token;
+  await assert.rejects(owner.native("native.stage", {
+    owner_token: token, session_id: "interactive-main", message_id: "reserve-failure", body: "x".repeat(300),
+  }), /native batch retained-payload capacity is exhausted/);
+  assert.deepEqual(native.scheduled(), []);
+  assert.equal(native.aborts(), 1);
+  assert.equal(native.shutdowns(), 1);
+  await native.emit("context", { type: "context", messages: [] }, native.context());
+  assert.deepEqual(native.scheduled(), []);
+  await assert.rejects(owner.native("native.stage", {
+    owner_token: token, session_id: "interactive-main", message_id: "must-not-submit", body: "later",
+  }), /deliverable factory/);
+  assert.deepEqual(native.scheduled(), []);
+  await assert.rejects(native.emit("session_shutdown", { type: "session_shutdown" }, native.context()),
+    /native batch retained-payload capacity is exhausted/);
+  assert.deepEqual(extension.stats(), { bindings: 0, reports: 0, retainedBytes: 0 });
+});
+
 test("interactive claimed batch retires on a new durable reset boundary", async () => {
   const owner = new FakeOwner();
   const native = nativeFixture("interactive-main", "tui");

@@ -10,11 +10,14 @@
 
 OMP 18.1.17 is bound to upstream
 `3b3a6dc9bbd85102ce19d0b1c11bf6870915f6ec`. Interactive `native.stage`
-retains a bounded delivery, schedules it with
+accepts a bounded delivery into the product owner queue and returns
+`queued_for_next_turn`; the caller must not resend that accepted message. The
+owner schedules it with
 `sendMessage(...,{deliverAs:"steer",triggerTurn:true})`, and correlates the
 claimed custom message, `message_start`, `message_end`, and context events.
-Image normalization happens before native scheduling, so the immediate queued
-receipt and later native identity proof remain distinct. After normalization,
+Image normalization happens before native scheduling, so the immediate product-owner
+acceptance receipt and later native identity proof remain distinct. The later
+events are collection evidence, not a second sender receipt. After normalization,
 a streaming native session puts the exact custom message in the agent's steer
 queue and schedules its idle drain; an idle session calls
 `promptAgentInitiatedMessage`. This one carrier therefore admits active input

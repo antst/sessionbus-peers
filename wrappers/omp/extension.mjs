@@ -703,8 +703,8 @@ export function createOMPExtension({ launch, connect = connectBridge, createToke
 
   function scheduleDeliveryTurn(factory, state) {
     while (state.queued.length > 0) {
-      const message = claimDelivery(factory, state);
       try {
+        const message = claimDelivery(factory, state);
         state.pi.sendMessage(message, { deliverAs: "steer", triggerTurn: true });
       } catch (error) {
         failState(state, error);
