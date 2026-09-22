@@ -10,8 +10,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/antst/sessionbus-peers/internal/testsocket"
 	sessionkit "github.com/antst/sessionbus/bus/sdk/go"
+	"github.com/sessionbus/codex-peer/internal/testsocket"
 )
 
 type crossingBackend struct {

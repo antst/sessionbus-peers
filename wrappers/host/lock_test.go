@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/antst/sessionbus-peers/internal/testsocket"
+	"github.com/sessionbus/codex-peer/internal/testsocket"
 )
 
 func TestSessionLockStaleFileAndContention(t *testing.T) {

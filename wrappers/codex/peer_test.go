@@ -15,10 +15,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/antst/sessionbus-peers/internal/testsocket"
-	"github.com/antst/sessionbus-peers/wrappers/host"
-	"github.com/antst/sessionbus-peers/wrappers/mcp"
 	sessionkit "github.com/antst/sessionbus/bus/sdk/go"
+	"github.com/sessionbus/codex-peer/internal/testsocket"
+	"github.com/sessionbus/codex-peer/wrappers/host"
+	"github.com/sessionbus/codex-peer/wrappers/mcp"
 )
 
 func TestPeerNativeAppDialsOnlyAfterIdentity(t *testing.T) {

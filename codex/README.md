@@ -10,7 +10,7 @@ acceptance ledger distinguishes those observations from controlled race tests.
 Install the binary and native plugin in one step:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/antst/sessionbus-peers/main/scripts/install-codex.sh | sh
+curl -fsSL https://raw.githubusercontent.com/sessionbus/codex-peer/main/scripts/install-codex.sh | sh
 ```
 
 The default is the latest stable release, falling back to development only

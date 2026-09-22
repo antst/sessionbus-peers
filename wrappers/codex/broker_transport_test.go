@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/antst/sessionbus-peers/internal/testsocket"
 	"github.com/coder/websocket"
+	"github.com/sessionbus/codex-peer/internal/testsocket"
 )
 
 func TestBrokerWebSocketFragmentationPingAndSingleClient(t *testing.T) {

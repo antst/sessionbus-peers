@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/antst/sessionbus-peers/internal/testsocket"
+	"github.com/sessionbus/codex-peer/internal/testsocket"
 )
 
 func TestBrokerNativeFixture(t *testing.T) {

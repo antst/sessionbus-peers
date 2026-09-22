@@ -1,7 +1,7 @@
-# Product wrappers
+# Codex wrapper and retained common support
 
-This split-ready tree contains product-named launchers, resident wrappers,
-plugins, tests, and packaging. Wrapper code imports the bus only through
-`github.com/antst/sessionbus/bus/sdk/go`; it never imports daemon internals.
-Repository-local wrapper imports use
-`github.com/antst/sessionbus-peers/wrappers/...`.
+`codex/` is the native adapter. `host/` and `mcp/` are unchanged copies of the
+common support used by the pre-separation implementation. Their extraction to a
+pinned shared module is a separate change; this migration does not redesign them.
+The Bus dependency remains the released public Go SDK, never daemon internals.
+Local imports use `github.com/sessionbus/codex-peer`.

@@ -15,9 +15,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/antst/sessionbus-peers/internal/testsocket"
-	"github.com/antst/sessionbus-peers/wrappers/host"
 	sessionkit "github.com/antst/sessionbus/bus/sdk/go"
+	"github.com/sessionbus/codex-peer/internal/testsocket"
+	"github.com/sessionbus/codex-peer/wrappers/host"
 )
 
 type turnDone struct {

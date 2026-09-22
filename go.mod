@@ -1,4 +1,4 @@
-module github.com/antst/sessionbus-peers
+module github.com/sessionbus/codex-peer
 
 go 1.24
 

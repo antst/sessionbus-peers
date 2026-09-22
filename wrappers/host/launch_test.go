@@ -13,7 +13,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/antst/sessionbus-peers/internal/testsocket"
+	"github.com/sessionbus/codex-peer/internal/testsocket"
 )
 
 func TestLaneModeUsesTokenPresence(t *testing.T) {

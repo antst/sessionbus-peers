@@ -10,9 +10,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/antst/sessionbus-peers/wrappers/host"
 	kit "github.com/antst/sessionbus/bus/sdk/go"
 	"github.com/antst/sessionbus/bus/sdk/go/protocol"
+	"github.com/sessionbus/codex-peer/wrappers/host"
 )
 
 const brokerReconnectInterval = 2 * time.Second
