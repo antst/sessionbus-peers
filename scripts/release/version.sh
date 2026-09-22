@@ -34,6 +34,6 @@ peer_go_build() {
 	peer_build_output=$1
 	peer_build_package=$2
 	go build -trimpath \
-		-ldflags="-s -w -X github.com/sessionbus/codex-peer/internal/peerversion.Release=$peer_release -X github.com/sessionbus/codex-peer/internal/peerversion.Revision=$peer_revision" \
+		-ldflags="-s -w -X github.com/sessionbus/peer-common/peerversion.Release=$peer_release -X github.com/sessionbus/peer-common/peerversion.Revision=$peer_revision" \
 		-o "$peer_build_output" "$peer_build_package"
 }

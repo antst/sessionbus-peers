@@ -1,7 +1,7 @@
-# Codex wrapper and retained common support
+# Codex wrapper
 
-`codex/` is the native adapter. `host/` and `mcp/` are unchanged copies of the
-common support used by the pre-separation implementation. Their extraction to a
-pinned shared module is a separate change; this migration does not redesign them.
-The Bus dependency remains the released public Go SDK, never daemon internals.
-Local imports use `github.com/sessionbus/codex-peer`.
+`codex` retains the native Codex implementation and its regression tests.
+Shared host/MCP/version helpers are imported from the exact `peer-common`
+version pinned in `go.mod` and `go.sum`; there is no local copy or workspace
+replacement. See [the preservation record](../docs/migration/PRESERVED-FILES.json)
+for the original source paths and their current locations.

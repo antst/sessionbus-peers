@@ -12,9 +12,9 @@ import (
 	"syscall"
 
 	sessionkit "github.com/antst/sessionbus/bus/sdk/go"
-	"github.com/sessionbus/codex-peer/internal/peerversion"
 	"github.com/sessionbus/codex-peer/wrappers/codex"
-	"github.com/sessionbus/codex-peer/wrappers/host"
+	"github.com/sessionbus/peer-common/host"
+	"github.com/sessionbus/peer-common/peerversion"
 )
 
 func main() {

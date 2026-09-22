@@ -68,8 +68,10 @@ The stable tag, RELEASE_VERSION and Codex plugin base version must agree.
 CI retains Linux/macOS tests, lint, workflow checks and four-platform packaging.
 Release publication remains disabled while separation is under verification.
 
-`wrappers/host` and `wrappers/mcp` are preserved copies of common support. A
-pinned shared module can replace those copies in a separate reviewed change.
+Shared host/MCP/version support comes from
+[`peer-common`](https://github.com/sessionbus/peer-common) at the exact version
+pinned in `go.mod` and `go.sum`. Updates require explicit review and regression
+checks; a common release does not automatically change this peer.
 The released Bus SDK keeps its existing Go module identity; the GitHub transfer
 is not a reason to rewrite a dependency's module path.
 

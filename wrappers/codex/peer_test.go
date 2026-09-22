@@ -16,9 +16,9 @@ import (
 	"testing"
 
 	sessionkit "github.com/antst/sessionbus/bus/sdk/go"
-	"github.com/sessionbus/codex-peer/internal/testsocket"
-	"github.com/sessionbus/codex-peer/wrappers/host"
-	"github.com/sessionbus/codex-peer/wrappers/mcp"
+	"github.com/sessionbus/peer-common/host"
+	"github.com/sessionbus/peer-common/mcp"
+	"github.com/sessionbus/peer-common/testsocket"
 )
 
 func TestPeerNativeAppDialsOnlyAfterIdentity(t *testing.T) {

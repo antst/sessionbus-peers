@@ -11,7 +11,7 @@ import (
 
 	kit "github.com/antst/sessionbus/bus/sdk/go"
 	"github.com/antst/sessionbus/bus/sdk/go/protocol"
-	"github.com/sessionbus/codex-peer/internal/testsocket"
+	"github.com/sessionbus/peer-common/testsocket"
 )
 
 type seededProduct struct {

@@ -14,7 +14,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 	sessionkit "github.com/antst/sessionbus/bus/sdk/go"
-	"github.com/sessionbus/codex-peer/wrappers/host"
+	"github.com/sessionbus/peer-common/host"
 )
 
 var peerDaemonCommand = exec.CommandContext

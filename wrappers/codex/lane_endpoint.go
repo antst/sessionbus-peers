@@ -11,7 +11,7 @@ import (
 	"path/filepath"
 	"sync"
 
-	"github.com/sessionbus/codex-peer/wrappers/mcp"
+	"github.com/sessionbus/peer-common/mcp"
 )
 
 type laneEndpoint struct {

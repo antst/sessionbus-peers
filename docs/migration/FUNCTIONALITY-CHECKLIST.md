@@ -23,16 +23,16 @@ post-inbound model prompt. Tests stop and preserve their first failure.
 | F04 | Native default approvals/sandbox; scoped Sessionbus grant; reject defeating overrides | arguments_test.go; package_test.go; codex_test.go | Normal-policy Sessionbus call; native unrelated policies remain |
 | F05 | Ordinary native launch stays ordinary | package_test.go; interactive_launch_test.go | Zero-input plain Codex has no managed peer/Sessionbus activation |
 | F06 | Interactive identity/title/groups, rename/fork/clear, native resume | peer_test.go; broker_owners_test.go | Exact native identity/public row join; resumed history preserved |
-| F07 | Discovery/self_info, single/multiple/group messaging and error semantics | wrappers/mcp/*_test.go; public SDK fixtures | Actual native list/send with authenticated receiver correlation |
+| F07 | Discovery/self_info, single/multiple/group messaging and error semantics | pinned peer-common/mcp/*_test.go; public SDK fixtures | Actual native list/send with authenticated receiver correlation |
 | F08 | No-input lane open, native/tool readiness, spawn/resume | codex_test.go; lane_lifetime_test.go | No model input until Run; exact native lane identity |
-| F09 | Run/start/status/wait/ack, result cursor, exact outcome, interrupt | codex_test.go; wake_worker_test.go; wrappers/mcp/lane_test.go | Collect native results before ack; distinct managed runs; resume retains history |
-| F10 | Parent lifecycle operations, completion notification, direct-child trace | wrappers/mcp/trace_policy_test.go; SDK behavior; prior parent acceptance | Native parent operations retained; tracing authority remains daemon-owned |
+| F09 | Run/start/status/wait/ack, result cursor, exact outcome, interrupt | codex_test.go; wake_worker_test.go; pinned peer-common/mcp/lane_test.go | Collect native results before ack; distinct managed runs; resume retains history |
+| F10 | Parent lifecycle operations, completion notification, direct-child trace | pinned peer-common/mcp/trace_policy_test.go; SDK behavior; prior parent acceptance | Native parent operations retained; tracing authority remains daemon-owned |
 | F11 | Interactive idle inbound autonomously wakes | peer_test.go; broker_owners_test.go | One inbound -> exact native reply + final, no post-send model input |
 | F12 | Interactive active inbound admission and later processing | peer_test.go; broker_owners_test.go | Original active identity/process witness -> receipt -> exact reply/final |
 | F13 | Managed idle inbound autonomously wakes | wake_worker_test.go; staging_test.go | One inbound -> automatic managed turn/native reply/final |
 | F14 | Managed active admission/queue, exact current-turn guard | codex_test.go; staging_test.go; wake_worker_test.go | Current turn/pointer unchanged; valid steer or definite not-submitted queue; no replay |
 | F15 | Daemon reconnect while interactive owner lives; no worker resurrection/replay | peer_test.go; broker_owners_test.go; SDK fixtures | Retain native owner and latest identity; outages are not queued replay |
-| F16 | Cancellation/backpressure/protocol bounds/error fidelity | app*_test.go; broker_mux_test.go; broker_transport_test.go; wrappers/mcp/*bounds*_test.go | Controlled race tests are evidence, not invented native outcomes |
+| F16 | Cancellation/backpressure/protocol bounds/error fidelity | app*_test.go; broker_mux_test.go; broker_transport_test.go; pinned peer-common/mcp/*bounds*_test.go | Controlled race tests are evidence, not invented native outcomes |
 | F17 | Normal exit/failed Open/forced native death and owned-process cleanup | lane_lifetime_test.go; broker_watch_test.go; interactive_launch_test.go | Owned rows/processes/endpoints absent; unrelated processes preserved |
 | F18 | Native history retained; persistence/auto-close independent and daemon-owned | codex_test.go; public SDK fixtures; prior lifecycle acceptance | Close does not delete native history; no local scheduler added |
 | F19 | Independent package/module/CI/release and four-platform build | architecture_test.go; package_archive_test.go; release tests; CI | Actual extracted artifact verified; GitHub App/publisher bindings tracked separately |
@@ -80,3 +80,7 @@ qualifications remain in `docs/designs/codex-0.5.0/ACCEPTANCE.md`.
    and lane behavior with the established evidence collectors.
 5. Record failures and limitations without weakening requirements, then review
    the concrete diff/results before publishing or advancing to the next product.
+
+Shared source/test paths are resolved by `current_location` in
+`PRESERVED-FILES.json`, against the exact common commit and module checksum.
+The 69 common tests run in that repository; all Codex-specific tests remain here.

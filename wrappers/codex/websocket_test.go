@@ -18,7 +18,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/sessionbus/codex-peer/internal/testsocket"
+	"github.com/sessionbus/peer-common/testsocket"
 )
 
 func TestPeerWebSocketUpgradeAndFrames(t *testing.T) {

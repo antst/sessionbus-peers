@@ -36,7 +36,7 @@ func TestRepositoryBoundary(t *testing.T) {
 		"RELEASE_VERSION":      true,
 		"architecture_test.go": true, "version_test.go": true, "codex": true, "cmd": true,
 		"docs": true, "go.mod": true, "go.sum": true,
-		"internal": true, "scripts": true, "wrappers": true,
+		"scripts": true, "wrappers": true,
 	}
 	entries, err := os.ReadDir(".")
 	if err != nil {
@@ -47,7 +47,7 @@ func TestRepositoryBoundary(t *testing.T) {
 			t.Errorf("path is outside the peers boundary: %s", entry.Name())
 		}
 	}
-	for _, path := range []string{"bus", "integrations", "deploy", "examples", ".specify", ".agents", ".codex-plugin", "hooks", "skills", "go.work", "go.work.sum", "Makefile"} {
+	for _, path := range []string{"internal", "wrappers/host", "wrappers/mcp", "scripts/cleanup-legacy", "bus", "integrations", "deploy", "examples", ".specify", ".agents", ".codex-plugin", "hooks", "skills", "go.work", "go.work.sum", "Makefile"} {
 		if _, err := os.Stat(filepath.FromSlash(path)); !os.IsNotExist(err) {
 			t.Errorf("legacy or cross-repository path remains: %s", path)
 		}
@@ -57,8 +57,8 @@ func TestRepositoryBoundary(t *testing.T) {
 	if !equalStrings(gotCommands, wantCommands) {
 		t.Errorf("peer command roots = %v, want %v", gotCommands, wantCommands)
 	}
-	if got := directoryNames(t, "internal"); !equalStrings(got, []string{"peerversion", "testsocket"}) {
-		t.Errorf("internal roots = %v, want [peerversion testsocket]", got)
+	if got := directoryNames(t, "wrappers"); !equalStrings(got, []string{"codex"}) {
+		t.Errorf("wrapper roots = %v, want [codex]", got)
 	}
 	if _, err := os.Stat(".github/workflows/release.yml"); !os.IsNotExist(err) {
 		t.Fatal("initial peers root must not contain a release workflow")
@@ -69,6 +69,9 @@ func TestModuleAndImportBoundary(t *testing.T) {
 	module := read(t, "go.mod")
 	if !bytes.Contains(module, []byte("module "+peersModule+"\n")) || !bytes.Contains(module, []byte(sdkModule+" "+sdkVersion)) {
 		t.Fatalf("go.mod violates the peers module shape:\n%s", module)
+	}
+	if !bytes.Contains(module, []byte("github.com/sessionbus/peer-common v0.0.0-20260922143100-eb655f686e44")) {
+		t.Fatal("shared support must use the reviewed immutable module version")
 	}
 	if bytes.Contains(module, []byte("replace ")) {
 		t.Fatal("peers go.mod contains a filesystem replacement")

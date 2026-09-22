@@ -16,7 +16,7 @@ import (
 	"sync"
 
 	sessionkit "github.com/antst/sessionbus/bus/sdk/go"
-	"github.com/sessionbus/codex-peer/wrappers/host"
+	"github.com/sessionbus/peer-common/host"
 )
 
 const Product = "codex-peer"
