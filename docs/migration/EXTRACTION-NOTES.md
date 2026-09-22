@@ -37,8 +37,12 @@ baseline after only the permitted import/README URL normalization.
 
 The earlier a97 extraction was installed and reinstalled successfully. That
 installation did not include this common pin and ran no native model tests.
-Installed consumer validation is pending and must identify the new commit/binary.
-Do not treat these local checks or earlier acceptance as an installed pass.
+The common-pinned a9dda5d build was subsequently installed and reinstalled, and
+four fresh wake cells passed independent raw review on native Codex 0.155.1.
+Exact archive/binary/evidence seals and coverage limits are recorded in the
+[functionality checklist](FUNCTIONALITY-CHECKLIST.md#fresh-extracted-build-acceptance).
+PR61 merged at a9977bd with a tree identical to the tested source. No release
+was published, and the earlier a97 evidence retains its original provenance.
 
 Compatibility installer scripts for the other seven products are retained solely
 for previously published raw links. Default/latest resolves to the immutable
