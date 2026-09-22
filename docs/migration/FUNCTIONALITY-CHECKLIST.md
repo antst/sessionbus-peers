@@ -6,9 +6,9 @@ make a failed check pass. Corrections must state the original claim, source
 reason, behavior impact and remaining gap. Native unsupported behavior stays
 explicit, not silently implemented or counted as a pass.
 
-Status for this extraction: **local verification in progress; installed checks
-pending**. Historical Codex wake acceptance is 4/4, separately recorded below.
-Passing old evidence or unit tests alone does not complete this migration.
+Status for this extraction: **merged after source preservation, controlled checks,
+permanent installation and four fresh installed wake checks passed**. Historical
+results remain separate below; the new evidence does not relabel them.
 
 Each result must identify source revision, artifact hash, native version,
 permanent installation and whether it is controlled-test, historical or fresh
@@ -84,3 +84,45 @@ qualifications remain in `docs/designs/codex-0.5.0/ACCEPTANCE.md`.
 Shared source/test paths are resolved by `current_location` in
 `PRESERVED-FILES.json`, against the exact common commit and module checksum.
 The 69 common tests run in that repository; all Codex-specific tests remain here.
+
+## Fresh extracted-build acceptance
+
+Tested source: `a9dda5d7290fc1c22366c0821ae2d403d30fd651`; extraction merged as
+`a9977bde52ae018a051c7dbb7d78f93362ba7941` with the identical tree. Shared module:
+`github.com/sessionbus/peer-common v0.0.0-20260922143100-eb655f686e44`.
+Linux-amd64 archive SHA-256:
+`20942e4d29972ed1295b6874452a631bc88e9d154fa1464999737b53d1206751`;
+installed wrapper SHA-256:
+`ec7e9803abe67ed4dd824feccf20b83cc64db6e26e379b39a755fd6ffdbc3e60`.
+
+Permanent install and idempotent reinstall evidence seal:
+`cf4496b2c8aedbe074d07dc2e2dd4a5c0262df68afb4fbef45369cfbc620e980`.
+Native Codex subsequently updated from 0.153.4 to 0.155.1; wrapper, common pin,
+config and plugin remained unchanged. The refreshed test adapter is sealed as
+`abf020e0985e0ae87ce13db005bfa53b1814e1c1ef314976494326f5e337dc71`.
+Exact native versions/hashes identify what was tested, not a runtime version
+allowlist. Users are expected to update native clients routinely.
+
+| Requirement | Fresh cell on native 0.155.1 | Evidence manifest SHA-256 |
+|---|---|---|
+| F13 managed idle | CSW922B | 08f08835769ff92d6efb601ef2fb85051d5c6c31c34f66de09c944ebf0096d9c |
+| F14 managed active | CSW922C | b7853e2218b80795af71385cc2e4325b4d8ca0558af7863552913109335ff6e6 |
+| F11 interactive idle | CSW922D | 4544c8f42cd1607dd92f3e03d35aadb2e74075506d4871f56221835bc247cda3 |
+| F12 interactive active | CSW922E | 563e0eabb34c057516c6324a42fb56ab6f8924a24c709f150bbaa7082ece29d1 |
+
+Dev2 independently accepted all four raw packets without findings. Each binds
+one inbound, the exact authenticated native envelope, one correlated Sessionbus
+reply, exact final and completed terminal, no post-inbound harness model input
+or replay, and owned cleanup. Idle cells start an automatic turn; active cells
+inject into the original turn under the existing Codex contract. The initial
+CSW922A usage-limit failure remains a separate zero-inbound diagnostic, not a
+wake result. Packets live under
+`/home/antst/sessionbus-evidence/codex-split-wake-installed-dev1-20260922`.
+
+These fresh tests directly cover F11–F14 and their identity, communication,
+terminal and cleanup joins. Broader F01–F20 coverage retains the controlled and
+historical qualifications in the table; no claim is made that every feature was
+retested with a live model. Source preservation, retained tests/race/vet/lint,
+hosted Linux/macOS checks and four-platform archive checks passed. Release
+publication remains held. See [PR61](https://github.com/sessionbus/codex-peer/pull/61)
+for the source reviews and installed acceptance record.
