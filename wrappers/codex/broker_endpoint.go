@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"sync"
 
-	"github.com/antst/sessionbus-peers/wrappers/mcp"
+	"github.com/sessionbus/peer-common/mcp"
 )
 
 func netListenBroker(path string) (net.Listener, error) { return net.Listen("unix", path) }

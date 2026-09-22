@@ -13,9 +13,9 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/antst/sessionbus-peers/wrappers/host"
-	"github.com/antst/sessionbus-peers/wrappers/mcp"
 	sessionkit "github.com/antst/sessionbus/bus/sdk/go"
+	"github.com/sessionbus/peer-common/host"
+	"github.com/sessionbus/peer-common/mcp"
 )
 
 type PeerBackend struct {

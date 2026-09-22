@@ -11,10 +11,10 @@ import (
 	"path/filepath"
 	"syscall"
 
-	"github.com/antst/sessionbus-peers/internal/peerversion"
-	"github.com/antst/sessionbus-peers/wrappers/codex"
-	"github.com/antst/sessionbus-peers/wrappers/host"
 	sessionkit "github.com/antst/sessionbus/bus/sdk/go"
+	"github.com/sessionbus/codex-peer/wrappers/codex"
+	"github.com/sessionbus/peer-common/host"
+	"github.com/sessionbus/peer-common/peerversion"
 )
 
 func main() {

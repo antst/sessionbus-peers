@@ -13,8 +13,8 @@ import (
 	"strings"
 
 	"github.com/BurntSushi/toml"
-	"github.com/antst/sessionbus-peers/wrappers/host"
 	sessionkit "github.com/antst/sessionbus/bus/sdk/go"
+	"github.com/sessionbus/peer-common/host"
 )
 
 var peerDaemonCommand = exec.CommandContext

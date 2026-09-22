@@ -1,4 +1,4 @@
-module github.com/antst/sessionbus-peers
+module github.com/sessionbus/codex-peer
 
 go 1.24
 
@@ -9,3 +9,5 @@ require (
 )
 
 require github.com/coder/websocket v1.8.15
+
+require github.com/sessionbus/peer-common v0.0.0-20260922143100-eb655f686e44

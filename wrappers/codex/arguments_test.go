@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/antst/sessionbus-peers/wrappers/host"
+	"github.com/sessionbus/peer-common/host"
 )
 
 func TestProcessArguments(t *testing.T) {

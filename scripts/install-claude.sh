@@ -3,7 +3,11 @@
 # Download a checksummed release; the archive owns the installation recipe.
 set -eu
 role=claude
-version=${SESSIONBUS_VERSION:-latest}
+# Compatibility entrypoint for links published before the repository split.
+# New product releases belong to the destination repository shown below.
+version=${SESSIONBUS_VERSION:-v0.5.3}
+[ "$version" != latest ] || version=v0.5.3
+printf '%s\n' 'Legacy claude installer: default pinned to the final combined release v0.5.3. New releases: https://github.com/sessionbus/claude-peer .' >&2
 case "$version" in ''|*[!A-Za-z0-9._-]*) echo 'Invalid SESSIONBUS_VERSION' >&2; exit 1;; esac
 case "$(uname -s)" in Linux) platform=linux;; Darwin) platform=darwin;; *) echo 'Supported systems: Linux and macOS' >&2; exit 1;; esac
 case "$(uname -m)" in x86_64|amd64) arch=amd64;; aarch64|arm64) arch=arm64;; *) echo 'Supported architectures: amd64 and arm64' >&2; exit 1;; esac
@@ -11,22 +15,9 @@ for cmd in curl tar awk mktemp; do command -v "$cmd" >/dev/null || { echo "Requi
 asset="$role-peer-$platform-$arch.tar.gz"
 if [ -n "${SESSIONBUS_DOWNLOAD_ROOT:-}" ]; then
  base=$SESSIONBUS_DOWNLOAD_ROOT
-elif [ "$version" = latest ]; then
- # Resolve the redirect without fetching the release page, which may fail
- # independently of downloads. Pin both downloads to the same stable tag.
- release=$(curl -IsS --retry 2 --connect-timeout 10 --max-time 30 -o /dev/null -w '%{http_code} %{redirect_url}' https://github.com/antst/sessionbus-peers/releases/latest)
- case "$release" in
-  30[12378]' https://github.com/antst/sessionbus-peers/releases/tag/'*)
-   tag=${release#*https://github.com/antst/sessionbus-peers/releases/tag/}
-   awk -v tag="$tag" 'BEGIN { exit(tag !~ /^v[0-9]+[.][0-9]+[.][0-9]+$/) }' || { echo "Invalid stable peer release redirect ($release)" >&2; exit 1; }
-   base=https://github.com/antst/sessionbus-peers/releases/download/$tag;;
-  30[12378]' https://github.com/antst/sessionbus-peers/releases')
-   echo 'No stable peer release yet; installing the published development build.' >&2
-   base=https://github.com/antst/sessionbus-peers/releases/download/development;;
-  *) echo "Cannot determine latest peer release ($release)" >&2; exit 1;;
- esac
+
 else
- base=https://github.com/antst/sessionbus-peers/releases/download/$version
+ base=https://github.com/sessionbus/codex-peer/releases/download/$version
 fi
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' 0

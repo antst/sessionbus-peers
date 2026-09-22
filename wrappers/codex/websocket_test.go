@@ -18,7 +18,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/antst/sessionbus-peers/internal/testsocket"
+	"github.com/sessionbus/peer-common/testsocket"
 )
 
 func TestPeerWebSocketUpgradeAndFrames(t *testing.T) {

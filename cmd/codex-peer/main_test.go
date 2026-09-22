@@ -13,7 +13,7 @@ import (
 	"syscall"
 	"testing"
 
-	"github.com/antst/sessionbus-peers/wrappers/codex"
+	"github.com/sessionbus/codex-peer/wrappers/codex"
 )
 
 func TestInstalledPublicEntryAndPrivateBrokerSignal(t *testing.T) {

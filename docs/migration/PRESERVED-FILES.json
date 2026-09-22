@@ -1,0 +1,1047 @@
+{
+  "source_commit": "710e5d33369cba4fb9468cd24fea0fe844a0219d",
+  "permitted_runtime_change": "Only module/import relocation and gofmt; shared files reside in the exact pinned peer-common revision. Native identifiers, runtime bodies and SDK imports unchanged.",
+  "files": [
+    {
+      "path": "cmd/codex-peer/main.go",
+      "sha256": "28e68880cff5a00d90ca0be166e2136c9054b0bd91eb453e638c98ceff1d8e15",
+      "mode": "0o664",
+      "protected": true,
+      "tests": [],
+      "current_location": {
+        "repository": "sessionbus/codex-peer",
+        "path": "cmd/codex-peer/main.go"
+      }
+    },
+    {
+      "path": "cmd/codex-peer/main_test.go",
+      "sha256": "1db1eee4d8d8cc7694e0a3bfc5180e88e8f3e4b69d5e02ce2fb08a3ad81242af",
+      "mode": "0o664",
+      "protected": true,
+      "tests": [
+        "TestInstalledPublicEntryAndPrivateBrokerSignal"
+      ],
+      "current_location": {
+        "repository": "sessionbus/codex-peer",
+        "path": "cmd/codex-peer/main_test.go"
+      }
+    },
+    {
+      "path": "codex/README.md",
+      "sha256": "af65f870f1b806a690bd790137b9c3d81afabb7b9fc43643a3b96be99635a684",
+      "mode": "0o664",
+      "protected": true,
+      "tests": [],
+      "current_location": {
+        "repository": "sessionbus/codex-peer",
+        "path": "codex/README.md"
+      }
+    },
+    {
+      "path": "codex/THIRD-PARTY-NOTICES.txt",
+      "sha256": "ad571bc8f2264f4abd09382591d96ebbf9f0f67f33c5fc1c5715fbc891eb1be0",
+      "mode": "0o664",
+      "protected": true,
+      "tests": [],
+      "current_location": {
+        "repository": "sessionbus/codex-peer",
+        "path": "codex/THIRD-PARTY-NOTICES.txt"
+      }
+    },
+    {
+      "path": "codex/install",
+      "sha256": "1d6bb6776cf6748f02fbb9a0bcf2764d99ca4fff65fdd9525c12c3c93ba9e7c1",
+      "mode": "0o775",
+      "protected": true,
+      "tests": [],
+      "current_location": {
+        "repository": "sessionbus/codex-peer",
+        "path": "codex/install"
+      }
+    },
+    {
+      "path": "codex/marketplace/.agents/plugins/marketplace.json",
+      "sha256": "41f030e1abea933f4ad8cdfa270b86716744a3fe63855d3cffb0fadbdc08467b",
+      "mode": "0o664",
+      "protected": true,
+      "tests": [],
+      "current_location": {
+        "repository": "sessionbus/codex-peer",
+        "path": "codex/marketplace/.agents/plugins/marketplace.json"
+      }
+    },
+    {
+      "path": "codex/marketplace/codex/.codex-plugin/plugin.json",
+      "sha256": "7d753d16da0885efd0c34ecdc3eaa054a71f2fdd607f8b0a098a32210d8c7639",
+      "mode": "0o664",
+      "protected": true,
+      "tests": [],
+      "current_location": {
+        "repository": "sessionbus/codex-peer",
+        "path": "codex/marketplace/codex/.codex-plugin/plugin.json"
+      }
+    },
+    {
+      "path": "codex/marketplace/codex/.mcp.json",
+      "sha256": "6a998a46ce7a5954a71f8890e2d3d8ea2a21389b2f8d54e6cfa40e68de8b0757",
+      "mode": "0o664",
+      "protected": true,
+      "tests": [],
+      "current_location": {
+        "repository": "sessionbus/codex-peer",
+        "path": "codex/marketplace/codex/.mcp.json"
+      }
+    },
+    {
+      "path": "codex/marketplace/codex/skills/sessionbus/SKILL.md",
+      "sha256": "904ebb28be00b8603c1d298e73e0616565345dc91227d4422e7ca86d6a08c92c",
+      "mode": "0o664",
+      "protected": true,
+      "tests": [],
+      "current_location": {
+        "repository": "sessionbus/codex-peer",
+        "path": "codex/marketplace/codex/skills/sessionbus/SKILL.md"
+      }
+    },
+    {
+      "path": "codex/uninstall",
+      "sha256": "6e1c82391b998cbf7b828b7305c7eb29ceabf24d3f0b6144901825bc31b365dc",
+      "mode": "0o775",
+      "protected": true,
+      "tests": [],
+      "current_location": {
+        "repository": "sessionbus/codex-peer",
+        "path": "codex/uninstall"
+      }
+    },
+    {
+      "path": "internal/peerversion/version.go",
+      "sha256": "eba3a70af92bd7c53ca78422fc96b6b223c1cd81eca72a09430499a042982d2d",
+      "mode": "0o664",
+      "protected": true,
+      "tests": [],
+      "current_location": {
+        "repository": "sessionbus/peer-common",
+        "commit": "eb655f686e4456a4c1121054763318e3d27e89b0",
+        "path": "peerversion/version.go"
+      }
+    },
+    {
+      "path": "internal/peerversion/version_test.go",
+      "sha256": "10e619661cebe9dd7ac3c34e9d60a57ecf76cd48b1334cc501499968a1817aee",
+      "mode": "0o664",
+      "protected": true,
+      "tests": [
+        "TestResolvePublicVersionAndNativeEscape",
+        "TestResolveKeepsPrivateAndNonExactArguments"
+      ],
+      "current_location": {
+        "repository": "sessionbus/peer-common",
+        "commit": "eb655f686e4456a4c1121054763318e3d27e89b0",
+        "path": "peerversion/version_test.go"
+      }
+    },
+    {
+      "path": "internal/testsocket/directory.go",
+      "sha256": "373cdb0e9219c4235ff88dc11a30987bec1725939a6e02df58087adf00ce74c0",
+      "mode": "0o664",
+      "protected": true,
+      "tests": [],
+      "current_location": {
+        "repository": "sessionbus/peer-common",
+        "commit": "eb655f686e4456a4c1121054763318e3d27e89b0",
+        "path": "testsocket/directory.go"
+      }
+    },
+    {
+      "path": "internal/testsocket/directory_test.go",
+      "sha256": "6e40eed060759a1eaf1cac5e552bed9113e5e5e28e0132e597ce16a741e696dc",
+      "mode": "0o664",
+      "protected": true,
+      "tests": [
+        "TestDirectoryUsesDefaultSessionSocketParent",
+        "TestDirectoryResolvesSymlinkBeforeBindingSocket"
+      ],
+      "current_location": {
+        "repository": "sessionbus/peer-common",
+        "commit": "eb655f686e4456a4c1121054763318e3d27e89b0",
+        "path": "testsocket/directory_test.go"
+      }
+    },
+    {
+      "path": "wrappers/codex/alias_values_test.go",
+      "sha256": "c88a8b6e6ec0c5237700ec3241edb8d1f0e356b1548d3a21e73058f953a64b95",
+      "mode": "0o664",
+      "protected": true,
+      "tests": [
+        "TestAliasTokensRemainRequiredNativeValues",
+        "TestAliasNativeValueBoundaries"
+      ],
+      "current_location": {
+        "repository": "sessionbus/codex-peer",
+        "path": "wrappers/codex/alias_values_test.go"
+      }
+    },
+    {
+      "path": "wrappers/codex/app.go",
+      "sha256": "d5356ab195b09340166b030cf62bf932ae545b054a86eb32fdc701d191149780",
+      "mode": "0o664",
+      "protected": true,
+      "tests": [],
+      "current_location": {
+        "repository": "sessionbus/codex-peer",
+        "path": "wrappers/codex/app.go"
+      }
+    },
+    {
+      "path": "wrappers/codex/app_bound_test.go",
+      "sha256": "91de322a7e6be0307728789de9928192de747197a2a1fa8c96d34bd12a004f72",
+      "mode": "0o664",
+      "protected": true,
+      "tests": [
+        "TestNativeCancelledDrainBoundAndLateResponses",
+        "TestNativeClaimedObserverCompletionWinsCancellation",
+        "TestNativeIncomingRequestBound",
+        "TestNativeResolutionCancelsMatchingNestedRequest"
+      ],
+      "current_location": {
+        "repository": "sessionbus/codex-peer",
+        "path": "wrappers/codex/app_bound_test.go"
+      }
+    },
+    {
+      "path": "wrappers/codex/app_test.go",
+      "sha256": "4780e5ba186a79588e53d9a6bb950ef7a1e557af2a24b643cd39d1e166381403",
+      "mode": "0o664",
+      "protected": true,
+      "tests": [
+        "TestAppClientCapturedFrames",
+        "TestAppClientProtocolFailures",
+        "TestAppClientServerRequest",
+        "TestAppClientPreCanceledCallWritesNothing",
+        "TestAppClientCanceledCallDrainsResponse"
+      ],
+      "current_location": {
+        "repository": "sessionbus/codex-peer",
+        "path": "wrappers/codex/app_test.go"
+      }
+    },
+    {
+      "path": "wrappers/codex/app_write_test.go",
+      "sha256": "6feeafa066825f0c1f4b06b4239b2b57cc22cc1dc3b50b63feadd367bd5a2a5f",
+      "mode": "0o664",
+      "protected": true,
+      "tests": [
+        "TestNativeWriteCancellationAndFailure"
+      ],
+      "current_location": {
+        "repository": "sessionbus/codex-peer",
+        "path": "wrappers/codex/app_write_test.go"
+      }
+    },
+    {
+      "path": "wrappers/codex/arguments.go",
+      "sha256": "14dedb99a353e3e3a304fb083ab3f044768583ee955f0b7afb2f864d8f7e5721",
+      "mode": "0o664",
+      "protected": true,
+      "tests": [],
+      "current_location": {
+        "repository": "sessionbus/codex-peer",
+        "path": "wrappers/codex/arguments.go"
+      }
+    },
+    {
+      "path": "wrappers/codex/arguments_test.go",
+      "sha256": "d398b618d612a9a75b7b254c5276f4dfb609187136ad01178327ddd21b77ed38",
+      "mode": "0o664",
+      "protected": true,
+      "tests": [
+        "TestProcessArguments",
+        "TestManagedConfigCannotBeReplacedByCaller",
+        "TestManagedConfigPreservesEquivalentEnables",
+        "TestManagedConfigCannotBeReplacedInInteractiveLaunch",
+        "TestManagedGrantCoexistsWithYoloAndNativeBypass",
+        "TestLaneBypassPreservesValuesAndBoundary",
+        "TestPermissionAndName",
+        "TestInteractivePlan",
+        "TestInteractivePlanRemoteAndPassthrough",
+        "TestInteractiveDaemonStartScrubsBusEnvironment",
+        "TestCodexDaemonProcess"
+      ],
+      "current_location": {
+        "repository": "sessionbus/codex-peer",
+        "path": "wrappers/codex/arguments_test.go"
+      }
+    },
+    {
+      "path": "wrappers/codex/broker_endpoint.go",
+      "sha256": "567e10dab68feff0edaf136bd3cf3c596d9435f61ff063cb2f9306ea828025c2",
+      "mode": "0o664",
+      "protected": true,
+      "tests": [],
+      "current_location": {
+        "repository": "sessionbus/codex-peer",
+        "path": "wrappers/codex/broker_endpoint.go"
+      }
+    },
+    {
+      "path": "wrappers/codex/broker_mux.go",
+      "sha256": "6fb8343e3dd88656b8b1bd145db3726be8172d98795751bc4120c5929646fe9e",
+      "mode": "0o664",
+      "protected": true,
+      "tests": [],
+      "current_location": {
+        "repository": "sessionbus/codex-peer",
+        "path": "wrappers/codex/broker_mux.go"
+      }
+    },
+    {
+      "path": "wrappers/codex/broker_mux_test.go",
+      "sha256": "fb7b26b8cd3b8501ee9937f02d5cab2bc123b6caa4998480827485861d836043",
+      "mode": "0o664",
+      "protected": true,
+      "tests": [
+        "TestBrokerMuxInitializeAndOpaqueIDs",
+        "TestBrokerMuxServerRequestAndResolvedTranslation",
+        "TestBrokerMuxCancelledCallDrainsAndReaderProgresses",
+        "TestBrokerMuxInternalWaitsForNativeInitialize",
+        "TestBrokerMuxResponseObservationPrecedesNextFrame",
+        "TestBrokerRejectsNullIDWithoutAliasingEmptyString",
+        "TestBrokerAggregateByteBudgetAndRelease",
+        "TestBrokerMuxClaimedNativeAdmissionWinsCancellation"
+      ],
+      "current_location": {
+        "repository": "sessionbus/codex-peer",
+        "path": "wrappers/codex/broker_mux_test.go"
+      }
+    },
+    {
+      "path": "wrappers/codex/broker_owners.go",
+      "sha256": "179331ba36f5ec94852a5554863840da49bc9902d45ffb621d9c317c207d50cc",
+      "mode": "0o664",
+      "protected": true,
+      "tests": [],
+      "current_location": {
+        "repository": "sessionbus/codex-peer",
+        "path": "wrappers/codex/broker_owners.go"
+      }
+    },
+    {
+      "path": "wrappers/codex/broker_owners_test.go",
+      "sha256": "d4ce90f4697b0afeebbbefe2ff2beee88cfd86226fb34c53d52123a718f3c13e",
+      "mode": "0o664",
+      "protected": true,
+      "tests": [
+        "TestBrokerResidentIdentityReadyRenameAndClosed",
+        "TestBrokerResidentToolAndDeliveryMakeProgressTogether",
+        "TestBrokerResidentReconnectsLatestIdentityAndDoesNotReplayLostCall",
+        "TestBrokerOwnerEndJoinsCanceledDialAndHelloWrite",
+        "TestBrokerInvalidHelloIsTerminalWithoutReconnect",
+        "TestBrokerResidentRecoversWhenDaemonAbsentAtStartup",
+        "TestBrokerResidentHeldDialPublishesLatestGenerationOnly",
+        "TestBrokerSupersessionIsTerminalAndJoinsReconnectWork",
+        "TestBrokerSupersessionRetiresBeforeHeldAckAndLateCatalog",
+        "TestBrokerInitialNameOnlyCorrelatedTUISelection",
+        "TestBrokerMCPForwarderCatalogEOFDoesNotWithdrawResident",
+        "TestBrokerActiveDeliveryUsesExpectedNativeTurnAndNoReplay"
+      ],
+      "current_location": {
+        "repository": "sessionbus/codex-peer",
+        "path": "wrappers/codex/broker_owners_test.go"
+      }
+    },
+    {
+      "path": "wrappers/codex/broker_transport.go",
+      "sha256": "9141b7bba9974c434e4eddcac47b07c7f5e88f2d783ad12ac5d5aead6a5e2080",
+      "mode": "0o664",
+      "protected": true,
+      "tests": [],
+      "current_location": {
+        "repository": "sessionbus/codex-peer",
+        "path": "wrappers/codex/broker_transport.go"
+      }
+    },
+    {
+      "path": "wrappers/codex/broker_transport_test.go",
+      "sha256": "ce82b72e2b3f67353a33f5e3db7c392c12837213e6237be26b25ebfdf72fa8bc",
+      "mode": "0o664",
+      "protected": true,
+      "tests": [
+        "TestBrokerWebSocketFragmentationPingAndSingleClient"
+      ],
+      "current_location": {
+        "repository": "sessionbus/codex-peer",
+        "path": "wrappers/codex/broker_transport_test.go"
+      }
+    },
+    {
+      "path": "wrappers/codex/broker_watch_darwin.go",
+      "sha256": "8706b150f4e79196255c581caaa46f381b0b37890190160120c5dd306f5a69e7",
+      "mode": "0o664",
+      "protected": true,
+      "tests": [],
+      "current_location": {
+        "repository": "sessionbus/codex-peer",
+        "path": "wrappers/codex/broker_watch_darwin.go"
+      }
+    },
+    {
+      "path": "wrappers/codex/broker_watch_linux.go",
+      "sha256": "6d60d7140bedfd1f242fc22a2bc58ca8eb39c1a66bcb73f047e9c7814f94cd72",
+      "mode": "0o664",
+      "protected": true,
+      "tests": [],
+      "current_location": {
+        "repository": "sessionbus/codex-peer",
+        "path": "wrappers/codex/broker_watch_linux.go"
+      }
+    },
+    {
+      "path": "wrappers/codex/broker_watch_test.go",
+      "sha256": "f3a516e906846fb85da3c486b9034f5f94124d237640cdb5099871f4d2fb6ef4",
+      "mode": "0o664",
+      "protected": true,
+      "tests": [
+        "TestBrokerParentWatchAcrossExecAndExit",
+        "TestBrokerWatchFixture",
+        "TestBrokerParentWatchRejectsWrongParent",
+        "TestBrokerParentWatchCancellation"
+      ],
+      "current_location": {
+        "repository": "sessionbus/codex-peer",
+        "path": "wrappers/codex/broker_watch_test.go"
+      }
+    },
+    {
+      "path": "wrappers/codex/codex.go",
+      "sha256": "a8929077a8ccb17a53c6a54d2346bf35f030605962e17802841524a633e78d20",
+      "mode": "0o664",
+      "protected": true,
+      "tests": [],
+      "current_location": {
+        "repository": "sessionbus/codex-peer",
+        "path": "wrappers/codex/codex.go"
+      }
+    },
+    {
+      "path": "wrappers/codex/codex_test.go",
+      "sha256": "82cde68e56b79d45d0e674bff8af7d31a03cd3132022f429b12686024da28015",
+      "mode": "0o664",
+      "protected": true,
+      "tests": [
+        "TestWrapperFreshOpenAndClose",
+        "TestWrapperLaneBypassUsesAppServerPolicy",
+        "TestCodexProcess",
+        "TestAbnormalRunCarriesNothingIntoReopen",
+        "TestLargeTerminalFrameDrainsAfterExit",
+        "TestLaneRunSteerAndTerminal",
+        "TestLaneBypassTurnUsesAppServerPolicy",
+        "TestTerminalFinalAnswerProjection",
+        "TestLaneInterruptAfterNativeStart",
+        "TestLaneTerminalBeforeSteerResponseRetainsAdmission",
+        "TestCompletedTurnRequiresFinalAnswer",
+        "TestCapturedFailedTurn",
+        "TestOpenEffectiveSettings"
+      ],
+      "current_location": {
+        "repository": "sessionbus/codex-peer",
+        "path": "wrappers/codex/codex_test.go"
+      }
+    },
+    {
+      "path": "wrappers/codex/interactive_launch.go",
+      "sha256": "525de6aa20a0bb0ebcc6c5985068ff32a4d1d76ead5fefd2a07a1d93f55a3f90",
+      "mode": "0o664",
+      "protected": true,
+      "tests": [],
+      "current_location": {
+        "repository": "sessionbus/codex-peer",
+        "path": "wrappers/codex/interactive_launch.go"
+      }
+    },
+    {
+      "path": "wrappers/codex/interactive_launch_test.go",
+      "sha256": "86d051a139734be0a27bc87bc9a37fa45a32aa58ae05e6ca572512bb0d5befce",
+      "mode": "0o664",
+      "protected": true,
+      "tests": [
+        "TestBrokerNativeFixture",
+        "TestBrokerProcessCancellationClosesSoleStdinAndJoins",
+        "TestBrokerEnvironmentPreservesNativeHomeAndOnlyLaunchEndpoint"
+      ],
+      "current_location": {
+        "repository": "sessionbus/codex-peer",
+        "path": "wrappers/codex/interactive_launch_test.go"
+      }
+    },
+    {
+      "path": "wrappers/codex/interactive_options.go",
+      "sha256": "749b24602e3ca6d6443af0e3c5015dcd5501605e1b7a77806df2650ee2f64cc9",
+      "mode": "0o664",
+      "protected": true,
+      "tests": [],
+      "current_location": {
+        "repository": "sessionbus/codex-peer",
+        "path": "wrappers/codex/interactive_options.go"
+      }
+    },
+    {
+      "path": "wrappers/codex/interactive_options_test.go",
+      "sha256": "ba0499d752469cc175c8146496f07396f0d7be26fb5a232e295289d4ad1f3808",
+      "mode": "0o664",
+      "protected": true,
+      "tests": [
+        "TestInteractiveConfigSpellingsAndWrapperGroups",
+        "TestInteractiveRejectsCallerRemote",
+        "TestInteractiveInitialNameAndNativeDelimiter"
+      ],
+      "current_location": {
+        "repository": "sessionbus/codex-peer",
+        "path": "wrappers/codex/interactive_options_test.go"
+      }
+    },
+    {
+      "path": "wrappers/codex/lane_endpoint.go",
+      "sha256": "e95ba2eb1c366b5432ff7a2361604cab0c5aaede103644dd9d0a76ded529306b",
+      "mode": "0o664",
+      "protected": true,
+      "tests": [],
+      "current_location": {
+        "repository": "sessionbus/codex-peer",
+        "path": "wrappers/codex/lane_endpoint.go"
+      }
+    },
+    {
+      "path": "wrappers/codex/lane_lifetime_test.go",
+      "sha256": "620334cfd2513c5be2c0e6d3e0c62851adf185cf98049247fabceaf12497c62e",
+      "mode": "0o664",
+      "protected": true,
+      "tests": [
+        "TestNativeLifetimeOutlivesCompletedOpenContext",
+        "TestStartupCancellationCannotCommitOpen",
+        "TestClosingExpectedEOFDoesNotAbortNativeLifetime",
+        "TestCodexCloseProcess",
+        "TestCloseRetainsExitDrainAndInputErrors",
+        "TestFailedOpenJoinsNativeAndRemovesEndpoint",
+        "TestForwarderEndRequiresNativeCallBinding"
+      ],
+      "current_location": {
+        "repository": "sessionbus/codex-peer",
+        "path": "wrappers/codex/lane_lifetime_test.go"
+      }
+    },
+    {
+      "path": "wrappers/codex/lane_process.go",
+      "sha256": "b4b75b28e2452d075e3efaaf5c8ded2fc9f75bd7ad520916d33db1166c62ebd1",
+      "mode": "0o664",
+      "protected": true,
+      "tests": [],
+      "current_location": {
+        "repository": "sessionbus/codex-peer",
+        "path": "wrappers/codex/lane_process.go"
+      }
+    },
+    {
+      "path": "wrappers/codex/lane_tools.go",
+      "sha256": "338437409aa55001908a1e0a2a81a530a69c35fd2ede8fc331ac223f3affe5ad",
+      "mode": "0o664",
+      "protected": true,
+      "tests": [],
+      "current_location": {
+        "repository": "sessionbus/codex-peer",
+        "path": "wrappers/codex/lane_tools.go"
+      }
+    },
+    {
+      "path": "wrappers/codex/package.go",
+      "sha256": "faf6f1b8750103919bf3c0a3f76eb802bf8600d4b7cf0e8434e417aad5eb76a0",
+      "mode": "0o664",
+      "protected": true,
+      "tests": [],
+      "current_location": {
+        "repository": "sessionbus/codex-peer",
+        "path": "wrappers/codex/package.go"
+      }
+    },
+    {
+      "path": "wrappers/codex/package_archive_test.go",
+      "sha256": "1f7b358f3496c05137a1aa7d3da8f4fcd54ce8e0ce18b1e2df7e63f00723baf5",
+      "mode": "0o664",
+      "protected": true,
+      "tests": [
+        "TestCodexArchiveContainsOneArtifactAndOneGenericSkill",
+        "TestInstallReplacesOwnedMarketplaceWithoutStaleSkills"
+      ],
+      "current_location": {
+        "repository": "sessionbus/codex-peer",
+        "path": "wrappers/codex/package_archive_test.go"
+      }
+    },
+    {
+      "path": "wrappers/codex/package_test.go",
+      "sha256": "601c8ac46293b77fa872a982cf420db342ba757aa23c3fda76d4ed44a025d9a8",
+      "mode": "0o664",
+      "protected": true,
+      "tests": [
+        "TestCodexInstallProcess",
+        "TestNativeInstallerMakesOnlyExactUserKeyEdit",
+        "TestPackageRegistersAbsoluteAliasAndReturnedNativePath",
+        "TestActivationPrefixIncludesExactToolGrant"
+      ],
+      "current_location": {
+        "repository": "sessionbus/codex-peer",
+        "path": "wrappers/codex/package_test.go"
+      }
+    },
+    {
+      "path": "wrappers/codex/peer.go",
+      "sha256": "9de08df800aa0477e57b644ad1b19f65df3023ab9fcf81b74307e9863bb24229",
+      "mode": "0o664",
+      "protected": true,
+      "tests": [],
+      "current_location": {
+        "repository": "sessionbus/codex-peer",
+        "path": "wrappers/codex/peer.go"
+      }
+    },
+    {
+      "path": "wrappers/codex/peer_test.go",
+      "sha256": "fbb0c3d0fcf3c9150256c0ace7d77013c5ca90e9d1c80b085e96c15849c20565",
+      "mode": "0o664",
+      "protected": true,
+      "tests": [
+        "TestPeerNativeAppDialsOnlyAfterIdentity",
+        "TestPeerPrepareUsesMetadataAndRefreshesTitle",
+        "TestPeerToolCallPublishesNotLoadedThreadWithoutResume",
+        "TestPeerPrepareSurfacesRejectedHello",
+        "TestPeerPrepareRejectsMissingOrFixedIdentityChange",
+        "TestPeerPrepareRejectsDifferentThread",
+        "TestPeerPrepareShutsDownArchivedThread",
+        "TestPeerDeliveryActiveIdleAndNotLoaded",
+        "TestPeerDeliveryRejectsUnverifiedThreadState",
+        "TestPeerDeliveryRejectsCanceledIdentity"
+      ],
+      "current_location": {
+        "repository": "sessionbus/codex-peer",
+        "path": "wrappers/codex/peer_test.go"
+      }
+    },
+    {
+      "path": "wrappers/codex/staging_test.go",
+      "sha256": "f30cbeef1faab6ae67eec1ea3c3d02a4990889b91b13b1725f7e7f79848d5d54",
+      "mode": "0o664",
+      "protected": true,
+      "tests": [
+        "TestIdleDeliveryDefersBeforeNativeSubmission",
+        "TestActiveDeliveryUsesNativeSteerAdmission",
+        "TestActiveDeliveryFinalBoundaryRefusesReplacementTurn",
+        "TestActiveDeliveryMapsOnlyProvenUnsubmittedSteerErrors"
+      ],
+      "current_location": {
+        "repository": "sessionbus/codex-peer",
+        "path": "wrappers/codex/staging_test.go"
+      }
+    },
+    {
+      "path": "wrappers/codex/wake_worker_test.go",
+      "sha256": "80aca637884d70f9bb6efcfc17b7e329d0580e85d159c262c66512c1b8889031",
+      "mode": "0o664",
+      "protected": true,
+      "tests": [
+        "TestCodexActualWorkerSeedReceiptTerminalAndCollection"
+      ],
+      "current_location": {
+        "repository": "sessionbus/codex-peer",
+        "path": "wrappers/codex/wake_worker_test.go"
+      }
+    },
+    {
+      "path": "wrappers/codex/websocket.go",
+      "sha256": "4f9a0b53a1fef4db36e255c4f1859d8546841f40754ee1cf3285abbe23c25123",
+      "mode": "0o664",
+      "protected": true,
+      "tests": [],
+      "current_location": {
+        "repository": "sessionbus/codex-peer",
+        "path": "wrappers/codex/websocket.go"
+      }
+    },
+    {
+      "path": "wrappers/codex/websocket_test.go",
+      "sha256": "11aab520064c4b604566c82b0e9e5d39d32d6343194aba99114d7428dd609ca3",
+      "mode": "0o664",
+      "protected": true,
+      "tests": [
+        "TestPeerWebSocketUpgradeAndFrames",
+        "TestPeerWebSocketCapturedInitializeFrame",
+        "TestPeerWebSocketRejectsMaskedServerClose"
+      ],
+      "current_location": {
+        "repository": "sessionbus/codex-peer",
+        "path": "wrappers/codex/websocket_test.go"
+      }
+    },
+    {
+      "path": "wrappers/host/endpoint.go",
+      "sha256": "dada1a15bdf425e18e844d67e609b446d22622d5ca7c81b24aeb23a9a2fca832",
+      "mode": "0o664",
+      "protected": true,
+      "tests": [],
+      "current_location": {
+        "repository": "sessionbus/peer-common",
+        "commit": "eb655f686e4456a4c1121054763318e3d27e89b0",
+        "path": "host/endpoint.go"
+      }
+    },
+    {
+      "path": "wrappers/host/endpoint_test.go",
+      "sha256": "9ec9fe16cc432a6e2feda44a65dcf7086fd58117afc84fae4e7e7f26cffa2a9e",
+      "mode": "0o664",
+      "protected": true,
+      "tests": [
+        "TestPrivateEndpointBridgeCancel",
+        "TestPrivateEndpointReplacesStalePath"
+      ],
+      "current_location": {
+        "repository": "sessionbus/peer-common",
+        "commit": "eb655f686e4456a4c1121054763318e3d27e89b0",
+        "path": "host/endpoint_test.go"
+      }
+    },
+    {
+      "path": "wrappers/host/handoff.go",
+      "sha256": "8385aa6586d3c66a21220ea360e94b51191a9c221e217a929fe9628155026a92",
+      "mode": "0o664",
+      "protected": true,
+      "tests": [],
+      "current_location": {
+        "repository": "sessionbus/peer-common",
+        "commit": "eb655f686e4456a4c1121054763318e3d27e89b0",
+        "path": "host/handoff.go"
+      }
+    },
+    {
+      "path": "wrappers/host/handoff_test.go",
+      "sha256": "eb32e0ecab777c3dba61957283bc2682f69d59c73b39f1f0f2377761d404a183",
+      "mode": "0o664",
+      "protected": true,
+      "tests": [
+        "TestHandoffDeliveryAndQueueCommit",
+        "TestHandoffFailedCreationKeepsFullQueue",
+        "TestHandoffFailedCreationRestoresPendingDelivery",
+        "TestHandoffFailedCreationPreservesAdmissionOrder",
+        "TestHandoffClaimAndFinish",
+        "TestHandoffClaimableDeliveryReportsQueuedAcrossTerminal",
+        "TestHandoffSDKInterruptCrossings"
+      ],
+      "current_location": {
+        "repository": "sessionbus/peer-common",
+        "commit": "eb655f686e4456a4c1121054763318e3d27e89b0",
+        "path": "host/handoff_test.go"
+      }
+    },
+    {
+      "path": "wrappers/host/launch.go",
+      "sha256": "02c82ac348716cab696449539804c754e0b082302f6c652bcd54cfdb3161c8f9",
+      "mode": "0o664",
+      "protected": true,
+      "tests": [],
+      "current_location": {
+        "repository": "sessionbus/peer-common",
+        "commit": "eb655f686e4456a4c1121054763318e3d27e89b0",
+        "path": "host/launch.go"
+      }
+    },
+    {
+      "path": "wrappers/host/launch_test.go",
+      "sha256": "266be8c8599bab982a46a69652f46e1433558ba89b966db1f25bdeac8700dff4",
+      "mode": "0o664",
+      "protected": true,
+      "tests": [
+        "TestLaneModeUsesTokenPresence",
+        "TestLaunchTokenDigestLength",
+        "TestInteractivePlan",
+        "TestInteractivePlanErrors",
+        "TestClassifiedInteractivePlanDefersProjectionErrors",
+        "TestBuildArgumentsTable",
+        "TestChildOwnershipTable",
+        "TestOwnedChildHelper",
+        "TestChildCloseIgnoresStoppedProcessNoise",
+        "TestChildOutputDrainsAfterExit"
+      ],
+      "current_location": {
+        "repository": "sessionbus/peer-common",
+        "commit": "eb655f686e4456a4c1121054763318e3d27e89b0",
+        "path": "host/launch_test.go"
+      }
+    },
+    {
+      "path": "wrappers/host/lock.go",
+      "sha256": "84159d31dc79d3a506d532e35cbe1cfdf99ea5e74784bacbff84221c6c0e5d12",
+      "mode": "0o664",
+      "protected": true,
+      "tests": [],
+      "current_location": {
+        "repository": "sessionbus/peer-common",
+        "commit": "eb655f686e4456a4c1121054763318e3d27e89b0",
+        "path": "host/lock.go"
+      }
+    },
+    {
+      "path": "wrappers/host/lock_test.go",
+      "sha256": "8a252811f328812037f66403e7735716f4806ac4ef420734127a93561dc30d97",
+      "mode": "0o664",
+      "protected": true,
+      "tests": [
+        "TestSessionLockStaleFileAndContention",
+        "TestSessionLockRenamePreservesClaim",
+        "TestSessionLockOrderlyCloseAllowsResume",
+        "TestSessionLockRenameRecoversCrashStaleTarget",
+        "TestSessionLockRenameRetriesInodeMismatch",
+        "TestSessionLockRenamePreservesRecreatedTarget",
+        "TestSessionLockRenameDoesNotReplaceHolder"
+      ],
+      "current_location": {
+        "repository": "sessionbus/peer-common",
+        "commit": "eb655f686e4456a4c1121054763318e3d27e89b0",
+        "path": "host/lock_test.go"
+      }
+    },
+    {
+      "path": "wrappers/host/not_running.go",
+      "sha256": "65dd0e7a37acec2da346627869309af268d6c5b68b5452a586d5bf1e240e9f5d",
+      "mode": "0o664",
+      "protected": true,
+      "tests": [],
+      "current_location": {
+        "repository": "sessionbus/peer-common",
+        "commit": "eb655f686e4456a4c1121054763318e3d27e89b0",
+        "path": "host/not_running.go"
+      }
+    },
+    {
+      "path": "wrappers/host/render.go",
+      "sha256": "5825cf7f4f178393f1c424a647fe716a236df65484ff00456684f7c75110a4bf",
+      "mode": "0o664",
+      "protected": true,
+      "tests": [],
+      "current_location": {
+        "repository": "sessionbus/peer-common",
+        "commit": "eb655f686e4456a4c1121054763318e3d27e89b0",
+        "path": "host/render.go"
+      }
+    },
+    {
+      "path": "wrappers/host/render_test.go",
+      "sha256": "afe8e1a16480c62217049e42e209c1bd7f8bf7174b34232179bc994dcc637d22",
+      "mode": "0o664",
+      "protected": true,
+      "tests": [
+        "TestRendererMatchesC5Fixture"
+      ],
+      "current_location": {
+        "repository": "sessionbus/peer-common",
+        "commit": "eb655f686e4456a4c1121054763318e3d27e89b0",
+        "path": "host/render_test.go"
+      }
+    },
+    {
+      "path": "wrappers/host/testdata/native-message-envelope.json",
+      "sha256": "3b6fd04eb1d829f0e5313e350e624ebc27cd2e1e86286a68e395dd731e6d46bf",
+      "mode": "0o664",
+      "protected": true,
+      "tests": [],
+      "current_location": {
+        "repository": "sessionbus/peer-common",
+        "commit": "eb655f686e4456a4c1121054763318e3d27e89b0",
+        "path": "host/testdata/native-message-envelope.json"
+      }
+    },
+    {
+      "path": "wrappers/mcp/SESSIONBUS.md",
+      "sha256": "ff6fe51ed21e1350845bd111fc6686774e1529409c80da7eff43b0987ba621e9",
+      "mode": "0o664",
+      "protected": true,
+      "tests": [],
+      "current_location": {
+        "repository": "sessionbus/peer-common",
+        "commit": "eb655f686e4456a4c1121054763318e3d27e89b0",
+        "path": "mcp/SESSIONBUS.md"
+      }
+    },
+    {
+      "path": "wrappers/mcp/lane.go",
+      "sha256": "8b04b2461decde1b1ae0d82bdc2ec78f2f7565cbbcd958c3476bbb1f59a444f5",
+      "mode": "0o664",
+      "protected": true,
+      "tests": [],
+      "current_location": {
+        "repository": "sessionbus/peer-common",
+        "commit": "eb655f686e4456a4c1121054763318e3d27e89b0",
+        "path": "mcp/lane.go"
+      }
+    },
+    {
+      "path": "wrappers/mcp/lane_test.go",
+      "sha256": "e7445ffaed03a51edd3e40439f70da2d407097f2b5af36c3542f57522298a139",
+      "mode": "0o664",
+      "protected": true,
+      "tests": [
+        "TestLaneBackendCrossingCallsAndErrors",
+        "TestLaneBackendRequiresSocket",
+        "TestPrivateActionKeepsCallerInResidentServer",
+        "TestPrivateActionPreservesWorkerCollectionError",
+        "TestServeLaneJoinsAdmittedActions"
+      ],
+      "current_location": {
+        "repository": "sessionbus/peer-common",
+        "commit": "eb655f686e4456a4c1121054763318e3d27e89b0",
+        "path": "mcp/lane_test.go"
+      }
+    },
+    {
+      "path": "wrappers/mcp/self_info_test.go",
+      "sha256": "1d74e4cc9cacd08dc3423cb8b8a1164159c2fd38cb6402421f31617ab15d7e06",
+      "mode": "0o664",
+      "protected": true,
+      "tests": [
+        "TestListSelfInfoSurvivesCallerAndNativeToolResponse"
+      ],
+      "current_location": {
+        "repository": "sessionbus/peer-common",
+        "commit": "eb655f686e4456a4c1121054763318e3d27e89b0",
+        "path": "mcp/self_info_test.go"
+      }
+    },
+    {
+      "path": "wrappers/mcp/send_test.go",
+      "sha256": "fc02016425eb1383b3d084f83f9edbca5e226c4448ff52de2ccb6bc68725177c",
+      "mode": "0o664",
+      "protected": true,
+      "tests": [
+        "TestSendRejectsUnknownSummaryBeforeDispatch",
+        "TestAdvertisedArgumentsMatchPublicActionFieldUnion"
+      ],
+      "current_location": {
+        "repository": "sessionbus/peer-common",
+        "commit": "eb655f686e4456a4c1121054763318e3d27e89b0",
+        "path": "mcp/send_test.go"
+      }
+    },
+    {
+      "path": "wrappers/mcp/server.go",
+      "sha256": "edf6a6e468b1be8296f285a0dac29bfb8c753792b76f90397bb0602267e264d3",
+      "mode": "0o664",
+      "protected": true,
+      "tests": [],
+      "current_location": {
+        "repository": "sessionbus/peer-common",
+        "commit": "eb655f686e4456a4c1121054763318e3d27e89b0",
+        "path": "mcp/server.go"
+      }
+    },
+    {
+      "path": "wrappers/mcp/server_test.go",
+      "sha256": "21b0d44c7d38cc8c26fda0073524b84426a8ecc2ea3ad5a52dcc8e4c484cfa0c",
+      "mode": "0o664",
+      "protected": true,
+      "tests": [
+        "TestServerMethods",
+        "TestInvalidRequests",
+        "TestToolArgumentsMustBeObject",
+        "TestServerUsesBackendCallerAfterPrepare",
+        "TestServerUsesStatelessActionBackend",
+        "TestServerReturnsOutputFailure",
+        "TestServerCancelWithStoppedOutput"
+      ],
+      "current_location": {
+        "repository": "sessionbus/peer-common",
+        "commit": "eb655f686e4456a4c1121054763318e3d27e89b0",
+        "path": "mcp/server_test.go"
+      }
+    },
+    {
+      "path": "wrappers/mcp/sessionbus.go",
+      "sha256": "f7fe0a847a5fb58b005c61c86d97f83010866b11d407b458421ce63605c49cb7",
+      "mode": "0o664",
+      "protected": true,
+      "tests": [],
+      "current_location": {
+        "repository": "sessionbus/peer-common",
+        "commit": "eb655f686e4456a4c1121054763318e3d27e89b0",
+        "path": "mcp/sessionbus.go"
+      }
+    },
+    {
+      "path": "wrappers/mcp/sessionbus_bounds_test.go",
+      "sha256": "e59d02ed325197568fa9c9daa7c1f72b197b69b1b7074000f9ba8b577c2402c5",
+      "mode": "0o664",
+      "protected": true,
+      "tests": [
+        "TestMCPBlockedResponsesDoNotHoldEOF",
+        "TestMCPBlockedOSPipeWriteJoinsOnEOF",
+        "TestMCPInitializedOnlyAfterSuccessfulWrite",
+        "TestMCPResponseWorkAndRetainedInputLimits",
+        "TestMCPReturnedPayloadBudgetStopsBlockedResponses",
+        "TestMCPFrameAndEscapedResultBounds",
+        "TestMCPCompletedActionDoesNotWriteAfterEOF",
+        "TestMCPResponseReservationsReleaseAndIDsCanBeReused",
+        "TestMCPOversizedPayloadStopsWithoutOutput",
+        "TestMCPCancelledCallsReleaseWorkWithoutReplies"
+      ],
+      "current_location": {
+        "repository": "sessionbus/peer-common",
+        "commit": "eb655f686e4456a4c1121054763318e3d27e89b0",
+        "path": "mcp/sessionbus_bounds_test.go"
+      }
+    },
+    {
+      "path": "wrappers/mcp/sessionbus_test.go",
+      "sha256": "411caa0d710203944f75bd83002f11a36f929333beb854e5bbc4ae4fb9ac62ed",
+      "mode": "0o664",
+      "protected": true,
+      "tests": [
+        "TestSessionbusNativeReportsAreExplicitAndHidden",
+        "TestSessionbusReportCannotShadowPublicTool",
+        "TestSessionbusMetadataIsPerNativeRequest",
+        "TestInactiveMCPStaysUntilEOFAndAdvertisesNothing"
+      ],
+      "current_location": {
+        "repository": "sessionbus/peer-common",
+        "commit": "eb655f686e4456a4c1121054763318e3d27e89b0",
+        "path": "mcp/sessionbus_test.go"
+      }
+    },
+    {
+      "path": "wrappers/mcp/sessionbus_tools.go",
+      "sha256": "7c553b1ad6f8abf3c3da72417d1bf771b98cc31614cbe96aa2b9564da27f5924",
+      "mode": "0o664",
+      "protected": true,
+      "tests": [],
+      "current_location": {
+        "repository": "sessionbus/peer-common",
+        "commit": "eb655f686e4456a4c1121054763318e3d27e89b0",
+        "path": "mcp/sessionbus_tools.go"
+      }
+    },
+    {
+      "path": "wrappers/mcp/trace_policy_test.go",
+      "sha256": "98f71c86987892c98f4dcdb02fd2c4cc1cf96f024b60328ac342281334f30875",
+      "mode": "0o664",
+      "protected": true,
+      "tests": [
+        "TestSpawnResultTraceSurvivesSDKAndMCP"
+      ],
+      "current_location": {
+        "repository": "sessionbus/peer-common",
+        "commit": "eb655f686e4456a4c1121054763318e3d27e89b0",
+        "path": "mcp/trace_policy_test.go"
+      }
+    }
+  ],
+  "shared_module": {
+    "module": "github.com/sessionbus/peer-common",
+    "version": "v0.0.0-20260922143100-eb655f686e44",
+    "commit": "eb655f686e4456a4c1121054763318e3d27e89b0"
+  }
+}
