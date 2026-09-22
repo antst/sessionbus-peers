@@ -39,3 +39,11 @@ The earlier a97 extraction was installed and reinstalled successfully. That
 installation did not include this common pin and ran no native model tests.
 Installed consumer validation is pending and must identify the new commit/binary.
 Do not treat these local checks or earlier acceptance as an installed pass.
+
+Compatibility installer scripts for the other seven products are retained solely
+for previously published raw links. Default/latest resolves to the immutable
+combined v0.5.3 assets retained here; explicit historical tags/mirrors keep their
+meaning. Checksum, archive-role and installation checks are unchanged and run
+for all eight entrypoints. No other-product runtime, plugin or packaging code
+is restored. Do not enable publication that overwrites the inherited combined
+development checksums before migrating those compatibility users.

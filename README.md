@@ -132,3 +132,17 @@ TUI-only where the native remote protocol does not project them.
 retain historical evidence and limitations. Earlier stage-only observations do
 not override the current mandatory-wake contract. Legacy installer/cleanup
 fixtures are retained as historical compatibility tools, not the current install route.
+
+## Links published before the split
+
+The original `antst/sessionbus-peers` repository redirects here, retaining its
+history, issues and combined release assets. Older `scripts/install-<product>.sh`
+URLs remain compatibility entrypoints. For products other than Codex their
+default (and `latest`) is pinned to the final combined stable release **v0.5.3**;
+they print the destination repository for future upgrades. Explicit historical
+versions and download mirrors remain supported. These scripts do not package
+other products into Codex.
+
+Use the product repositories linked above for new releases. Release publication
+is still held during migration; the inherited combined `development` assets and
+checksums must remain intact until their compatibility users have migrated.
