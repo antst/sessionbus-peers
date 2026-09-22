@@ -35,7 +35,7 @@ jobs:
       - name: Build peer commands
         env:
           GOWORK: 'off'
-        run: go build ./cmd/...
+        run: go build -o "$RUNNER_TEMP/codex-peer" ./cmd/codex-peer
       - name: Test Codex and shared fixtures
         env:
           GOWORK: 'off'
